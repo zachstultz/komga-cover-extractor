@@ -97,11 +97,12 @@ def check_internal_zip_for_cover(file, full_path, root):
                     extract_cover(zip_file, file_path, image_file, root, file, full_path, os.path.splitext(file)[0],
                                   item)
                 else:
-                    if (item.endswith(".jpg") | item.endswith(".jpeg") | item.endswith(
-                            ".png") | item.endswith(".tbn ")):
+                    if ((item.endswith(".jpg") | item.endswith(".jpeg") | item.endswith(
+                            ".png") | item.endswith(".tbn ")) and cover_found != 1):
                         cover_found = 1
                         print("potential cover found: " + os.path.basename(item) + " in " + file_path)
                         print("")
+                        break
 
     except zipfile.BadZipFile:
         print("Bad Zipfile.")
@@ -139,7 +140,6 @@ def cover_file_stuff(root, full_path):
         if os.path.isfile(os.path.join(root, "poster." + image_type)):
             duplicate_found1 = 1
             dup = os.path.join(root, "poster." + image_type)
-            print(os.path.join(root, "poster." + image_type))
         if os.path.isfile(os.path.join(root, "cover." + image_type)):
             duplicate_found2 = 1
         if duplicate_found1 + duplicate_found2 == 2 and os.path.isfile(dup):
@@ -192,26 +192,21 @@ def main():
     global cbz_count
     global epub_count
     for path in paths:
-        try:
-            os.chdir(path)
-        except FileNotFoundError:
-            print("\nERROR: " + path + " is not a valid path.")
+        if os.path.exists(path):
+            try:
+                os.chdir(path)
+            except FileNotFoundError:
+                print("\nERROR: " + path + " is not a valid path.")
+        else:
+            print("\nINVALID: " + path + " is an invalid path.")
         # Walk into each directory
         for root, dirs, files in os.walk(path):
             print("\nCurrent Path: ", root + "\nDirectories: ", dirs)
             print("Files: ", files)
             for file in files:
                 full_path = os.path.join(root, file)
-                if file.endswith(".cbz") & os.path.isfile(os.path.join(root, file)):
-                    file_count += 1
-                    cbz_count += 1
-                    if not check_for_image(os.path.splitext(file)[0], root):
-                        try:
-                            check_internal_zip_for_cover(file, full_path, root)
-                        except zlib.error:
-                            print("Error -3 while decompressing data: invalid stored block lengths")
-                    individual_volume_cover_file_stuff(file, root, full_path)
-                    cover_file_stuff(root, full_path)
+                individual_volume_cover_file_stuff(file, root, full_path)
+                cover_file_stuff(root, full_path)
 
 
 main()
