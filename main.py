@@ -102,16 +102,17 @@ def check_internal_zip_for_cover(file, full_path, root):
                         extract_cover(zip_file, file_path, image_file, root, file, full_path, os.path.splitext(file)[0],
                                       item)
                         break
-                    else:
-                        if ((item.endswith(".jpg") | item.endswith(".jpeg") | item.endswith(
-                                ".png") | item.endswith(".tbn ")) and cover_found != 1):
-                                cover_found = 1
-                                print("Potential cover found: " + os.path.basename(item) + " in " + full_path)
-                                print("Defaulting to first image file found")
-                                extract_cover(zip_file, file_path, image_file, root, file, full_path, os.path.splitext(file)[0],
+            for item in narrowed:
+                for string in cover_detection_strings:
+                    if ((item.endswith(".jpg") | item.endswith(".jpeg") | item.endswith(
+                            ".png") | item.endswith(".tbn ")) and cover_found != 1):
+                            cover_found = 1
+                            print("Potential cover found: " + os.path.basename(item) + " in " + full_path)
+                            print("Defaulting to first image file found")
+                            extract_cover(zip_file, file_path, image_file, root, file, full_path, os.path.splitext(file)[0],
                                             item)
-                                print("")
-                                break
+                            print("")
+                            break
 
     except zipfile.BadZipFile:
         print("Bad Zipfile.")
