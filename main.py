@@ -4,6 +4,7 @@ import time
 import zipfile
 import zlib
 from html.parser import HTMLParser
+from platform import system
 
 # ************************************
 # Created by: Zach Stultz            *
@@ -11,9 +12,7 @@ from html.parser import HTMLParser
 # ***************************************************
 # A manga/light novel processor script for use with *
 # the manga/light novel reader gotson/komga.        *
-# ************************************************************************************************************************
-# REMINDER : Add logic for a .rar file, aka .cbr file, also add logic for parsing cover.xhtml for exact cover image name *
-# ************************************************************************************************************************
+# ***************************************************
 
 # [ADD IN THE PATHS YOU WANT SCANNED]
 paths = ["Y:\\torrents", "Z:\\manga", "Z:\\novels"]
@@ -23,7 +22,7 @@ paths = ["Y:\\torrents", "Z:\\manga", "Z:\\novels"]
 image_types = ["jpg", "jpeg", "png", "tbn"]
 
 # List of cover strings used for detection
-cover_detection_strings = ["Cover", "cover", "p000", "000 ", "-000", "000a", "_000.", " 001.", "index-1_1"]
+cover_detection_strings = ["Cover", "cover", "- p000", " p000 ","-000", "000a", "_000.", " 001.", "index-1_1", "p000 [Digital]"]
 
 volume_detection_strings = ["v01", "Volume 1", "volume 1", "volume 01", "Volume 01", "volume one", "Volume one",
                             "Volume One", "LN 01"]
@@ -55,21 +54,16 @@ def extract_cover(zip_file, file_path, image_file, root, file, full_path, name, 
     if image_file.endswith(".png") | image_file.endswith(".jpg") | image_file.endswith(".jpeg") | \
             image_file.endswith(".tbn"):
         try:
-            with zip_file as z:
-                print("\n" + "Zip found\n" + "Entering zip: " + file)
-                from platform import system
-                if system() == "Windows":
-                    with z.open(os.path.join(file_path, image_file).replace("\\", "/")) as zf, open(
-                            os.path.join(root,
-                                         os.path.basename(name + os.path.splitext(image_file)[1])),
-                            'wb') as f:
+            if system() == "Windows":
+                with zip_file.open(os.path.join(file_path, image_file).replace("\\", "/")) as zf, open(
+                        os.path.join(root,os.path.basename(name + os.path.splitext(image_file)[1])),
+                        'wb') as f:
                         print("Copying file and renaming.")
                         shutil.copyfileobj(zf, f)
-                if system() == "Linux":
-                    with z.open(os.path.join(file_path, image_file).replace("/", "\\")) as zf, open(
-                            os.path.join(root,
-                                         os.path.basename(name + os.path.splitext(image_file)[1])),
-                            'wb') as f:
+            if system() == "Linux":
+                with zip_file.open(os.path.join(file_path, image_file).replace("/", "\\")) as zf, open(
+                        os.path.join(root,os.path.basename(name + os.path.splitext(image_file)[1])),
+                        'wb') as f:
                         print("Copying file and renaming.")
                         shutil.copyfileobj(zf, f)
         except zipfile.BadZipFile:
@@ -108,14 +102,14 @@ def check_internal_zip_for_cover(file, full_path, root):
                         extract_cover(zip_file, file_path, image_file, root, file, full_path, os.path.splitext(file)[0],
                                       item)
                         break
-                    if item.__contains__("cover.xhtml"):
-                        print("cover.xhtml found in " + os.path.join(file_path, image_file))
-                        # Add logic to parse cover.xhtml for cover image name, then search and extract it.
                     else:
                         if ((item.endswith(".jpg") | item.endswith(".jpeg") | item.endswith(
                                 ".png") | item.endswith(".tbn ")) and cover_found != 1):
                             cover_found = 1
-                            print("potential cover found: " + os.path.basename(item) + " in " + file_path)
+                            print("Potential cover found: " + os.path.basename(item) + " in " + full_path)
+                            print("Defaulting to first image file found")
+                            extract_cover(zip_file, file_path, image_file, root, file, full_path, os.path.splitext(file)[0],
+                                      item)
                             print("")
                             break
 
