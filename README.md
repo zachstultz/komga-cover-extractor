@@ -15,17 +15,14 @@ Run main.py
 
 ## Goals
 ### IN-PROGRESS
-1. Fix zip file already closed issue.
-2. Fix the missing of epub files.
-3. Add remaining necessary exception checks.
+1. Add remaining necessary exception checks.
 
 ### PLANNED
 1. Rewrite all instances of an image file to use image_types array at the top of the file.
 2. Allow choosing between cover or poster naming preference.
 3. Replace current string-cover detection with regex.
 4. Rework end-of-file stats.
-5. Pretty up the text output.
-6. Finish fallback to first image within file if cover could not be found.
+6. Pretty up the text output.
 7. Changable output folder for the extracted images.
 
 ## Contact
