@@ -15,7 +15,7 @@ from platform import system
 # ***************************************************
 
 # [ADD IN THE PATHS YOU WANT SCANNED]
-paths = ["Y:\\torrents", "Z:\\manga", "Z:\\novels"]
+paths = [""]
 # [ADD IN THE PATHS YOU WANT SCANNED]
 
 # List of image types used throughout the program
@@ -55,13 +55,13 @@ def extract_cover(zip_file, file_path, image_file, root, file, full_path, name, 
             image_file.endswith(".tbn"):
         try:
             if system() == "Windows":
-                with zip_file.open(os.path.join(file_path, image_file).replace("/", "\\")) as zf, open(
+                with zip_file.open(os.path.join(file_path, image_file).replace("\\", "/")) as zf, open(
                         os.path.join(root,os.path.basename(name + os.path.splitext(image_file)[1])),
                         'wb') as f:
                         print("Copying file and renaming.")
                         shutil.copyfileobj(zf, f)
             if system() == "Linux":
-                with zip_file.open(os.path.join(file_path, image_file).replace("\\", "/")) as zf, open(
+                with zip_file.open(os.path.join(file_path, image_file).replace("/", "\\")) as zf, open(
                         os.path.join(root,os.path.basename(name + os.path.splitext(image_file)[1])),
                         'wb') as f:
                         print("Copying file and renaming.")
@@ -95,7 +95,7 @@ def check_internal_zip_for_cover(file, full_path, root):
                 file_path = head_tail[0]
                 image_file = head_tail[1]
                 for string in cover_detection_strings:
-                    if item.__contains__(string):
+                    if item.__contains__(string) and cover_found != 1:
                         print("found cover: " + os.path.basename(os.path.basename(item)) + " in " + file)
                         cover_found = 1
                         cbz_internal_covers_found += 1
@@ -105,13 +105,13 @@ def check_internal_zip_for_cover(file, full_path, root):
                     else:
                         if ((item.endswith(".jpg") | item.endswith(".jpeg") | item.endswith(
                                 ".png") | item.endswith(".tbn ")) and cover_found != 1):
-                            cover_found = 1
-                            print("Potential cover found: " + os.path.basename(item) + " in " + full_path)
-                            print("Defaulting to first image file found")
-                            extract_cover(zip_file, file_path, image_file, root, file, full_path, os.path.splitext(file)[0],
-                                      item)
-                            print("")
-                            break
+                                cover_found = 1
+                                print("Potential cover found: " + os.path.basename(item) + " in " + full_path)
+                                print("Defaulting to first image file found")
+                                extract_cover(zip_file, file_path, image_file, root, file, full_path, os.path.splitext(file)[0],
+                                            item)
+                                print("")
+                                break
 
     except zipfile.BadZipFile:
         print("Bad Zipfile.")
