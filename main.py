@@ -90,6 +90,7 @@ def check_internal_zip_for_cover(file, full_path, root):
             for z in zip_file.namelist():
                 if z.endswith(".jpg") | z.endswith(".jpeg") | z.endswith(".png") | z.endswith(".tbn"):
                     narrowed.append(z)
+            narrowed.sort()
             for item in narrowed:
                 head_tail = os.path.split(item)
                 file_path = head_tail[0]
