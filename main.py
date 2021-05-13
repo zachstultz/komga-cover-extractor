@@ -25,7 +25,7 @@ image_types = ["jpg", "jpeg", "png", "tbn"]
 cover_detection_strings = ["Cover", "cover", "- p000", " p000 ","-000", "000a", "_000.", " 001.", "index-1_1", "p000 [Digital]"]
 
 volume_detection_strings = ["v01", "Volume 1", "volume 1", "volume 01", "Volume 01", "volume one", "Volume one",
-                            "Volume One", "LN 01"]
+                            "Volume One", "LN 01", "V01"]
 
 # Stat-related variables
 file_count = 0
@@ -103,6 +103,9 @@ def check_internal_zip_for_cover(file, full_path, root):
                                       item)
                         break
             for item in narrowed:
+                head_tail = os.path.split(item)
+                file_path = head_tail[0]
+                image_file = head_tail[1]
                 for string in cover_detection_strings:
                     if ((item.endswith(".jpg") | item.endswith(".jpeg") | item.endswith(
                             ".png") | item.endswith(".tbn ")) and cover_found != 1):
@@ -183,6 +186,7 @@ def cover_file_stuff(root, full_path):
                          os.path.isfile(os.path.join(root, "poster.png")) |
                          os.path.isfile(os.path.join(root, "poster.tbn")))) and (
                     os.path.basename(zip_file.filename).__contains__("v01") |
+                    os.path.basename(zip_file.filename).__contains__("V01") |
                     os.path.basename(zip_file.filename).__contains__('volume 1') |
                     os.path.basename(zip_file.filename).__contains__('Volume 1') |
                     os.path.basename(zip_file.filename).__contains__('volume 01') |
