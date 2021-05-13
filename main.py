@@ -61,7 +61,7 @@ def extract_cover(zip_file, file_path, image_file, root, file, full_path, name, 
                         print("Copying file and renaming.")
                         shutil.copyfileobj(zf, f)
             if system() == "Linux":
-                with zip_file.open(os.path.join(file_path, image_file).replace("/", "\\")) as zf, open(
+                with zip_file.open(os.path.join(file_path, image_file).replace("\\", "/")) as zf, open(
                         os.path.join(root,os.path.basename(name + os.path.splitext(image_file)[1])),
                         'wb') as f:
                         print("Copying file and renaming.")
