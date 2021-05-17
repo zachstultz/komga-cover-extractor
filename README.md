@@ -9,7 +9,7 @@ Primary usage is with https://github.com/gotson/komga
 ## Cover Detection
 Cover-string detection is based on various scene releases.
 
-## Usuage
+## Usage
 Add desired paths that you want scanned into the string array at the top of main.py.
 Run main.py
 
