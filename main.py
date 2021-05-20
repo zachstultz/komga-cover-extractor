@@ -22,7 +22,7 @@ paths = [""]
 image_types = ["jpg", "jpeg", "png", "tbn"]
 
 # List of cover strings used for detection
-cover_detection_strings = ["Cover", "cover", "- p000", " p000 ","-000", "000a", "_000.", "index-1_1", "p000 [Digital]"]
+cover_detection_strings = ["Cover", "cover", "- p000", " p000 ", "000a", "_000.", "index-1_1", "p000 [Digital]"]
 
 volume_detection_strings = ["v01", "Volume 1", "volume 1", "volume 01", "Volume 01", "volume one", "Volume one",
                             "Volume One", "LN 01", "V01"]
