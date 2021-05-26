@@ -19,13 +19,14 @@ paths = [""]
 # [ADD IN THE PATHS YOU WANT SCANNED]
 
 # List of image types used throughout the program
-image_types = ["jpg", "jpeg", "png", "tbn"]
+image_extensions = ["jpg", "jpeg", "png", "tbn"]
 
 # List of cover strings used for detection
 cover_detection_strings = ["Cover", "cover", "- p000", " p000 ", "000a", "_000.", "index-1_1", "p000 [Digital]"]
 
-volume_detection_strings = ["v01", "Volume 1", "volume 1", "volume 01", "Volume 01", "volume one", "Volume one",
-                            "Volume One", "LN 01", "V01"]
+volume_detection_strings = ["V01", "v01", "Volume 1", "volume 1", "Volume 01", "volume 01", "Volume one", "volume one",
+                            "Volume One", "volume One", "LN 01",  "Vol_01", "vol_01", "Vol_1", "vol_1"]
+files_with_no_image = []
 
 # Stat-related variables
 file_count = 0
@@ -40,7 +41,7 @@ poster_found = 0
 # Checks if the cbz or epub file has a matching cover
 def check_for_image(name, root):
     image_found = 0
-    for image_type in image_types:
+    for image_type in image_extensions:
         image_type = "." + image_type
         if os.path.isfile(os.path.join(root, name + image_type)):
             image_found = 1
@@ -102,7 +103,7 @@ def check_internal_zip_for_cover(file, full_path, root):
                         cbz_internal_covers_found += 1
                         extract_cover(zip_file, file_path, image_file, root, file, full_path, os.path.splitext(file)[0],
                                       item)
-                        break
+                        return
             for item in narrowed:
                 head_tail = os.path.split(item)
                 file_path = head_tail[0]
@@ -116,7 +117,8 @@ def check_internal_zip_for_cover(file, full_path, root):
                             extract_cover(zip_file, file_path, image_file, root, file, full_path, os.path.splitext(file)[0],
                                             item)
                             print("")
-                            break
+                            return
+        files_with_no_image.append(full_path)
 
     except zipfile.BadZipFile:
         print("Bad Zipfile.")
@@ -156,10 +158,38 @@ def individual_volume_cover_file_stuff(file, root, full_path):
 
 
 def cover_file_stuff(root, full_path):
+    if zipfile.is_zipfile(full_path):
+        try:
+            zip_file = zipfile.ZipFile(full_path)
+            return check_for_volume_one_cover(root, zip_file)
+        except zipfile.BadZipFile:
+            print("Bad zip file: ")
+    else:
+        return 0
+
+def check_for_volume_one_cover(root, zip_file):
+    extensionless_path = os.path.join(root, os.path.splitext(os.path.basename(zip_file.filename))[0])
+    for volume_string in volume_detection_strings:
+        if((os.path.basename(zip_file.filename).__contains__(volume_string))):
+            print("Volume 1 Cover Found: " + os.path.basename(zip_file.filename) + " in " + root)
+            for extension in image_extensions:
+                if os.path.isfile(extensionless_path + '.' + extension):
+                    shutil.copyfile(extensionless_path + '.' + extension, os.path.join(root, 'cover.' + extension))
+                    return 1
+    return 0
+
+def check_for_existing_cover(files):
+    if(str(files).__contains__("cover") |
+    str(files).__contains__("poster")):
+        return 1
+    else:
+        return 0
+
+def check_for_duplicate_cover(root):
     duplicate_found1 = 0
     duplicate_found2 = 0
     dup = ""
-    for image_type in image_types:
+    for image_type in image_extensions:
         if os.path.isfile(os.path.join(root, "poster." + image_type)):
             duplicate_found1 = 1
             dup = os.path.join(root, "poster." + image_type)
@@ -175,41 +205,10 @@ def cover_file_stuff(root, full_path):
                     print("Failed to remove duplicate poster in " + root)
             except FileNotFoundError:
                 print("File not found.")
-    if zipfile.is_zipfile(full_path):
-        try:
-            zip_file = zipfile.ZipFile(full_path)
-            if (not (os.path.isfile(os.path.join(root, "cover.jpg")) |
-                     os.path.isfile(os.path.join(root, "cover.jpeg")) |
-                     os.path.isfile(os.path.join(root, "cover.png")) |
-                     os.path.isfile(os.path.join(root, "cover.tbn")))) and (
-                    not (os.path.isfile(os.path.join(root, "poster.jpg")) |
-                         os.path.isfile(os.path.join(root, "poster.jpeg")) |
-                         os.path.isfile(os.path.join(root, "poster.png")) |
-                         os.path.isfile(os.path.join(root, "poster.tbn")))) and (
-                    os.path.basename(zip_file.filename).__contains__("v01") |
-                    os.path.basename(zip_file.filename).__contains__("V01") |
-                    os.path.basename(zip_file.filename).__contains__('volume 1') |
-                    os.path.basename(zip_file.filename).__contains__('Volume 1') |
-                    os.path.basename(zip_file.filename).__contains__('volume 01') |
-                    os.path.basename(zip_file.filename).__contains__('Volume 01') |
-                    os.path.basename(zip_file.filename).__contains__('volume one') |
-                    os.path.basename(zip_file.filename).__contains__('Volume one') |
-                    os.path.basename(zip_file.filename).__contains__('Volume One') |
-                    os.path.basename(zip_file.filename).__contains__('LN 01')):
-                print("Volume 1 Cover Found: " + os.path.basename(zip_file.filename) + " in " + root)
-                full_path_without_extension = os.path.join(root, os.path.splitext(
-                    os.path.basename(zip_file.filename))[0])
-                if os.path.isfile(full_path_without_extension + '.jpg'):
-                    shutil.copyfile(full_path_without_extension + '.jpg', os.path.join(root, 'cover.jpg'))
-                if os.path.isfile(full_path_without_extension + '.jpeg'):
-                    shutil.copyfile(full_path_without_extension + '.jpeg', os.path.join(root, 'cover.jpeg'))
-                if os.path.isfile(full_path_without_extension + '.png'):
-                    shutil.copyfile(full_path_without_extension + '.png', os.path.join(root, 'cover.png'))
-                if os.path.isfile(full_path_without_extension + '.tbn'):
-                    shutil.copyfile(full_path_without_extension + '.tbn', os.path.join(root, 'cover.tbn'))
-        except zipfile.BadZipFile:
-            print("Bad zip file: ")
 
+def print_file_info(root, dirs, files):
+    print("\nCurrent Path: ", root + "\nDirectories: ", dirs)
+    print("Files: ", files)
 
 def main():
     global file_count
@@ -225,12 +224,14 @@ def main():
             print("\nINVALID: " + path + " is an invalid path.")
         # Walk into each directory
         for root, dirs, files in os.walk(path):
-            print("\nCurrent Path: ", root + "\nDirectories: ", dirs)
-            print("Files: ", files)
+            print_file_info(root, dirs, files)
+            foundExistingCover = check_for_existing_cover(files)
             for file in files:
-                full_path = os.path.join(root, file)
-                individual_volume_cover_file_stuff(file, root, full_path)
-                cover_file_stuff(root, full_path)
+                individual_volume_cover_file_stuff(file, root, os.path.join(root, file))
+                if(foundExistingCover == 1):
+                    check_for_duplicate_cover(root)
+                if(foundExistingCover == 0):
+                        foundExistingCover = foundExistingCover + cover_file_stuff(root, os.path.join(root, file))
 
 
 main()
@@ -240,3 +241,7 @@ print("\t" + str(cbz_count) + " were cbz files")
 print("\t" + str(cbr_count) + " were cbr files")
 print("\t" + str(epub_count) + " were epub files")
 print("\tof those we found " + str(image_count) + " had a cover image file.")
+if(files_with_no_image.count != 0):
+    print("\nRemaining files without covers:")
+    for lonely_file in files_with_no_image:
+        print("\t" + lonely_file)
