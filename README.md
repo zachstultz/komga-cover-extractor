@@ -18,12 +18,9 @@ Run main.py
 1. Add remaining necessary exception checks.
 
 ### PLANNED
-1. Rewrite all instances of an image file to use image_types array at the top of the file.
-2. Allow choosing between cover or poster naming preference.
-3. Replace current string-cover detection with regex.
-4. Rework end-of-file stats.
-6. Pretty up the text output.
-7. Changable output folder for the extracted images.
+1. Allow choosing between cover or poster naming preference.
+2. Replace current string-cover detection with regex.
+3. Changable output folder for the extracted images.
 
 ## Contact
 Discord: HCAZ#0665
