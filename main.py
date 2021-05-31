@@ -118,7 +118,9 @@ def check_internal_zip_for_cover(file, full_path, root):
                                             item)
                             print("")
                             return
-        files_with_no_image.append(full_path)
+        else:
+            files_with_no_image.append(full_path)
+            print("Invalid Zip File at: \n" + full_path)
 
     except zipfile.BadZipFile:
         print("Bad Zipfile.")
