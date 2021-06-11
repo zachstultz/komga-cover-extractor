@@ -22,10 +22,15 @@ paths = [""]
 image_extensions = ["jpg", "jpeg", "png", "tbn"]
 
 # List of cover strings used for detection
-cover_detection_strings = ["Cover", "cover", "- p000", " p000 ", "000a", "_000.", "index-1_1", "p000 [Digital]"]
+cover_detection_strings = ["Cover", "cover", "- p000", " p000 ", "000a", "_000.", "index-1_1", "p000 [Digital]", "CoverDesign", "Coverdesign", "coverDesign", "coverdesign",
+"Cover_Design", "Cover_design", "cover_Design", "cover_design"]
 
-volume_detection_strings = ["V01", "v01", "Volume 1", "volume 1", "Volume 01", "volume 01", "Volume one", "volume one",
-                            "Volume One", "volume One", "LN 01",  "Vol_01", "vol_01", "Vol_1", "vol_1"]
+volume_detection_strings = ["V01 ", "v01 ", "Volume 1 ", "volume 1 ", "Volume 01 ", "volume 01 ", "Volume one ", "volume one ",
+                            "Volume One ", "volume One ", "LN 01 ",  "Vol_01 ", "vol_01 ", "Vol_1 ", "vol_1 ", "Vol. 01 ", "vol. 01 ", "Vol. 1 ", "vol. 1 ", "Vol. 01 ",
+                            "Vol.01 ", "vol.01 ", "Vol.1 ", "vol.1 ", "Vol.01 ",
+                            "V01.", "v01.", "Volume 1.", "volume 1.", "Volume 01.", "volume 01.", "Volume one.", "volume one.",
+                            "Volume One.", "volume One.", "LN 01.",  "Vol_01.", "vol_01.", "Vol_1.", "vol_1.", "Vol. 01.", "vol. 01.", "Vol. 1.", "vol. 1.", "Vol. 01.",
+                            "Vol.01.", "vol.01.", "Vol.1.", "vol.1.", "Vol.01."]
 files_with_no_image = []
 
 # Stat-related variables
