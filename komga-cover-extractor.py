@@ -105,7 +105,7 @@ def check_internal_zip_for_cover(file, full_path, root):
                         cbz_internal_covers_found += 1
                         extract_cover(zip_file, file_path, image_file, root, file, full_path, os.path.splitext(file)[0])
                         return
-            if (cover_found != 1):
+            if (cover_found != 1 and len(narrowed) != 0):
                 head_tail = os.path.split(narrowed[0])
                 file_path = head_tail[0]
                 image_file = head_tail[1]
