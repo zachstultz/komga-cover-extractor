@@ -1,10 +1,7 @@
 import os
 import shutil
-import time
 import zipfile
 import zlib
-from html.parser import HTMLParser
-from platform import system
 import re
 
 # ************************************
@@ -55,20 +52,12 @@ def extract_cover(zip_file, file_path, image_file, root, file, full_path, name):
     for extension in image_extensions:
         if image_file.endswith("."+extension):
             try:
-                if system() == "Windows":
-                    with zip_file.open(os.path.join(file_path, image_file).replace("\\", "/")) as zf, open(
-                            os.path.join(root,os.path.basename(name + os.path.splitext(image_file)[1])),
-                            'wb') as f:
-                            print("Copying file and renaming.")
-                            shutil.copyfileobj(zf, f)
-                            return
-                if system() == "Linux":
-                    with zip_file.open(os.path.join(file_path, image_file).replace("\\", "/")) as zf, open(
-                            os.path.join(root,os.path.basename(name + os.path.splitext(image_file)[1])),
-                            'wb') as f:
-                            print("Copying file and renaming.")
-                            shutil.copyfileobj(zf, f)
-                            return
+                with zip_file.open(os.path.join(file_path, image_file)) as zf, open(
+                        os.path.join(root,os.path.basename(name + os.path.splitext(image_file)[1])),
+                        'wb') as f:
+                        print("Copying file and renaming.")
+                        shutil.copyfileobj(zf, f)
+                        return
             except zipfile.BadZipFile:
                 print("Bad Zipfile: " + str(full_path))
                 errors.append("Bad Zipfile: " + str(full_path))
@@ -129,32 +118,31 @@ def individual_volume_cover_file_stuff(file, root, full_path):
     global cbz_count
     global epub_count
     global cbr_count
-
-    if file.endswith(".cbz") & os.path.isfile(os.path.join(root, file)):
-        file_count += 1
-        cbz_count += 1
-        if not check_for_image(os.path.splitext(file)[0], root):
-            try:
-                check_internal_zip_for_cover(file, full_path, root)
-            except zlib.error:
-                print("Error -3 while decompressing data: invalid stored block lengths")
-    if file.endswith(".epub") & os.path.isfile(os.path.join(root, file)):
-        file_count += 1
-        epub_count += 1
-        if not check_for_image(os.path.splitext(file)[0], root):
-            try:
-                check_internal_zip_for_cover(file, full_path, root)
-            except zlib.error:
-                print("Error -3 while decompressing data: invalid stored block lengths")
-    if file.endswith(".cbr") & os.path.isfile(os.path.join(root, file)):
-        file_count += 1
-        cbr_count += 1
-        if not check_for_image(os.path.splitext(file)[0], root):
-            try:
-                check_internal_zip_for_cover(file, full_path, root)
-            except zlib.error:
-                print("Error -3 while decompressing data: invalid stored block lengths")
-
+    if(not str(file).startswith(".")):
+        if file.endswith(".cbz") & os.path.isfile(os.path.join(root, file)):
+            file_count += 1
+            cbz_count += 1
+            if not check_for_image(os.path.splitext(file)[0], root):
+                try:
+                    check_internal_zip_for_cover(file, full_path, root)
+                except zlib.error:
+                    print("Error -3 while decompressing data: invalid stored block lengths")
+        if file.endswith(".epub") & os.path.isfile(os.path.join(root, file)):
+            file_count += 1
+            epub_count += 1
+            if not check_for_image(os.path.splitext(file)[0], root):
+                try:
+                    check_internal_zip_for_cover(file, full_path, root)
+                except zlib.error:
+                    print("Error -3 while decompressing data: invalid stored block lengths")
+        if file.endswith(".cbr") & os.path.isfile(os.path.join(root, file)):
+            file_count += 1
+            cbr_count += 1
+            if not check_for_image(os.path.splitext(file)[0], root):
+                try:
+                    check_internal_zip_for_cover(file, full_path, root)
+                except zlib.error:
+                    print("Error -3 while decompressing data: invalid stored block lengths")
 
 def cover_file_stuff(root, full_path):
     if zipfile.is_zipfile(full_path):
@@ -223,6 +211,8 @@ def main():
             print("\nINVALID: " + path + " is an invalid path.")
         # Walk into each directory
         for root, dirs, files in os.walk(path):
+            dirs.sort()
+            files.sort()
             print_file_info(root, dirs, files)
             foundExistingCover = check_for_existing_cover(files)
             for file in files:
