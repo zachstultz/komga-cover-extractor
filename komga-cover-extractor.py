@@ -1,6 +1,4 @@
-from genericpath import isfile
 import os
-from posixpath import join
 import shutil
 import zipfile
 import zlib
@@ -16,7 +14,7 @@ from difflib import SequenceMatcher
 # ***************************************************
 
 # [ADD IN THE PATHS YOU WANT SCANNED]
-download_folders = [""] #optional
+download_folders = [""]
 paths = [""]
 # [ADD IN THE PATHS YOU WANT SCANNED]
 
@@ -230,7 +228,7 @@ def create_folders_for_items_in_download_folder():
                             similarity_result = similar(file, directory)
                             if(similarity_result < 0.3):
                                 folder_name = re.sub(r"\([^()]*\)", "", os.path.splitext(file)[0])
-                                folder_name = re.sub(r"(\b(LN|Light Novel|Novel|Book|Volume|Vol|V)([-_. ]|)([0-9]+\b))", "", folder_name)
+                                folder_name = re.sub(r"(\b(LN|Light Novel|Novel|Book|Volume|Vol|V)([-_. ]|)([0-9]+)\b)", "", folder_name, flags=re.IGNORECASE)
                                 folder_name = (re.sub(r"\s-\s", "", folder_name)).strip()
                                 does_folder_exist = os.path.exists(os.path.join(root, folder_name))
                                 if not does_folder_exist:
