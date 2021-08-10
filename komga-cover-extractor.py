@@ -1,8 +1,11 @@
+from genericpath import isfile
 import os
+from posixpath import join
 import shutil
 import zipfile
 import zlib
 import re
+from difflib import SequenceMatcher
 
 # ************************************
 # Created by: Zach Stultz            *
@@ -13,6 +16,7 @@ import re
 # ***************************************************
 
 # [ADD IN THE PATHS YOU WANT SCANNED]
+download_folders = [""] #optional
 paths = [""]
 # [ADD IN THE PATHS YOU WANT SCANNED]
 
@@ -34,6 +38,10 @@ image_count = 0
 cbz_internal_covers_found = 0
 poster_found = 0
 
+# Checks similarity between two strings
+# Credit to: https://stackoverflow.com/users/1561176/inbar-rose
+def similar(a, b):
+    return (SequenceMatcher(None, a.lower(), b.lower()).ratio())
 
 # Checks if the cbz or epub file has a matching cover
 def check_for_image(name, root):
@@ -118,31 +126,30 @@ def individual_volume_cover_file_stuff(file, root, full_path):
     global cbz_count
     global epub_count
     global cbr_count
-    if(not str(file).startswith(".")):
-        if file.endswith(".cbz") & os.path.isfile(os.path.join(root, file)):
-            file_count += 1
-            cbz_count += 1
-            if not check_for_image(os.path.splitext(file)[0], root):
-                try:
-                    check_internal_zip_for_cover(file, full_path, root)
-                except zlib.error:
-                    print("Error -3 while decompressing data: invalid stored block lengths")
-        if file.endswith(".epub") & os.path.isfile(os.path.join(root, file)):
-            file_count += 1
-            epub_count += 1
-            if not check_for_image(os.path.splitext(file)[0], root):
-                try:
-                    check_internal_zip_for_cover(file, full_path, root)
-                except zlib.error:
-                    print("Error -3 while decompressing data: invalid stored block lengths")
-        if file.endswith(".cbr") & os.path.isfile(os.path.join(root, file)):
-            file_count += 1
-            cbr_count += 1
-            if not check_for_image(os.path.splitext(file)[0], root):
-                try:
-                    check_internal_zip_for_cover(file, full_path, root)
-                except zlib.error:
-                    print("Error -3 while decompressing data: invalid stored block lengths")
+    if file.endswith(".cbz") & os.path.isfile(os.path.join(root, file)):
+        file_count += 1
+        cbz_count += 1
+        if not check_for_image(os.path.splitext(file)[0], root):
+            try:
+                check_internal_zip_for_cover(file, full_path, root)
+            except zlib.error:
+                print("Error -3 while decompressing data: invalid stored block lengths")
+    if file.endswith(".epub") & os.path.isfile(os.path.join(root, file)):
+        file_count += 1
+        epub_count += 1
+        if not check_for_image(os.path.splitext(file)[0], root):
+            try:
+                check_internal_zip_for_cover(file, full_path, root)
+            except zlib.error:
+                print("Error -3 while decompressing data: invalid stored block lengths")
+    if file.endswith(".cbr") & os.path.isfile(os.path.join(root, file)):
+        file_count += 1
+        cbr_count += 1
+        if not check_for_image(os.path.splitext(file)[0], root):
+            try:
+                check_internal_zip_for_cover(file, full_path, root)
+            except zlib.error:
+                print("Error -3 while decompressing data: invalid stored block lengths")
 
 def cover_file_stuff(root, full_path):
     if zipfile.is_zipfile(full_path):
@@ -197,34 +204,83 @@ def print_file_info(root, dirs, files):
     print("\nCurrent Path: ", root + "\nDirectories: ", dirs)
     print("Files: ", files)
 
+def remove_hidden_files(files, root):
+    for file in files[:]:
+        if(file.startswith(".") and os.path.isfile(os.path.join(root, file))):
+            files.remove(file)
+
+def move_image(extensionless_path, root, folder_name):
+    for extension in image_extensions:
+        image = extensionless_path + "." + extension
+        image_existance = os.path.isfile(image)
+        if(image_existance):
+            shutil.move(image, os.path.join(root, folder_name))
+
+def create_folders_for_items_in_download_folder():
+    for download_folder in download_folders:
+        if os.path.exists(download_folder):
+            for root, dirs, files in os.walk(download_folder):
+                remove_hidden_files(files, root)
+                for file in files:
+                    extensionless_path = os.path.join(root, os.path.splitext(os.path.basename(file))[0])
+                    full_file_path = os.path.dirname(os.path.join(root, file))
+                    directory = os.path.basename(os.path.join(root, full_file_path))
+                    if(file.endswith(".cbz") or file.endswith(".epub") or file.endswith(".cbr")):
+                        if(directory == "Manga & Novels"):
+                            similarity_result = similar(file, directory)
+                            if(similarity_result < 0.3):
+                                folder_name = re.sub(r"\([^()]*\)", "", os.path.splitext(file)[0])
+                                folder_name = re.sub(r"(\b(LN|Light Novel|Novel|Book|Volume|Vol|V)([-_. ]|)([0-9]+\b))", "", folder_name)
+                                folder_name = (re.sub(r"\s-\s", "", folder_name)).strip()
+                                does_folder_exist = os.path.exists(os.path.join(root, folder_name))
+                                if not does_folder_exist:
+                                    os.mkdir(os.path.join(root, folder_name))
+                                    shutil.move(os.path.join(root, file), os.path.join(root, folder_name))
+                                    move_image(extensionless_path, root, folder_name)
+                                else:
+                                    shutil.move(os.path.join(root, file), os.path.join(root, folder_name))
+                                    move_image(extensionless_path, root, folder_name)
+        else:
+            if download_folder == "":
+                print("\nINVALID: Download folder path cannot be empty.")
+                errors.append("INVALID: Download folder path cannot be empty.")
+            else:
+                print("\nINVALID: " + download_folder + " is an invalid path.")
+                errors.append("INVALID: " + download_folder + " is an invalid path.")
 def main():
     global file_count
     global cbz_count
     global epub_count
+    create_folders_for_items_in_download_folder()
     for path in paths:
         if os.path.exists(path):
             try:
                 os.chdir(path)
+                for root, dirs, files in os.walk(path):
+                    remove_hidden_files(files, root)
+                    dirs.sort()
+                    files.sort()
+                    print_file_info(root, dirs, files)
+                    foundExistingCover = check_for_existing_cover(files)
+                    for file in files:
+                        individual_volume_cover_file_stuff(file, root, os.path.join(root, file))
+                        if(foundExistingCover == 1):
+                            check_for_duplicate_cover(root)
+                        if(foundExistingCover == 0):
+                            try:
+                                foundExistingCover = foundExistingCover + cover_file_stuff(root, os.path.join(root, file))
+                            except Exception:
+                                print("Exception thrown when finding existing cover.")
+                                print("Excpetion occured on: " + str(file))
             except FileNotFoundError:
                 print("\nERROR: " + path + " is not a valid path.")
         else:
-            print("\nINVALID: " + path + " is an invalid path.")
+            if path == "":
+                print("\nINVALID: Path cannot be empty.")
+            else:
+                print("\nINVALID: " + path + " is an invalid path.")
         # Walk into each directory
-        for root, dirs, files in os.walk(path):
-            dirs.sort()
-            files.sort()
-            print_file_info(root, dirs, files)
-            foundExistingCover = check_for_existing_cover(files)
-            for file in files:
-                individual_volume_cover_file_stuff(file, root, os.path.join(root, file))
-                if(foundExistingCover == 1):
-                    check_for_duplicate_cover(root)
-                if(foundExistingCover == 0):
-                    try:
-                        foundExistingCover = foundExistingCover + cover_file_stuff(root, os.path.join(root, file))
-                    except Exception:
-                        print("Exception thrown when finding existing cover.")
-                        print("Excpetion occured on: " + str(file))
+        
 
 
 main()
