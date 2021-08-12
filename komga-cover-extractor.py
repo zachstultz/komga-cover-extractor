@@ -14,7 +14,7 @@ from difflib import SequenceMatcher
 # ***************************************************
 
 # [ADD IN THE PATHS YOU WANT SCANNED]
-download_folders = [""]
+download_folders = [""] #OPTIONAL [STILL IN TESTING]
 paths = [""]
 # [ADD IN THE PATHS YOU WANT SCANNED]
 
@@ -214,6 +214,35 @@ def move_image(extensionless_path, root, folder_name):
         if(image_existance):
             shutil.move(image, os.path.join(root, folder_name))
 
+def rename_dirs_in_download_folder():
+    for download_folder in download_folders:
+        if os.path.exists(download_folder):
+            for root, dirs, files in os.walk(download_folder):
+                remove_hidden_files(files, root)
+                for dir in dirs:
+                    full_file_path = os.path.dirname(os.path.join(root, dir))
+                    directory = os.path.basename(os.path.join(root, full_file_path))
+                    if(directory == "Manga & Novels"):
+                        if (re.search(r"((\s\[|\]\s)|(\s\(|\)\s))", dir, re.IGNORECASE) or re.search(r"((\b(LN|Light Novel|Novel|Book|Volume|Vol|V|)([-_. ]|)([0-9]+)\b)|\s(LN|Light Novel|Novel|Book|Volume|Vol|V|)([-_. ]|)([0-9]+)([-_.])(LN|Light Novel|Novel|Book|Volume|Vol|V|)([0-9]+)\s)", dir, re.IGNORECASE)):
+                            dir_clean = re.sub(r"\([^()]*\)", "", dir)
+                            dir_clean = (re.sub(r"((\b(LN|Light Novel|Novel|Book|Volume|Vol|V|)([-_. ]|)([0-9]+)\b)|\s(LN|Light Novel|Novel|Book|Volume|Vol|V|)([-_. ]|)([0-9]+)([-_.])(LN|Light Novel|Novel|Book|Volume|Vol|V|)([0-9]+)\s)", "", dir_clean, flags=re.IGNORECASE)).strip()
+                            if(not os.path.isdir(os.path.join(root, dir_clean))):
+                                os.rename(os.path.join(root, dir), os.path.join(root, dir_clean))
+                            elif(os.path.isdir(os.path.join(root, dir_clean)) and (os.path.join(root, dir) != os.path.join(root, dir_clean))):
+                                for root, dirs, files in os.walk(os.path.join(root, dir)):
+                                    remove_hidden_files(files, root)
+                                    for file in files:
+                                        shutil.move(os.path.join(root, file), os.path.join(download_folder, dir_clean))
+                                    if len(os.listdir(root) ) == 0:
+                                        os.rmdir(root)
+        else:
+            if download_folder == "":
+                print("\nINVALID: Download folder path cannot be empty.")
+                errors.append("INVALID: Download folder path cannot be empty.")
+            else:
+                print("\nINVALID: " + download_folder + " is an invalid path.")
+                errors.append("INVALID: " + download_folder + " is an invalid path.")
+
 def create_folders_for_items_in_download_folder():
     for download_folder in download_folders:
         if os.path.exists(download_folder):
@@ -228,8 +257,8 @@ def create_folders_for_items_in_download_folder():
                             similarity_result = similar(file, directory)
                             if(similarity_result < 0.3):
                                 folder_name = re.sub(r"\([^()]*\)", "", os.path.splitext(file)[0])
-                                folder_name = re.sub(r"(\b(LN|Light Novel|Novel|Book|Volume|Vol|V)([-_. ]|)([0-9]+)\b)", "", folder_name, flags=re.IGNORECASE)
-                                folder_name = (re.sub(r"\s-\s", "", folder_name)).strip()
+                                folder_name = (re.sub(r"(\b(LN|Light Novel|Novel|Book|Volume|Vol|V|)([-_. ]|)([0-9]+)\b)", "", folder_name, flags=re.IGNORECASE)).strip()
+                                #folder_name = (re.sub(r"\s-\s", "", folder_name)).strip()
                                 does_folder_exist = os.path.exists(os.path.join(root, folder_name))
                                 if not does_folder_exist:
                                     os.mkdir(os.path.join(root, folder_name))
@@ -249,11 +278,13 @@ def main():
     global file_count
     global cbz_count
     global epub_count
+    rename_dirs_in_download_folder()
     create_folders_for_items_in_download_folder()
     for path in paths:
         if os.path.exists(path):
             try:
                 os.chdir(path)
+                # Walk into each directory
                 for root, dirs, files in os.walk(path):
                     remove_hidden_files(files, root)
                     dirs.sort()
@@ -277,9 +308,6 @@ def main():
                 print("\nINVALID: Path cannot be empty.")
             else:
                 print("\nINVALID: " + path + " is an invalid path.")
-        # Walk into each directory
-        
-
 
 main()
 print("\nFor all " + str(len(paths)) + " paths.")
