@@ -222,10 +222,12 @@ def rename_dirs_in_download_folder():
                 for dir in dirs:
                     full_file_path = os.path.dirname(os.path.join(root, dir))
                     directory = os.path.basename(os.path.join(root, full_file_path))
-                    if(directory == "Manga & Novels"):
-                        if (re.search(r"((\s\[|\]\s)|(\s\(|\)\s))", dir, re.IGNORECASE) or re.search(r"((\b(LN|Light Novel|Novel|Book|Volume|Vol|V|)([-_. ]|)([0-9]+)\b)|\s(LN|Light Novel|Novel|Book|Volume|Vol|V|)([-_. ]|)([0-9]+)([-_.])(LN|Light Novel|Novel|Book|Volume|Vol|V|)([0-9]+)\s)", dir, re.IGNORECASE)):
-                            dir_clean = re.sub(r"\([^()]*\)", "", dir)
-                            dir_clean = (re.sub(r"((\b(LN|Light Novel|Novel|Book|Volume|Vol|V|)([-_. ]|)([0-9]+)\b)|\s(LN|Light Novel|Novel|Book|Volume|Vol|V|)([-_. ]|)([0-9]+)([-_.])(LN|Light Novel|Novel|Book|Volume|Vol|V|)([0-9]+)\s)", "", dir_clean, flags=re.IGNORECASE)).strip()
+                    if(os.path.basename(download_folder) == directory):
+                        if (re.search(r"((\s\[|\]\s)|(\s\(|\)\s))", dir, re.IGNORECASE) or re.search(r"(\bLN\b)", dir, re.IGNORECASE) or re.search(r"((\b(LN|Light Novel|Novel|Book|Volume|Vol|V|)([-_. ]|)([0-9]+)\b)|\s(LN|Light Novel|Novel|Book|Volume|Vol|V|)([-_. ]|)([0-9]+)([-_.])(LN|Light Novel|Novel|Book|Volume|Vol|V|)([0-9]+)\s)", dir, re.IGNORECASE) or re.search(r"\bPremium\b", dir, re.IGNORECASE)):
+                            dir_clean = re.sub(r"(\([^()]*\))|(\[[^\[\]]*\])", "", dir)
+                            dir_clean = (re.sub(r"((\b(LN|Light Novel|Novel|Book|Volume|Vol|V)([-_. ]|)([0-9]+)\b)|\s(LN|Light Novel|Novel|Book|Volume|Vol|V|)([-_. ]|)([0-9]+)([-_.])(LN|Light Novel|Novel|Book|Volume|Vol|V|)([0-9]+)\s)", "", dir_clean, flags=re.IGNORECASE)).strip()
+                            dir_clean = (re.sub(r"(\bLN\b)", "", dir_clean, flags=re.IGNORECASE)).strip()
+                            dir_clean = (re.sub(r"\bPremium\b", "", dir_clean, flags=re.IGNORECASE)).strip()
                             if(not os.path.isdir(os.path.join(root, dir_clean))):
                                 os.rename(os.path.join(root, dir), os.path.join(root, dir_clean))
                             elif(os.path.isdir(os.path.join(root, dir_clean)) and (os.path.join(root, dir) != os.path.join(root, dir_clean))):
@@ -253,10 +255,10 @@ def create_folders_for_items_in_download_folder():
                     full_file_path = os.path.dirname(os.path.join(root, file))
                     directory = os.path.basename(os.path.join(root, full_file_path))
                     if(file.endswith(".cbz") or file.endswith(".epub") or file.endswith(".cbr")):
-                        if(directory == "Manga & Novels"):
+                        if(os.path.basename(download_folder) == directory):
                             similarity_result = similar(file, directory)
-                            if(similarity_result < 0.3):
-                                folder_name = re.sub(r"\([^()]*\)", "", os.path.splitext(file)[0])
+                            if(similarity_result < 0.4):
+                                folder_name = re.sub(r"(\([^()]*\))|(\[[^\[\]]*\])", "", os.path.splitext(file)[0])
                                 folder_name = (re.sub(r"(\b(LN|Light Novel|Novel|Book|Volume|Vol|V|)([-_. ]|)([0-9]+)\b)", "", folder_name, flags=re.IGNORECASE)).strip()
                                 #folder_name = (re.sub(r"\s-\s", "", folder_name)).strip()
                                 does_folder_exist = os.path.exists(os.path.join(root, folder_name))
