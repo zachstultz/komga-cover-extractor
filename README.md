@@ -7,7 +7,7 @@ Allowing the user to use local higher-resolution covers within Komga instead of 
 Primary usage is with https://github.com/gotson/komga
 
 ## Cover Detection
-Cover-string detection is based on various scene releases, if none of these are detected, it will default to the first image. Which, unless you have scans from online, will almost always be the cover.
+Cover-string detection is based on various scene releases, if none are detected, it will default to the first image. Which, unless you have scans from online, will almost always be the cover.
 
 ## Usage
 Add desired paths that you want scanned into the string array at the top of komga-cover-extractor.py
