@@ -223,11 +223,9 @@ def rename_dirs_in_download_folder():
                     full_file_path = os.path.dirname(os.path.join(root, dir))
                     directory = os.path.basename(os.path.join(root, full_file_path))
                     if(os.path.basename(download_folder) == directory):
-                        if (re.search(r"((\s\[|\]\s)|(\s\(|\)\s))", dir, re.IGNORECASE) or re.search(r"(\bLN\b)", dir, re.IGNORECASE) or re.search(r"((\b(LN|Light Novel|Novel|Book|Volume|Vol|V|)([-_. ]|)([0-9]+)\b)|\s(LN|Light Novel|Novel|Book|Volume|Vol|V|)([-_. ]|)([0-9]+)([-_.])(LN|Light Novel|Novel|Book|Volume|Vol|V|)([0-9]+)\s)", dir, re.IGNORECASE) or re.search(r"\bPremium\b", dir, re.IGNORECASE)):
-                            dir_clean = re.sub(r"(\([^()]*\))|(\[[^\[\]]*\])", "", dir)
-                            dir_clean = (re.sub(r"((\b(LN|Light Novel|Novel|Book|Volume|Vol|V)([-_. ]|)([0-9]+)\b)|\s(LN|Light Novel|Novel|Book|Volume|Vol|V|)([-_. ]|)([0-9]+)([-_.])(LN|Light Novel|Novel|Book|Volume|Vol|V|)([0-9]+)\s)", "", dir_clean, flags=re.IGNORECASE)).strip()
-                            dir_clean = (re.sub(r"(\bLN\b)", "", dir_clean, flags=re.IGNORECASE)).strip()
-                            dir_clean = (re.sub(r"\bPremium\b", "", dir_clean, flags=re.IGNORECASE)).strip()
+                        if (re.search(r"((\s\[|\]\s)|(\s\(|\)\s)|(\s\{|\}\s))", dir, re.IGNORECASE) or re.search(r"(\s-\s|\s-)$", dir, re.IGNORECASE) or re.search(r"(\bLN\b)", dir, re.IGNORECASE) or re.search(r"((\b(LN|Light Novel|Novel|Book|Volume|Vol|V|)([-_. ]|)([0-9]+)\b)|\s(LN|Light Novel|Novel|Book|Volume|Vol|V|)([-_. ]|)([0-9]+)([-_.])(LN|Light Novel|Novel|Book|Volume|Vol|V|)([0-9]+)\s)", dir, re.IGNORECASE) or re.search(r"\bPremium\b", dir, re.IGNORECASE)):
+                            dir_clean = (re.sub(r"((\b(\s-\s|)(LN|Light Novel|Novel|Book|Volume|Vol|V|)([-_. ]|)([0-9]+)\b)|\s(\s-\s|)(LN|Light Novel|Novel|Book|Volume|Vol|V|)([-_. ]|)([0-9]+)([-_.])(\s-\s|)(LN|Light Novel|Novel|Book|Volume|Vol|V|)([0-9]+)\s|\s(\s-\s|)(LN|Light Novel|Novel|Book|Volume|Vol|V|)([-_. ]|)([0-9]+)([-_.])(\s-\s|)(LN|Light Novel|Novel|Book|Volume|Vol|V|)([0-9]+)\s).*", "", dir, flags=re.IGNORECASE)).strip()
+                            dir_clean = (re.sub(r"(\([^()]*\))|(\[[^\[\]]*\])|(\{[^\{\}]*\})", "", dir_clean)).strip()
                             if(not os.path.isdir(os.path.join(root, dir_clean))):
                                 os.rename(os.path.join(root, dir), os.path.join(root, dir_clean))
                             elif(os.path.isdir(os.path.join(root, dir_clean)) and (os.path.join(root, dir) != os.path.join(root, dir_clean))):
