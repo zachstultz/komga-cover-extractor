@@ -147,6 +147,7 @@ def individual_volume_cover_file_stuff(file, root, full_path):
 
 def cover_file_stuff(root, full_path, files):
     for file_extension in file_extensions:
+
         if(str(full_path).endswith(file_extension) and zipfile.is_zipfile(full_path)):
             try:
                 zip_file = zipfile.ZipFile(full_path)
@@ -230,13 +231,14 @@ def rename_dirs_in_download_folder():
                     full_file_path = os.path.dirname(os.path.join(root, dir))
                     directory = os.path.basename(os.path.join(root, full_file_path))
                     if(os.path.basename(download_folder) == directory):
-                        if (re.search(r"((\s\[|\]\s)|(\s\(|\)\s)|(\s\{|\}\s))", dir, re.IGNORECASE) or re.search(r"(\s-\s|\s-)$", dir, re.IGNORECASE) or re.search(r"(\bLN\b)", dir, re.IGNORECASE) or re.search(r"((\b(LN|Light Novel|Novel|Book|Volume|Vol|V|)([-_. ]|)([0-9]+)\b)|\s(LN|Light Novel|Novel|Book|Volume|Vol|V|)([-_. ]|)([0-9]+)([-_.])(LN|Light Novel|Novel|Book|Volume|Vol|V|)([0-9]+)\s)", dir, re.IGNORECASE) or re.search(r"\bPremium\b", dir, re.IGNORECASE)):
-                            dir_clean = (re.sub(r"((\b(\s-\s|)(LN|Light Novel|Novel|Book|Volume|Vol|V|)([-_. ]|)([0-9]+)\b)|\s(\s-\s|)(LN|Light Novel|Novel|Book|Volume|Vol|V|)([-_. ]|)([0-9]+)([-_.])(\s-\s|)(LN|Light Novel|Novel|Book|Volume|Vol|V|)([0-9]+)\s|\s(\s-\s|)(LN|Light Novel|Novel|Book|Volume|Vol|V|)([-_. ]|)([0-9]+)([-_.])(\s-\s|)(LN|Light Novel|Novel|Book|Volume|Vol|V|)([0-9]+)\s).*", "", dir, flags=re.IGNORECASE)).strip()
+                        if (re.search(r"((\s\[|\]\s)|(\s\(|\)\s)|(\s\{|\}\s))", dir, re.IGNORECASE) or re.search(r"(\s-\s|\s-)$", dir, re.IGNORECASE) or re.search(r"(\bLN\b)", dir, re.IGNORECASE) or re.search(r"(\b|\s)(\s-\s|)(LN|Light Novel|Novel|Book|Volume|Vol|V|)([-_. ]|)([0-9]+)(\b|\s)", dir, re.IGNORECASE) or re.search(r"\bPremium\b", dir, re.IGNORECASE)):
+                            dir_clean = (re.sub(r"(\b|\s)(\s-\s|)(LN|Light Novel|Novel|Book|Volume|Vol|V|)([-_. ]|)([0-9]+)(\b|\s).*", "", dir, flags=re.IGNORECASE)).strip()
                             dir_clean = (re.sub(r"(\([^()]*\))|(\[[^\[\]]*\])|(\{[^\{\}]*\})", "", dir_clean)).strip()
+                            dir_clean = (re.sub(r"(\(|\)|\[|\]|{|})", "", dir_clean, flags=re.IGNORECASE)).strip()
                             if(not os.path.isdir(os.path.join(root, dir_clean))):
                                 os.rename(os.path.join(root, dir), os.path.join(root, dir_clean))
                                 #check_for_existing_series_and_move(full_file_path, dir_clean, download_folder)
-                            elif(os.path.isdir(os.path.join(root, dir_clean)) and (os.path.join(root, dir) != os.path.join(root, dir_clean))):
+                            elif(os.path.isdir(os.path.join(root, dir_clean)) and (os.path.join(root, dir) != os.path.join(root, dir_clean)) and dir_clean != ""):
                                 for root, dirs, files in os.walk(os.path.join(root, dir)):
                                     remove_hidden_files(files, root)
                                     for file in files:
@@ -322,9 +324,9 @@ def create_folders_for_items_in_download_folder():
                         if(os.path.basename(download_folder) == directory):
                             similarity_result = similar(file, directory)
                             if(similarity_result < 0.4):
-                                folder_name = re.sub(r"(\([^()]*\))|(\[[^\[\]]*\])", "", os.path.splitext(file)[0])
-                                folder_name = (re.sub(r"(\b(LN|Light Novel|Novel|Book|Volume|Vol|V|)([-_. ]|)([0-9]+)\b)", "", folder_name, flags=re.IGNORECASE)).strip()
-                                #folder_name = (re.sub(r"\s-\s", "", folder_name)).strip()
+                                folder_name = (re.sub(r"(\b|\s)(\s-\s|)(LN|Light Novel|Novel|Book|Volume|Vol|V|)([-_. ]|)([0-9]+)(\b|\s).*", "", os.path.splitext(file)[0], flags=re.IGNORECASE)).strip()
+                                folder_name = (re.sub(r"(\([^()]*\))|(\[[^\[\]]*\])|(\{[^\{\}]*\})", "", folder_name)).strip()
+                                folder_name = (re.sub(r"(\(|\)|\[|\]|{|})", "", folder_name, flags=re.IGNORECASE)).strip()
                                 does_folder_exist = os.path.exists(os.path.join(root, folder_name))
                                 if not does_folder_exist:
                                     os.mkdir(os.path.join(root, folder_name))
