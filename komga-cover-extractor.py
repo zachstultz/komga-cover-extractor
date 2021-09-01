@@ -1,3 +1,4 @@
+from genericpath import isfile
 import os
 import shutil
 import zipfile
@@ -237,15 +238,15 @@ def rename_dirs_in_download_folder():
                             dir_clean = (re.sub(r"(\(|\)|\[|\]|{|})", "", dir_clean, flags=re.IGNORECASE)).strip()
                             if(not os.path.isdir(os.path.join(root, dir_clean))):
                                 os.rename(os.path.join(root, dir), os.path.join(root, dir_clean))
-                                #check_for_existing_series_and_move(full_file_path, dir_clean, download_folder)
+                                check_for_existing_series_and_move(full_file_path, dir_clean, download_folder)
                             elif(os.path.isdir(os.path.join(root, dir_clean)) and (os.path.join(root, dir) != os.path.join(root, dir_clean)) and dir_clean != ""):
                                 for root, dirs, files in os.walk(os.path.join(root, dir)):
                                     remove_hidden_files(files, root)
                                     for file in files:
                                         shutil.move(os.path.join(root, file), os.path.join(download_folder, dir_clean))
-                                    if len(os.listdir(root) ) == 0:
+                                    if len(os.listdir(root)) == 0:
                                         os.rmdir(root)
-                                #check_for_existing_series_and_move(full_file_path, dir_clean, download_folder)
+                                check_for_existing_series_and_move(full_file_path, dir_clean, download_folder)
         else:
             if download_folder == "":
                 print("\nINVALID: Download folder path cannot be empty.")
@@ -253,6 +254,43 @@ def rename_dirs_in_download_folder():
             else:
                 print("\nINVALID: " + download_folder + " is an invalid path.")
                 errors.append("INVALID: " + download_folder + " is an invalid path.")
+
+def get_epub_percent_for_folder(files, root):
+    remove_hidden_files(files, root)
+    remove_all_except_cbz_and_epub(files, root)
+    epub_folder_count = 0
+    for file in files:
+        if(file.endswith(".epub")):
+            epub_folder_count += 1
+    epub_percent = ((len(files) / epub_folder_count) * 100) if epub_folder_count != 0 else 0
+    return epub_percent
+
+def get_cbz_percent_for_folder(files, root):
+    remove_hidden_files(files, root)
+    remove_all_except_cbz_and_epub(files, root)
+    cbz_folder_count = 0
+    for file in files:
+        if(file.endswith(".cbz")):
+            cbz_folder_count += 1
+    cbz_percent = ((len(files) / cbz_folder_count) * 100) if cbz_folder_count != 0 else 0
+    return cbz_percent
+
+def remove_everything_but_volume_num(files, root):
+    cleaned = []
+    for file in files[:]:
+        if(not re.search(r"(\b(LN|Light Novel|Novel|Book|Volume|Vol|V)([-_. ]|)([0-9]+)(.[0-9]+|)\b)", file, re.IGNORECASE) and os.path.isfile(os.path.join(root, file))):
+            files.remove(file)
+        else:
+            try:
+                file = re.search(r"(\b(LN|Light Novel|Novel|Book|Volume|Vol|V)([-_. ]|)([0-9]+)(.[0-9]+|)\b)", file, re.IGNORECASE).group(1)
+                file = re.sub(r"(\b(LN|Light Novel|Novel|Book|Volume|Vol|V))", "", file, flags=re.IGNORECASE).strip()
+                if(re.search(r"\b[0-9]+(LN|Light Novel|Novel|Book|Volume|Vol|V)[0-9]+\b", file, re.IGNORECASE)):
+                    file = (re.sub(r"(LN|Light Novel|Novel|Book|Volume|Vol|V)", ".", file, flags=re.IGNORECASE)).strip()
+                cleaned.append(float(file))
+            except AttributeError:
+                print(str(AttributeError.with_traceback))
+    if(len(cleaned) != 0 and (len(cleaned) == len(files))):
+        return cleaned
 
 # Checks for an existing series by pulling the folder name within the downloads_folder
 # Then checks for a 1:1 folder within the paths being scanned
@@ -267,22 +305,40 @@ def check_for_existing_series_and_move(full_file_path, dir_clean, download_folde
                     dirs.sort()
                     files.sort()
                     for dir in dirs:
-                        existing_dir_full_file_path = os.path.dirname(os.path.join(root, dir))
                         existing_dir_directory = os.path.basename(os.path.join(root, full_file_path))
-                        if(dir == dir_clean and not os.path.join(root, dir).__contains__(existing_dir_directory)):
-                            print("Found existing series")
+                        if(str(dir).lower() == str(dir_clean).lower() and not os.path.join(root, dir).__contains__(existing_dir_directory)):
+                            existing_dir_full_file_path = os.path.dirname(os.path.join(root, dir))
                             download_dir = os.path.join(download_folder, dir_clean)
                             existing_dir = os.path.join(existing_dir_full_file_path, dir)
-                            download_dir_files = [f for f in os.listdir(download_dir) if os.path.isfile(os.path.join(download_dir, f))]
-                            download_dir_files.sort()
-                            remove_hidden_files(download_dir_files, download_folder)
-                            remove_all_except_cbz_and_epub(download_dir_files, os.path.join(download_folder, dir_clean))
-                            download_dir_files = remove_everything_but_volume_num(download_dir_files, os.path.join(download_folder, dir_clean))
-                            existing_dir_files = [f for f in os.listdir(existing_dir) if os.path.isfile(os.path.join(existing_dir, f))]
-                            existing_dir_files.sort()
-                            remove_hidden_files(existing_dir_files, os.path.join(existing_dir_full_file_path, dir))
-                            remove_all_except_cbz_and_epub(existing_dir_files, os.path.join(existing_dir_full_file_path, dir))
-                            existing_dir_files = remove_everything_but_volume_num(existing_dir_files, os.path.join(existing_dir_full_file_path, dir))
+                            if( ((get_cbz_percent_for_folder(os.listdir(download_dir), download_dir) and get_cbz_percent_for_folder(os.listdir(existing_dir), existing_dir))>90) or ((get_epub_percent_for_folder(os.listdir(download_dir), download_dir) and get_epub_percent_for_folder(os.listdir(existing_dir), existing_dir))>90)):
+                                print("Found existing series")
+                                download_dir_files = [f for f in os.listdir(download_dir) if os.path.isfile(os.path.join(download_dir, f))]
+                                download_dir_files.sort()
+                                remove_hidden_files(download_dir_files, download_folder)
+                                remove_all_except_cbz_and_epub(download_dir_files, os.path.join(download_folder, dir_clean))
+                                comparision_download_dir_files = remove_everything_but_volume_num(download_dir_files, os.path.join(download_folder, dir_clean))
+                                existing_dir_files = [f for f in os.listdir(existing_dir) if os.path.isfile(os.path.join(existing_dir, f))]
+                                existing_dir_files.sort()
+                                remove_hidden_files(existing_dir_files, os.path.join(existing_dir_full_file_path, dir))
+                                remove_all_except_cbz_and_epub(existing_dir_files, os.path.join(existing_dir_full_file_path, dir))
+                                existing_dir_files = remove_everything_but_volume_num(existing_dir_files, os.path.join(existing_dir_full_file_path, dir))
+                                for_index_num = [f for f in comparision_download_dir_files]
+                                for comparison_downloaded_item in comparision_download_dir_files[:]:
+                                    if comparison_downloaded_item in existing_dir_files:
+                                        comparision_download_dir_files.remove(comparison_downloaded_item)
+                                if(len(comparision_download_dir_files) != 0):
+                                    for file in comparision_download_dir_files:
+                                        index = for_index_num.index(file)
+                                        if(not os.path.isfile(os.path.join(existing_dir, download_dir_files[index])) and re.search(r"(\(|\)|\[|\])", download_dir_files[index], re.IGNORECASE)):
+                                            shutil.move(os.path.join(download_dir, download_dir_files[index]), existing_dir)
+                                            for image_extension in image_extensions:
+                                                without_extension = os.path.splitext(download_dir_files[index])[0]
+                                                image_file = without_extension + "." + image_extension
+                                                path = os.path.join(download_dir, image_file)
+                                                if(os.path.isfile(path)):
+                                                    shutil.move(path, existing_dir)
+                                    if len(os.listdir(download_dir)) == 0:
+                                            os.rmdir(download_dir)
             except FileNotFoundError:
                 print("\nERROR: " + path + " is not a valid path.")
         else:
@@ -295,22 +351,7 @@ def remove_all_except_cbz_and_epub(files, root):
     for file in files[:]:
         if(not (str(file).endswith(".cbz") or str(file).endswith(".epub")) and os.path.isfile(os.path.join(root, file))):
             files.remove(file)
-
-def remove_everything_but_volume_num(files, root):
-    cleaned = []
-    for file in files[:]:
-        if(not re.search(r"(\b(LN|Light Novel|Novel|Book|Volume|Vol|V)([-_. ]|)([0-9]+)(.[0-9]+|)\b)", file, re.IGNORECASE) and os.path.isfile(os.path.join(root, file))):
-            files.remove(file)
-        else:
-            try:
-                file = re.search(r"(\b(LN|Light Novel|Novel|Book|Volume|Vol|V)([-_. ]|)([0-9]+)(.[0-9]+|)\b)", file, re.IGNORECASE).group(1)
-                file = re.sub(r"(\b(LN|Light Novel|Novel|Book|Volume|Vol|V))", "", file, flags=re.IGNORECASE).strip()
-                cleaned.append(float(file))
-            except AttributeError:
-                print(str(AttributeError.with_traceback))
-    if(len(cleaned) != 0 and (len(cleaned) == len(files))):
-        return cleaned
-        
+      
 def create_folders_for_items_in_download_folder():
     for download_folder in download_folders:
         if os.path.exists(download_folder):
@@ -346,8 +387,8 @@ def main():
     global file_count
     global cbz_count
     global epub_count
-    rename_dirs_in_download_folder()
-    create_folders_for_items_in_download_folder()
+    #create_folders_for_items_in_download_folder()
+    #rename_dirs_in_download_folder()  
     for path in paths:
         if os.path.exists(path):
             try:
