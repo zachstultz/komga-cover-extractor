@@ -1,9 +1,10 @@
 from genericpath import isfile
 import os
-import shutil
-import zipfile
-import zlib
+from posixpath import join
 import re
+import zlib
+import zipfile
+import shutil
 from difflib import SequenceMatcher
 
 # ************************************
@@ -17,18 +18,19 @@ from difflib import SequenceMatcher
 # [ADD IN THE PATHS YOU WANT SCANNED]
 download_folders = [""] #OPTIONAL [STILL IN TESTING]
 paths = [""]
-ignored_folders = [""]
+ignored_folders = []
 # [ADD IN THE PATHS YOU WANT SCANNED]
 
-# List of image types used throughout the program
-image_extensions = ["jpg", "jpeg", "png", "tbn"]
-file_extensions = [".cbz", ".epub", ".cbr"]
+# List of file types used throughout the program
+file_extensions = ["epub", "cbz", "cbr"]
+image_extensions = ["jpg", "jpeg", "png", "tbn", "jpeg"]
+series_cover_file_names = ["cover", "poster"]
+
+# Our global folder_accessor
+folder_accessor = None
 
 # The remaining files without covers
 files_with_no_image = []
-
-# Any errors occured along the way
-errors = []
 
 # Stat-related variables
 file_count = 0
@@ -38,386 +40,722 @@ cbr_count = 0
 image_count = 0
 cbz_internal_covers_found = 0
 poster_found = 0
+errors = []
+items_changed = []
 
-# Checks similarity between two strings
-# Credit to: https://stackoverflow.com/users/1561176/inbar-rose
-def similar(a, b):
-    return (SequenceMatcher(None, a.lower(), b.lower()).ratio())
+# Folder Class
+class Folder:
+    def __init__(self, root, dirs, basename, folder_name, files):
+        self.root = root
+        self.dirs = dirs
+        self.basename = basename
+        self.folder_name = folder_name
+        self.files = files
+
+# File Class
+class File:
+    def __init__(self, name, extensionless_name, basename, extension, root, path, extensionless_path):
+        self.name = name
+        self.extensionless_name = extensionless_name
+        self.basename = basename
+        self.extension = extension
+        self.root = root
+        self.path = path
+        self.extensionless_path = extensionless_path
+
+# Volume Class
+class Volume:
+    def __init__(self, volume_type, series_name, volume_year, volume_number, is_fixed, release_group, name, extensionless_name, basename, extension, root, path, extensionless_path):
+        self.volume_type = volume_type
+        self.series_name = series_name
+        self.volume_year = volume_year
+        self.volume_number = volume_number
+        self.is_fixed = is_fixed
+        self.release_group = release_group
+        self.name = name
+        self.extensionless_name = extensionless_name
+        self.basename = basename
+        self.extension = extension
+        self.root = root
+        self.path = path
+        self.extensionless_path = extensionless_path
+
+# Release Group Class
+class Release_Group:
+    def __init__(self, name, score):
+        self.name = name
+        self.score = score
+
+# Release Groups Ranked by Point Values
+release_groups = [
+    Release_Group("danke-repack", 110),
+    Release_Group("danke-empire",  100),
+    Release_Group("LuCaZ",  75),
+    Release_Group("Shizu",  50),
+    Release_Group("1r0n",  25),
+    Release_Group("Premium", 5) # For LN releases
+]
+
+# Appends, sends, and prints our error message
+def send_error_message(error):
+    print(error)
+
+# Appends, sends, and prints our change message
+def send_change_message(message):
+    print(message)
+    items_changed.append(message)
+
+# Checks if a file exists
+def if_file_exists(root, file):
+    return os.path.isfile(os.path.join(root, file))
+
+# Removes hidden files
+def remove_hidden_files(files, root):
+    for file in files[:]:
+        if(file.startswith(".") and if_file_exists(root, file)):
+            files.remove(file)
+
+# Removes any unaccepted file types
+def remove_unaccepted_file_types(files, root):
+    for file in files[:]:
+        if(not (str(file).endswith(".epub") or str(file).endswith(".cbz")) and if_file_exists(root, file)):
+            files.remove(file)
+
+# Removes any folder names in the ignored_folders
+def remove_ignored_folders(dirs):
+    if(len(ignored_folders) != 0):
+        dirs[:] = [d for d in dirs if d not in ignored_folders]
+
+# Cleans up the files array before usage
+def clean_and_sort(files, root, dirs):
+    remove_hidden_files(files, root)
+    remove_unaccepted_file_types(files, root)
+    remove_ignored_folders(dirs)
+    dirs.sort()
+    files.sort()
+
+def clean_and_sort_two(files, root):
+    remove_hidden_files(files, root)
+    remove_unaccepted_file_types(files, root)
+    files.sort()
+
+def clean_and_sort_three(dirs, root):
+    remove_hidden_files(dirs, root)
+    remove_ignored_folders(dirs)
+    remove_unaccepted_file_types(dirs, root)
+    dirs.sort()
+
+# Checks for the existance of a cover or poster file
+def check_for_existing_cover(files):
+    for f in files:
+        if str(f).__contains__("cover") | str(f).__contains__("poster"):
+            return True
+    return False
+
+# Prints our os.walk info
+def print_info(root, dirs, files):
+    print("\nCurrent Path: ", root + "\nDirectories: ", dirs)
+    file_names = []
+    for f in files:
+        file_names.append(f.name)
+    print("Files: ", file_names)
+
+def print_info_two(root):
+    print("\n\tCurrent Path: ", root)
+
+# Retrieves the file extension on the passed file
+def get_file_extension(file):
+    return os.path.splitext(file)[1]
+
+# Returns an extensionless name
+def get_extensionless_name(file):
+    return os.path.splitext(file)[0]
+
+# Trades out our regular files for file objects
+def upgrade_to_file_class(files, root):
+    clean_and_sort_two(files, root)
+    results = []
+    for file in files:
+        file_obj = File(file, get_extensionless_name(file), os.path.basename(root), get_file_extension(file), root, os.path.join(root, file), get_extensionless_name(os.path.join(root, file)))
+        results.append(file_obj)
+    return results
+
+# Updates our output stats
+def update_stats(file):
+    global file_count
+    if (file.name).endswith(".cbz") and os.path.isfile(file.path):
+        global cbz_count
+        file_count += 1
+        cbz_count += 1
+    if (file.name).endswith(".epub") and os.path.isfile(file.path):
+        global epub_count
+        file_count += 1
+        epub_count += 1
+    if (file.name).endswith(".cbr") and os.path.isfile(file.path):
+        global cbr_count
+        file_count += 1
+        cbr_count += 1
 
 # Checks if the cbz or epub file has a matching cover
-def check_for_image(name, root):
-    image_found = 0
+def check_for_image(file):
+    image_found = False
     for image_type in image_extensions:
         image_type = "." + image_type
-        if os.path.isfile(os.path.join(root, name + image_type)):
-            image_found = 1
+        if os.path.isfile(file.extensionless_path + image_type):
+            image_found = True
             global image_count
             image_count += 1
     return image_found
 
+# Removes all results that aren't an image.
+def zip_images_only(zip):
+    results = []
+    for z in zip.namelist():
+        for extension in image_extensions:
+            if z.endswith("." + extension):
+                results.append(z)
+                results.sort()
+    return results
+
+# Gets and returns the basename
+def get_base_name(item):
+    return os.path.basename(item)
 
 # Opens the zip and extracts out the cover
-def extract_cover(zip_file, file_path, image_file, root, file, full_path, name):
+def extract_cover(zip_file, zip_internal_image_file_path, zip_internal_image_file, file):
     for extension in image_extensions:
-        if image_file.endswith("."+extension):
+        if zip_internal_image_file.endswith("."+extension):
             try:
-                with zip_file.open(os.path.join(file_path, image_file)) as zf, open(
-                        os.path.join(root,os.path.basename(name + os.path.splitext(image_file)[1])),
+                with zip_file.open(os.path.join(zip_internal_image_file_path, zip_internal_image_file)) as zf, open(
+                        os.path.join(file.root,os.path.basename(file.extensionless_name + os.path.splitext(zip_internal_image_file)[1])),
                         'wb') as f:
-                        print("Copying file and renaming.")
+                        send_change_message("Copying file and renaming.")
                         shutil.copyfileobj(zf, f)
                         return
             except zipfile.BadZipFile:
-                print("Bad Zipfile: " + str(full_path))
-                errors.append("Bad Zipfile: " + str(full_path))
+                send_error_message("Bad Zipfile: " + str(file.path))
     return
 
-
-# Checks the zip for a cover image matching the cbz file,
-# then calls the extract_cover method if found
-def check_internal_zip_for_cover(file, full_path, root):
+# Checks the internal zip for covers.
+def check_internal_zip_for_cover(file):
     global poster_found
     global cbz_internal_covers_found
-    cover_found = 0
-    poster_found = 0
+    cover_found = False
+    poster_found = False
     try:
-        # Add logic for a .rar file, aka .cbr file
-        if zipfile.is_zipfile(full_path):
-            zip_file = zipfile.ZipFile(full_path)
-            print("\n" + "Zip found\n" + "Entering zip: " + file)
-            narrowed = []
-            i = 0
-            for z in zip_file.namelist():
-                for extension in image_extensions:
-                    if z.endswith("." + extension):
-                        narrowed.append(z)
-            narrowed.sort()
-            for item in narrowed:
-                head_tail = os.path.split(item)
-                file_path = head_tail[0]
+        if zipfile.is_zipfile(file.path):
+            zip_file = zipfile.ZipFile(file.path)
+            send_change_message("\n" + "Zip found\n" + "Entering zip: " + file.name)
+            internal_zip_images = zip_images_only(zip_file)
+            for image_file in internal_zip_images:
+                head_tail = os.path.split(image_file)
+                image_file_path = head_tail[0]
                 image_file = head_tail[1]
-                if(cover_found != 1):
-                    if re.search(r"(\b(Cover([0-9]+|)|CoverDesign)\b)", item, re.IGNORECASE) or re.search(r"(\b(p000|page_000)\b)", item, re.IGNORECASE) or re.search(r"(\bindex[-_. ]1[-_. ]1\b)", item, re.IGNORECASE):
-                        print("found cover: " + os.path.basename(os.path.basename(item)) + " in " + file)
-                        cover_found = 1
+                if(cover_found != True):
+                    if re.search(r"(\b(Cover([0-9]+|)|CoverDesign)\b)", image_file, re.IGNORECASE) or re.search(r"(\b(p000|page_000)\b)", image_file, re.IGNORECASE) or re.search(r"(\bindex[-_. ]1[-_. ]1\b)", image_file, re.IGNORECASE):
+                        send_change_message("Found cover: " + get_base_name(image_file) + " in " + file.name)
+                        cover_found = True
                         cbz_internal_covers_found += 1
-                        extract_cover(zip_file, file_path, image_file, root, file, full_path, os.path.splitext(file)[0])
+                        extract_cover(zip_file, image_file_path, image_file, file)
                         return
-            if (cover_found != 1 and len(narrowed) != 0):
-                head_tail = os.path.split(narrowed[0])
-                file_path = head_tail[0]
+            if (cover_found != True and len(internal_zip_images) != False):
+                head_tail = os.path.split(internal_zip_images[0])
+                image_file_path = head_tail[0]
                 image_file = head_tail[1]
-                cover_found = 1
-                print("Defaulting to first image file found: " + narrowed[0] + " in " + full_path)
-                extract_cover(zip_file, file_path, image_file, root, file, full_path, os.path.splitext(file)[0])
-                print("")
+                send_change_message("Defaulting to first image file found: " + internal_zip_images[0] + " in " + file.path)
+                cover_found = True
+                extract_cover(zip_file, image_file_path, image_file, file)
                 return
         else:
-            files_with_no_image.append(full_path)
-            print("Invalid Zip File at: \n" + full_path)
+            files_with_no_image.append(file.path)
+            send_error_message("Invalid Zip File at: \n" + file.path)
 
     except zipfile.BadZipFile:
-        print("Bad Zipfile: " + full_path)
-        errors.append("Bad Zipfile: " + full_path)
+        print("Bad Zipfile: " + file.path)
+        errors.append("Bad Zipfile: " + file.path)
     return cover_found
 
-def updateStats(file, root):
-    global file_count
-    global cbz_count
-    global epub_count
-    global cbr_count
-    if file.endswith(".cbz") & os.path.isfile(os.path.join(root, file)):
-        file_count += 1
-        cbz_count += 1
-    if file.endswith(".epub") & os.path.isfile(os.path.join(root, file)):
-        file_count += 1
-        epub_count += 1
-    if file.endswith(".cbr") & os.path.isfile(os.path.join(root, file)):
-        file_count += 1
-        cbr_count += 1
-
-def individual_volume_cover_file_stuff(file, root, full_path):
+def individual_volume_cover_file_stuff(file):
     for file_extension in file_extensions:
-        if file.endswith(file_extension) & os.path.isfile(os.path.join(root, file)):
-            updateStats(file, root)
-            if not check_for_image(os.path.splitext(file)[0], root):
+        if (file.name).endswith(file_extension) and os.path.isfile(file.path):
+            update_stats(file)
+            if not check_for_image(file):
                 try:
-                    check_internal_zip_for_cover(file, full_path, root)
+                    check_internal_zip_for_cover(file)
                 except zlib.error:
                     print("Error -3 while decompressing data: invalid stored block lengths")
 
-def cover_file_stuff(root, full_path, files):
-    for file_extension in file_extensions:
-
-        if(str(full_path).endswith(file_extension) and zipfile.is_zipfile(full_path)):
-            try:
-                zip_file = zipfile.ZipFile(full_path)
-                return check_for_volume_one_cover(root, zip_file, files)
-            except zipfile.BadZipFile:
-                print("Bad zip file: " + full_path)
-                errors.append("Bad zip file: " + full_path)
-    return 0
-
-def check_for_volume_one_cover(root, zip_file, files):
-    extensionless_path = os.path.join(root, os.path.splitext(os.path.basename(zip_file.filename))[0])
-    if re.search(r"(\b(LN|Light Novel|Novel|Book|Volume|Vol|V)([-_. ]|)(One|1|01)\b)", os.path.basename(zip_file.filename), re.IGNORECASE):
-        print("Volume 1 Cover Found: " + os.path.basename(zip_file.filename) + " in " + root)
-        for extension in image_extensions:
-            if os.path.isfile(extensionless_path + '.' + extension):
-                shutil.copyfile(extensionless_path + '.' + extension, os.path.join(root, 'cover.' + extension))
-                return 1
-    else:
-        volume_files_exists_within_folder = 0
-        for item in files:
-            if re.search(r"((\s(\s-\s|)(LN|Light Novel|Novel|Book|Volume|Vol|V|)([-_. ]|)([0-9]+)\b)|\s(\s-\s|)(LN|Light Novel|Novel|Book|Volume|Vol|V|)([-_. ]|)([0-9]+)([-_.])(\s-\s|)(LN|Light Novel|Novel|Book|Volume|Vol|V|)([0-9]+)\s|\s(\s-\s|)(LN|Light Novel|Novel|Book|Volume|Vol|V|)([-_. ]|)([0-9]+)([-_.])(\s-\s|)(LN|Light Novel|Novel|Book|Volume|Vol|V|)([0-9]+)\s)", item, re.IGNORECASE):
-                volume_files_exists_within_folder = 1
-        if(not re.search(r"((\s(\s-\s|)(LN|Light Novel|Novel|Book|Volume|Vol|V|)([-_. ]|)([0-9]+)\b)|\s(\s-\s|)(LN|Light Novel|Novel|Book|Volume|Vol|V|)([-_. ]|)([0-9]+)([-_.])(\s-\s|)(LN|Light Novel|Novel|Book|Volume|Vol|V|)([0-9]+)\s|\s(\s-\s|)(LN|Light Novel|Novel|Book|Volume|Vol|V|)([-_. ]|)([0-9]+)([-_.])(\s-\s|)(LN|Light Novel|Novel|Book|Volume|Vol|V|)([0-9]+)\s)", os.path.basename(zip_file.filename), re.IGNORECASE) and volume_files_exists_within_folder == 0):
-            print("No volume keyword detected, assuming file is a one-shot volume: " + os.path.basename(zip_file.filename) + " in " + root)
-            for extension in image_extensions:
-                if os.path.isfile(extensionless_path + '.' + extension):
-                    shutil.copyfile(extensionless_path + '.' + extension, os.path.join(root, 'cover.' + extension))
-                    return 1
-    return 0
-
-def check_for_existing_cover(files):
-    if(str(files).__contains__("cover") |
-    str(files).__contains__("poster")):
-        return 1
-    else:
-        return 0
-
-def check_for_duplicate_cover(root):
+# Checks for a duplicate cover/poster, if cover and poster both exist, it deletes poster.
+def check_for_duplicate_cover(file):
     duplicate_found1 = 0
     duplicate_found2 = 0
     dup = ""
     for image_type in image_extensions:
-        if os.path.isfile(os.path.join(root, "poster." + image_type)):
+        if os.path.isfile(os.path.join(file.root, "poster." + image_type)):
             duplicate_found1 = 1
-            dup = os.path.join(root, "poster." + image_type)
-        if os.path.isfile(os.path.join(root, "cover." + image_type)):
+            dup = os.path.join(file.root, "poster." + image_type)
+        if os.path.isfile(os.path.join(file.root, "cover." + image_type)):
             duplicate_found2 = 1
         if duplicate_found1 + duplicate_found2 == 2 and os.path.isfile(dup):
             try:
-                print("Removing duplicate poster: " + dup)
+                send_change_message("Removing duplicate poster: " + dup)
                 os.remove(dup)
                 if not os.path.isfile(dup):
-                    print("Duplicate successfully removed.")
+                    send_change_message("Duplicate successfully removed.")
                 else:
-                    print("Failed to remove duplicate poster in " + root)
+                    send_error_message("Failed to remove duplicate poster in " + file.root)
             except FileNotFoundError:
-                print("File not found.")
+                send_error_message("File not found: " + file)
 
-def print_file_info(root, dirs, files):
-    print("\nCurrent Path: ", root + "\nDirectories: ", dirs)
-    print("Files: ", files)
+# Checks for the existance of a volume one.
+def check_for_volume_one_cover(file, zip_file, files):
+    extensionless_path = file.extensionless_path
+    zip_basename = os.path.basename(zip_file.filename)
+    if re.search(r"(\b(LN|Light Novel|Novel|Book|Volume|Vol|V)([-_. ]|)(One|1|01|001|0001)\b)", zip_basename, re.IGNORECASE):
+        send_change_message("Volume 1 Cover Found: " + zip_basename + " in " + file.root)
+        for extension in image_extensions:
+            if os.path.isfile(extensionless_path + '.' + extension):
+                shutil.copyfile(extensionless_path + '.' + extension, os.path.join(file.root, 'cover.' + extension))
+                return True
+    else:
+        volume_files_exists_within_folder = False
+        for item in files:
+            if re.search(r"((\s(\s-\s|)(Part|)(Part|)(LN|Light Novel|Novel|Book|Volume|Vol|V|)([-_. ]|)([0-9]+)\b)|\s(\s-\s|)(Part|)(LN|Light Novel|Novel|Book|Volume|Vol|V|)([-_. ]|)([0-9]+)([-_.])(\s-\s|)(Part|)(LN|Light Novel|Novel|Book|Volume|Vol|V|)([0-9]+)\s|\s(\s-\s|)(Part|)(LN|Light Novel|Novel|Book|Volume|Vol|V|)([-_. ]|)([0-9]+)([-_.])(\s-\s|)(Part|)(LN|Light Novel|Novel|Book|Volume|Vol|V|)([0-9]+)\s)", item.name, re.IGNORECASE):
+                volume_files_exists_within_folder = True
+        if(not re.search(r"((\s(\s-\s|)(Part|)(LN|Light Novel|Novel|Book|Volume|Vol|V|)([-_. ]|)([0-9]+)\b)|\s(\s-\s|)(Part|)(LN|Light Novel|Novel|Book|Volume|Vol|V|)([-_. ]|)([0-9]+)([-_.])(\s-\s|)(Part|)(LN|Light Novel|Novel|Book|Volume|Vol|V|)([0-9]+)\s|\s(\s-\s|)(Part|)(LN|Light Novel|Novel|Book|Volume|Vol|V|)([-_. ]|)([0-9]+)([-_.])(\s-\s|)(Part|)(LN|Light Novel|Novel|Book|Volume|Vol|V|)([0-9]+)\s)", zip_basename, re.IGNORECASE) and volume_files_exists_within_folder == False):
+            send_change_message("No volume keyword detected, assuming file is a one-shot volume: " + zip_basename + " in " + file.root)
+            for extension in image_extensions:
+                if os.path.isfile(extensionless_path + '.' + extension):
+                    shutil.copyfile(extensionless_path + '.' + extension, os.path.join(file.root, 'cover.' + extension))
+                    return True
+    return False
 
-def remove_hidden_files(files, root):
-    for file in files[:]:
-        if(file.startswith(".") and os.path.isfile(os.path.join(root, file))):
-            files.remove(file)
+def cover_file_stuff(file, files):
+    for file_extension in file_extensions:
+        if(str(file.path).endswith(file_extension) and zipfile.is_zipfile(file.path)):
+            try:
+                zip_file = zipfile.ZipFile(file.path)
+                return check_for_volume_one_cover(file, zip_file, files)
+            except zipfile.BadZipFile:
+                send_error_message("Bad zip file: " + file.path)
+    return False
 
-def move_image(extensionless_path, root, folder_name):
+# Checks similarity between two strings.
+# Credit to: https://stackoverflow.com/users/1561176/inbar-rose
+def similar(a, b):
+    if(a == "" or b == ""):
+        return 0.0
+    else:
+        return (SequenceMatcher(None, a.lower(), b.lower()).ratio())
+
+# Moves the image into a folder if said image exists. Also checks for a cover/poster image and moves that.
+def move_images(file, folder_name):
     for extension in image_extensions:
-        image = extensionless_path + "." + extension
-        image_existance = os.path.isfile(image)
-        if(image_existance):
-            shutil.move(image, os.path.join(root, folder_name))
+        image = file.extensionless_path + "." + extension
+        if(os.path.isfile(image)):
+            shutil.move(image, folder_name)
+        for cover_file_name in series_cover_file_names:
+            cover_image_file_name = cover_file_name + "." + extension
+            cover_image_file_path = os.path.join(file.root, cover_image_file_name)
+            if(os.path.isfile(cover_image_file_path)):
+                if(not os.path.isfile(os.path.join(folder_name, cover_image_file_name))):
+                    shutil.move(cover_image_file_path, folder_name)
+                else:
+                    remove_file(cover_image_file_path)
 
-def rename_dirs_in_download_folder():
+
+# Retrieves the series name through various regexes
+def get_series_name_from_file_name(name):
+    name = (re.sub(r"(\b|\s)(\s-\s|)(Part|)(LN|Light Novel|Novel|Book|Volume|Vol|V|)([-_. ]|)([0-9]+)(\b|\s).*", "", name, flags=re.IGNORECASE)).strip()
+    name = (re.sub(r"(\([^()]*\))|(\[[^\[\]]*\])|(\{[^\{\}]*\})", "", name)).strip()
+    name = (re.sub(r"(\(|\)|\[|\]|{|})", "", name, flags=re.IGNORECASE)).strip()
+    return name
+
+# Creates folders for our stray volumes sitting in the root of the download folder.
+def create_folders_for_items_in_download_folder():
     for download_folder in download_folders:
         if os.path.exists(download_folder):
-            for root, dirs, files in os.walk(download_folder):
-                remove_hidden_files(files, root)
-                for dir in dirs:
-                    full_file_path = os.path.dirname(os.path.join(root, dir))
-                    directory = os.path.basename(os.path.join(root, full_file_path))
-                    if(os.path.basename(download_folder) == directory):
-                        if (re.search(r"((\s\[|\]\s)|(\s\(|\)\s)|(\s\{|\}\s))", dir, re.IGNORECASE) or re.search(r"(\s-\s|\s-)$", dir, re.IGNORECASE) or re.search(r"(\bLN\b)", dir, re.IGNORECASE) or re.search(r"(\b|\s)(\s-\s|)(LN|Light Novel|Novel|Book|Volume|Vol|V|)([-_. ]|)([0-9]+)(\b|\s)", dir, re.IGNORECASE) or re.search(r"\bPremium\b", dir, re.IGNORECASE)):
-                            dir_clean = (re.sub(r"(\b|\s)(\s-\s|)(LN|Light Novel|Novel|Book|Volume|Vol|V|)([-_. ]|)([0-9]+)(\b|\s).*", "", dir, flags=re.IGNORECASE)).strip()
-                            dir_clean = (re.sub(r"(\([^()]*\))|(\[[^\[\]]*\])|(\{[^\{\}]*\})", "", dir_clean)).strip()
-                            dir_clean = (re.sub(r"(\(|\)|\[|\]|{|})", "", dir_clean, flags=re.IGNORECASE)).strip()
-                            if(not os.path.isdir(os.path.join(root, dir_clean))):
-                                os.rename(os.path.join(root, dir), os.path.join(root, dir_clean))
-                                check_for_existing_series_and_move(full_file_path, dir_clean, download_folder)
-                            elif(os.path.isdir(os.path.join(root, dir_clean)) and (os.path.join(root, dir) != os.path.join(root, dir_clean)) and dir_clean != ""):
-                                for root, dirs, files in os.walk(os.path.join(root, dir)):
-                                    remove_hidden_files(files, root)
-                                    for file in files:
-                                        shutil.move(os.path.join(root, file), os.path.join(download_folder, dir_clean))
-                                    if len(os.listdir(root)) == 0:
-                                        os.rmdir(root)
-                                check_for_existing_series_and_move(full_file_path, dir_clean, download_folder)
+            try:
+                for root, dirs, files in os.walk(download_folder):
+                    clean_and_sort(files, root, dirs)
+                    global folder_accessor
+                    file_objects = upgrade_to_file_class(files, root)
+                    folder_accessor = Folder(root, dirs, os.path.basename(os.path.dirname(root)), os.path.basename(root), file_objects)
+                    for file in folder_accessor.files:
+                        for file_extension in file_extensions:
+                            download_folder_basename = os.path.basename(download_folder)
+                            directory_basename = os.path.basename(file.root)
+                            if((file.name).endswith(file_extension) and download_folder_basename == directory_basename):
+                                similarity_result = similar(file.name, file.basename)
+                                if(similarity_result < 0.4):
+                                    folder_name = get_series_name_from_file_name(os.path.splitext(file.name)[0])
+                                    folder_location = os.path.join(file.root, folder_name)
+                                    does_folder_exist = os.path.exists(folder_location)
+                                    if not does_folder_exist:
+                                        os.mkdir(folder_location)
+                                        move_file(file, folder_location)
+                                    else:
+                                        move_file(file, folder_location)
+            except FileNotFoundError:
+                send_error_message("\nERROR: " + download_folder + " is not a valid path.\n")
         else:
             if download_folder == "":
-                print("\nINVALID: Download folder path cannot be empty.")
-                errors.append("INVALID: Download folder path cannot be empty.")
+                send_error_message("\nINVALID: Path cannot be empty.")
             else:
-                print("\nINVALID: " + download_folder + " is an invalid path.")
-                errors.append("INVALID: " + download_folder + " is an invalid path.")
+                send_error_message("\nINVALID: " + download_folder + " is an invalid path.\n")
 
-def get_epub_percent_for_folder(files, root):
-    remove_hidden_files(files, root)
-    remove_all_except_cbz_and_epub(files, root)
+# Returns the percentage of files that are epub, to the total amount of files
+def get_epub_percent_for_folder(files):
     epub_folder_count = 0
     for file in files:
-        if(file.endswith(".epub")):
+        if((file.name).endswith(".epub")):
             epub_folder_count += 1
-    epub_percent = ((len(files) / epub_folder_count) * 100) if epub_folder_count != 0 else 0
+    epub_percent = (epub_folder_count / (len(files)) * 100) if epub_folder_count != 0 else 0
     return epub_percent
 
-def get_cbz_percent_for_folder(files, root):
-    remove_hidden_files(files, root)
-    remove_all_except_cbz_and_epub(files, root)
+# Returns the percentage of files that are cbz, to the total amount of files
+def get_cbz_percent_for_folder(files):
     cbz_folder_count = 0
     for file in files:
-        if(file.endswith(".cbz")):
+        if((file.name).endswith(".cbz")):
             cbz_folder_count += 1
-    cbz_percent = ((len(files) / cbz_folder_count) * 100) if cbz_folder_count != 0 else 0
+    cbz_percent = (cbz_folder_count / (len(files)) * 100) if cbz_folder_count != 0 else 0
     return cbz_percent
 
+# Finds the volume number and strips out everything except that number
 def remove_everything_but_volume_num(files, root):
-    cleaned = []
+    results = []
     for file in files[:]:
         if(not re.search(r"(\b(LN|Light Novel|Novel|Book|Volume|Vol|V)([-_. ]|)([0-9]+)(.[0-9]+|)\b)", file, re.IGNORECASE) and os.path.isfile(os.path.join(root, file))):
             files.remove(file)
         else:
             try:
-                file = re.search(r"(\b(LN|Light Novel|Novel|Book|Volume|Vol|V)([-_. ]|)([0-9]+)(.[0-9]+|)\b)", file, re.IGNORECASE).group(1)
+                file = re.search(r"(\b(LN|Light Novel|Novel|Book|Volume|Vol|V)([-_. ]|)([0-9]+)(.[0-9]+|)\b)", file, re.IGNORECASE)
+                if(hasattr(file, "group")):
+                    file = file.group(1)
+                else:
+                    file = ""
                 file = re.sub(r"(\b(LN|Light Novel|Novel|Book|Volume|Vol|V))", "", file, flags=re.IGNORECASE).strip()
                 if(re.search(r"\b[0-9]+(LN|Light Novel|Novel|Book|Volume|Vol|V)[0-9]+\b", file, re.IGNORECASE)):
                     file = (re.sub(r"(LN|Light Novel|Novel|Book|Volume|Vol|V)", ".", file, flags=re.IGNORECASE)).strip()
-                cleaned.append(float(file))
+                try:
+                    float(file)
+                    results.append(file)
+                except ValueError:
+                    print ("Not a float: " + file)
             except AttributeError:
                 print(str(AttributeError.with_traceback))
-    if(len(cleaned) != 0 and (len(cleaned) == len(files))):
-        return cleaned
+    if(len(results) != 0 and (len(results) == len(files))):
+        return results
+    elif(len(results) == 0):
+        return [""]
+
+# Retrieves the release year
+def get_volume_year(name):
+    result = re.search(r"\((\d{4})\)", name, re.IGNORECASE)
+    if(hasattr(result, "group")):
+        result = result.group(1).strip()
+    else:
+        result == ""
+    return result
+
+# Determines whether or not the release is a fixed release
+def is_fixed_volume(name):
+    if re.search(r"(\(|\[|\{)f(\)|\]|\})", name, re.IGNORECASE):
+        return True
+    else:
+        return False
+
+# Retrieves the release_group on the file name
+def get_release_group(name):
+    result = ""
+    for release_group in release_groups:
+        if re.search(release_group.name, name, re.IGNORECASE):
+            result = release_group.name
+    return result
+
+# Checks the extension and returns accordingly
+def get_type(name):
+    if(str(name).endswith(".cbz")):
+        return "manga"
+    elif(str(name).endswith(".epub")):
+        return "light novel"
+
+# Trades out our regular files for file objects
+def upgrade_to_volume_class(files):
+    results = []
+    for file in files:
+        volume_obj = Volume(get_type(file.extension), get_series_name_from_file_name(file.name), get_volume_year(file.name),remove_everything_but_volume_num([file.name], file.root)[0], is_fixed_volume(file.name), get_release_group(file.name), file.name, file.extensionless_name, file.basename, file.extension, file.root, file.path, file.extensionless_path)
+        results.append(volume_obj)
+    return results
+
+# Retrieves the release_group score from the list, using a high similarity
+def get_release_group_score(name):
+    score = 0.0
+    for group in release_groups:
+        similarity_score = similar(name, group.name)
+        if(similarity_score >= 0.9):
+            score += group.score
+    return score
+
+# Checks if the downloaded release is an upgrade for the current release.
+def is_upgradeable(downloaded_release, current_release):
+    downloaded_release_score = get_release_group_score(downloaded_release.release_group)
+    current_release_score = get_release_group_score(current_release.release_group)
+    if(downloaded_release_score > current_release_score):
+        return True
+    elif((downloaded_release_score == current_release_score) and (downloaded_release.is_fixed == True and current_release.is_fixed == False)):
+        return True
+    else:
+        return False
+
+def delete_hidden_files(files, root):
+    for file in files[:]:
+        if((str(file)).startswith(".") and if_file_exists(root, file)):
+            remove_file(os.path.join(root, file))
+
+# Removes the old series and cover image
+def remove_images(path):
+    for image_extension in image_extensions:
+        for cover_file_name in series_cover_file_names:
+            cover_file_name = os.path.join(os.path.dirname(path), cover_file_name+"."+image_extension)
+            if(os.path.isfile(cover_file_name)):
+                remove_file(cover_file_name)
+        volume_image_cover_file_name = get_extensionless_name(path)+"."+image_extension
+        if(os.path.isfile(volume_image_cover_file_name)):
+            remove_file(volume_image_cover_file_name)
+
+# Removes a file
+def remove_file(full_file_path):
+    try:
+        os.remove(full_file_path)
+        if(not os.path.isfile(full_file_path)):
+            send_change_message("\t\tFile removed: " + full_file_path)
+            remove_images(full_file_path)
+            return True
+        else:
+            send_error_message("\n\t\tFailed to remove file: " + full_file_path)
+            return False
+    except OSError as e:
+        print(e)
+
+# Move a file
+def move_file(file, new_location):
+    try:
+        shutil.move(file.path, new_location)
+        if(os.path.isfile(os.path.join(new_location, file.name))):
+            send_change_message("File: " + file.name + " was successfully moved to: " + new_location)
+            move_images(file, new_location)
+            return True
+        else:
+            send_error_message("Failed to move: " + os.path.join(file.root, file.name) + " to: " + new_location)
+            return False
+    except OSError as e:
+        print(e)
+
+# Replaces the old file.
+def replace_file(old_file, new_file):
+    if(remove_file(old_file.path)):
+        if(move_file(new_file, old_file.root)):
+            send_change_message("\tFile: " + old_file.name + " moved to: " + new_file.root)
+        else:
+            send_error_message("\tFailed to replace: " + old_file.name + " with: " + new_file.name)
+    else:
+        send_error_message("\tFailed to remove old file: " + old_file.name + "\nUpgrade aborted.")
+
+# Removes the duplicate after determining it's upgrade status, otherwise, it upgrades
+def remove_duplicate_releases_from_download(original_releases, downloaded_releases):
+    for download in downloaded_releases[:]:
+        if(download.volume_number == ""):
+            print("\n\tThe volume number is empty on: " + download.name)
+            print("\tAvoiding file, might be a chapter.")
+            downloaded_releases.remove(download)
+        if(len(downloaded_releases) != 0):
+            for original in original_releases:
+                if((download.volume_number == original.volume_number) and (download.volume_number != "" and original.volume_number != "")):
+                    if(not is_upgradeable(download, original)):
+                        print("\n\tVolume: " + download.name + " is not an upgrade to: " + original.name)
+                        print("\tDeleting " + download.name)
+                        downloaded_releases.remove(download)
+                        remove_file(download.path)
+                    else:
+                        print("\n\tVolume: " + download.name + " is an upgrade to: " + original.name)
+                        print("\tUpgrading " + original.name)
+                        replace_file(original, download)
+
+# Checks if the folder is empty, then deletes if it is
+def check_and_delete_empty_folder(folder):
+    delete_hidden_files(os.listdir(folder), folder)
+    folder_contents = os.listdir(folder)
+    remove_hidden_files(folder_contents, folder)
+    if len(folder_contents) == 0:
+        try:
+            os.rmdir(folder)
+        except OSError as e:
+            send_error_message(e)
+
 
 # Checks for an existing series by pulling the folder name within the downloads_folder
 # Then checks for a 1:1 folder within the paths being scanned
-def check_for_existing_series_and_move(full_file_path, dir_clean, download_folder):
-    for path in paths:
-        if os.path.exists(path):
-            try:
-                os.chdir(path)
-                # Walk into each directory
-                for root, dirs, files in os.walk(path):
-                    remove_hidden_files(files, root)
-                    dirs.sort()
-                    files.sort()
-                    for dir in dirs:
-                        existing_dir_directory = os.path.basename(os.path.join(root, full_file_path))
-                        if(str(dir).lower() == str(dir_clean).lower() and not os.path.join(root, dir).__contains__(existing_dir_directory)):
-                            existing_dir_full_file_path = os.path.dirname(os.path.join(root, dir))
-                            download_dir = os.path.join(download_folder, dir_clean)
-                            existing_dir = os.path.join(existing_dir_full_file_path, dir)
-                            if( ((get_cbz_percent_for_folder(os.listdir(download_dir), download_dir) and get_cbz_percent_for_folder(os.listdir(existing_dir), existing_dir))>90) or ((get_epub_percent_for_folder(os.listdir(download_dir), download_dir) and get_epub_percent_for_folder(os.listdir(existing_dir), existing_dir))>90)):
-                                print("Found existing series")
-                                download_dir_files = [f for f in os.listdir(download_dir) if os.path.isfile(os.path.join(download_dir, f))]
-                                download_dir_files.sort()
-                                remove_hidden_files(download_dir_files, download_folder)
-                                remove_all_except_cbz_and_epub(download_dir_files, os.path.join(download_folder, dir_clean))
-                                comparision_download_dir_files = remove_everything_but_volume_num(download_dir_files, os.path.join(download_folder, dir_clean))
-                                existing_dir_files = [f for f in os.listdir(existing_dir) if os.path.isfile(os.path.join(existing_dir, f))]
-                                existing_dir_files.sort()
-                                remove_hidden_files(existing_dir_files, os.path.join(existing_dir_full_file_path, dir))
-                                remove_all_except_cbz_and_epub(existing_dir_files, os.path.join(existing_dir_full_file_path, dir))
-                                existing_dir_files = remove_everything_but_volume_num(existing_dir_files, os.path.join(existing_dir_full_file_path, dir))
-                                for_index_num = [f for f in comparision_download_dir_files]
-                                for comparison_downloaded_item in comparision_download_dir_files[:]:
-                                    if comparison_downloaded_item in existing_dir_files:
-                                        comparision_download_dir_files.remove(comparison_downloaded_item)
-                                if(len(comparision_download_dir_files) != 0):
-                                    for file in comparision_download_dir_files:
-                                        index = for_index_num.index(file)
-                                        if(not os.path.isfile(os.path.join(existing_dir, download_dir_files[index])) and re.search(r"(\(|\)|\[|\])", download_dir_files[index], re.IGNORECASE)):
-                                            shutil.move(os.path.join(download_dir, download_dir_files[index]), existing_dir)
-                                            for image_extension in image_extensions:
-                                                without_extension = os.path.splitext(download_dir_files[index])[0]
-                                                image_file = without_extension + "." + image_extension
-                                                path = os.path.join(download_dir, image_file)
-                                                if(os.path.isfile(path)):
-                                                    shutil.move(path, existing_dir)
-                                    if len(os.listdir(download_dir)) == 0:
-                                            os.rmdir(download_dir)
-            except FileNotFoundError:
-                print("\nERROR: " + path + " is not a valid path.")
-        else:
-            if path == "":
-                print("\nINVALID: Path cannot be empty.")
-            else:
-                print("\nINVALID: " + path + " is an invalid path.")
-
-def remove_all_except_cbz_and_epub(files, root):
-    for file in files[:]:
-        if(not (str(file).endswith(".cbz") or str(file).endswith(".epub")) and os.path.isfile(os.path.join(root, file))):
-            files.remove(file)
-      
-def create_folders_for_items_in_download_folder():
+def check_for_existing_series_and_move():
     for download_folder in download_folders:
         if os.path.exists(download_folder):
             for root, dirs, files in os.walk(download_folder):
-                remove_hidden_files(files, root)
-                for file in files:
-                    extensionless_path = os.path.join(root, os.path.splitext(os.path.basename(file))[0])
-                    full_file_path = os.path.dirname(os.path.join(root, file))
-                    directory = os.path.basename(os.path.join(root, full_file_path))
-                    if(file.endswith(".cbz") or file.endswith(".epub") or file.endswith(".cbr")):
-                        if(os.path.basename(download_folder) == directory):
-                            similarity_result = similar(file, directory)
-                            if(similarity_result < 0.4):
-                                folder_name = (re.sub(r"(\b|\s)(\s-\s|)(LN|Light Novel|Novel|Book|Volume|Vol|V|)([-_. ]|)([0-9]+)(\b|\s).*", "", os.path.splitext(file)[0], flags=re.IGNORECASE)).strip()
-                                folder_name = (re.sub(r"(\([^()]*\))|(\[[^\[\]]*\])|(\{[^\{\}]*\})", "", folder_name)).strip()
-                                folder_name = (re.sub(r"(\(|\)|\[|\]|{|})", "", folder_name, flags=re.IGNORECASE)).strip()
-                                does_folder_exist = os.path.exists(os.path.join(root, folder_name))
-                                if not does_folder_exist:
-                                    os.mkdir(os.path.join(root, folder_name))
-                                    shutil.move(os.path.join(root, file), os.path.join(root, folder_name))
-                                    move_image(extensionless_path, root, folder_name)
+                download_folder_dirs = [d for d in dirs]
+                clean_and_sort_three(download_folder_dirs, download_folder)
+                for d in download_folder_dirs:
+                    dir_clean = d
+                    if(dir_clean != ""):
+                        current_download_folder_index = download_folder_dirs.index(d) + 1
+                        total_download_folders_to_check = len(download_folder_dirs)
+                        for path in paths:
+                            if os.path.exists(path):
+                                try:
+                                    os.chdir(path)
+                                    path_dirs = os.listdir(path)
+                                    clean_and_sort_three(path_dirs, path)
+                                    global folder_accessor
+                                    folder_accessor = Folder(path, path_dirs, os.path.basename(os.path.dirname(path)), os.path.basename(path), [""])
+                                    print("\n")
+                                    for dir in folder_accessor.dirs:
+                                        print("\nLooking for \"" + dir_clean + "\" - item [" + str(current_download_folder_index) + " of " + str(total_download_folders_to_check) + "]")
+                                        print_info_two(os.path.join(folder_accessor.root, dir))
+                                        current_folder_path = os.path.join(folder_accessor.root, dir)
+                                        download_folder_basename = os.path.basename(download_folder)
+                                        if(not re.search(download_folder_basename, current_folder_path, re.IGNORECASE)):
+                                            dir_clean_compare = ((str(dir_clean)).lower()).strip()
+                                            dir_compare = ((str(dir)).lower()).strip()
+                                            similarity_score = similar(dir_compare, dir_clean_compare)
+                                            if(similarity_score >= 0.895):
+                                                print("\tSimilarity between: \"" + dir_compare + "\" and \"" + dir_clean_compare + "\"")
+                                                print("\tSimilarity Score: " + str(similarity_score) + " out of 1.0")
+                                                existing_dir_full_file_path = os.path.dirname(os.path.join(folder_accessor.root, dir))
+                                                download_dir = os.path.join(download_folder, dir_clean)
+                                                existing_dir = os.path.join(existing_dir_full_file_path, dir)
+                                                clean_downloads = os.listdir(download_dir)
+                                                clean_existing = os.listdir(existing_dir)
+                                                clean_and_sort_two(clean_downloads, download_dir)
+                                                clean_and_sort_two(clean_existing, existing_dir)
+                                                download_dir_volumes = upgrade_to_volume_class(upgrade_to_file_class([f for f in clean_downloads if os.path.isfile(os.path.join(download_dir, f))], download_dir))
+                                                existing_dir_volumes = upgrade_to_volume_class(upgrade_to_file_class([f for f in clean_existing if os.path.isfile(os.path.join(existing_dir, f))], existing_dir))
+                                                if(((get_cbz_percent_for_folder(download_dir_volumes) and get_cbz_percent_for_folder(existing_dir_volumes))>90) or ((get_epub_percent_for_folder(download_dir_volumes) and get_epub_percent_for_folder(existing_dir_volumes))>90)):
+                                                    send_change_message("\tFound existing series: " + existing_dir)
+                                                    remove_duplicate_releases_from_download(existing_dir_volumes, download_dir_volumes)
+                                                    if(len(download_dir_volumes) != 0):
+                                                        for volume in download_dir_volumes:
+                                                            print("\n\tVolume: " + volume.name + " does note exist in: " + existing_dir)
+                                                            print("\tMoving: " + volume.name + " to " + existing_dir)
+                                                            move_file(volume, existing_dir)
+                                                    print("\tChecking for empty folder: " + download_dir)
+                                                    check_and_delete_empty_folder(download_dir)
+                                            elif(similarity_score >= 0.89 and similarity_score <= 0.9):
+                                                print("\tScore between 0.85 and 0.79")
+                                                print("\tScore: " + str(similarity_score))
+                                                print("\tScore for: \"" + dir_compare + "\" and \"" + dir_clean_compare + "\"")
+                                                print("")
+                                except FileNotFoundError:
+                                    send_error_message("\nERROR: " + path + " is not a valid path.\n")
+                            else:
+                                if path == "":
+                                    send_error_message("\nINVALID: Path cannot be empty.")
                                 else:
-                                    shutil.move(os.path.join(root, file), os.path.join(root, folder_name))
-                                    move_image(extensionless_path, root, folder_name)
+                                    send_error_message("\nINVALID: " + path + " is an invalid path.\n")
+                    else:
+                        print(dir_clean + " is empty.")
+                        print("Originally derived from: " + d)
+                        print("Location: " + os.path.join(root, d))
         else:
             if download_folder == "":
-                print("\nINVALID: Download folder path cannot be empty.")
-                errors.append("INVALID: Download folder path cannot be empty.")
+                send_error_message("\nINVALID: Path cannot be empty.")
             else:
-                print("\nINVALID: " + download_folder + " is an invalid path.")
-                errors.append("INVALID: " + download_folder + " is an invalid path.")
+                send_error_message("\nINVALID: " + download_folder + " is an invalid path.\n")
+                
+
+# Removes any unnecessary junk through regex in the folder name and returns the result
+def get_series_name(dir): # SEP 10, 2021 - REMOVED | ON V, IT NOW REQUIRES ONE OF THE KEYWORDS TO BE PRESENT
+    dir = (re.sub(r"(\b|\s)(\s-\s|)(Part|)(LN|Light Novel|Novel|Book|Volume|Vol|V)([-_. ]|)([0-9]+)(\b|\s).*", "", dir, flags=re.IGNORECASE)).strip()
+    dir = (re.sub(r"(\([^()]*\))|(\[[^\[\]]*\])|(\{[^\{\}]*\})", "", dir)).strip()
+    dir = (re.sub(r"(\(|\)|\[|\]|{|})", "", dir, flags=re.IGNORECASE)).strip()
+    return dir
+    
+# Renames the folders in our download directory.
+# EX: You have a folder named "I Was Reincarnated as the 7th Prince so I Can Take My Time Perfecting My Magical Ability (Digital) (release-group)"
+# Said folder would be renamed to "I Was Reincarnated as the 7th Prince so I Can Take My Time Perfecting My Magical Ability"
+def rename_dirs_in_download_folder():
+    for download_folder in download_folders:
+        if os.path.exists(download_folder):
+            try:
+                for root, dirs, files in os.walk(download_folder):
+                    clean_and_sort(files, root, dirs)
+                    global folder_accessor
+                    file_objects = upgrade_to_file_class(files, root)
+                    folder_accessor = Folder(root, dirs, os.path.basename(os.path.dirname(root)), os.path.basename(root), file_objects) 
+                    for dir in folder_accessor.dirs: 
+                        full_file_path = os.path.dirname(os.path.join(folder_accessor.root, dir))
+                        directory = os.path.basename(os.path.join(folder_accessor.root, full_file_path))
+                        if(os.path.basename(download_folder) == directory):
+                            if (re.search(r"((\s\[|\]\s)|(\s\(|\)\s)|(\s\{|\}\s))", dir, re.IGNORECASE) or re.search(r"(\s-\s|\s-)$", dir, re.IGNORECASE) or re.search(r"(\bLN\b)", dir, re.IGNORECASE) or re.search(r"(\b|\s)(\s-\s|)(Part|)(LN|Light Novel|Novel|Book|Volume|Vol|V|)([-_. ]|)([0-9]+)(\b|\s)", dir, re.IGNORECASE) or re.search(r"\bPremium\b", dir, re.IGNORECASE)):
+                                dir_clean = get_series_name(dir)
+                                if(not os.path.isdir(os.path.join(folder_accessor.root, dir_clean))):
+                                    try:
+                                        os.rename(os.path.join(folder_accessor.root, dir), os.path.join(folder_accessor.root, dir_clean))
+                                    except OSError as e:
+                                        print(e)
+                                elif(os.path.isdir(os.path.join(folder_accessor.root, dir_clean)) and (os.path.join(folder_accessor.root, dir) != os.path.join(folder_accessor.root, dir_clean)) and dir_clean != ""):
+                                    for root, dirs, files in os.walk(os.path.join(folder_accessor.root, dir)):
+                                        remove_hidden_files(files, root)
+                                        file_objects = upgrade_to_file_class(files, root)
+                                        folder_accessor = Folder(root, dirs, os.path.basename(os.path.dirname(root)), os.path.basename(root), file_objects)
+                                        for file in folder_accessor.files:
+                                            new_location_folder = os.path.join(download_folder, dir_clean)
+                                            if(not os.path.isfile(os.path.join(new_location_folder, file.name))):
+                                                shutil.move(os.path.join(folder_accessor.root, file.name), os.path.join(download_folder, dir_clean))
+                                            else:
+                                                send_error_message("File: " + file.name + " already exists in: " + os.path.join(download_folder, dir_clean))
+                                                send_error_message("Removing duplicate from downloads.")
+                                                remove_file(os.path.join(folder_accessor.root, file.name))
+                                        check_and_delete_empty_folder(folder_accessor.root)
+            except FileNotFoundError:
+                send_error_message("\nERROR: " + download_folder + " is not a valid path.\n")
+        else:
+            if download_folder == "":
+                send_error_message("\nINVALID: Path cannot be empty.")
+            else:
+                send_error_message("\nINVALID: " + download_folder + " is an invalid path.\n")
+
 def main():
-    global file_count
-    global cbz_count
-    global epub_count
-    #create_folders_for_items_in_download_folder()
-    #rename_dirs_in_download_folder()  
+    create_folders_for_items_in_download_folder()
+    rename_dirs_in_download_folder()
+    #check_for_existing_series_and_move()
     for path in paths:
         if os.path.exists(path):
             try:
                 os.chdir(path)
-                # Walk into each directory
                 for root, dirs, files in os.walk(path):
-                    dirs.sort()
-                    files.sort()
                     remove_hidden_files(files, root)
-                    dirs[:] = [d for d in dirs if d not in ignored_folders]
-                    print_file_info(root, dirs, files)
-                    foundExistingCover = check_for_existing_cover(files)
-                    for file in files:
-                        individual_volume_cover_file_stuff(file, root, os.path.join(root, file))
-                        if(foundExistingCover == 1):
-                            check_for_duplicate_cover(root)
-                        if(foundExistingCover == 0):
+                    has_cover = check_for_existing_cover(files)
+                    clean_and_sort(files, root, dirs)
+                    global folder_accessor
+                    file_objects = upgrade_to_file_class(files, root)
+                    folder_accessor = Folder(root, dirs, os.path.basename(os.path.dirname(root)), os.path.basename(root), file_objects)        
+                    print_info(folder_accessor.root, folder_accessor.dirs, folder_accessor.files)
+                    for file in folder_accessor.files:
+                        individual_volume_cover_file_stuff(file)
+                        if(has_cover):
+                            check_for_duplicate_cover(file)
+                        else:
                             try:
-                                foundExistingCover = foundExistingCover + cover_file_stuff(root, os.path.join(root, file), files)
+                                has_cover = has_cover + cover_file_stuff(file, folder_accessor.files)
                             except Exception:
-                                print("Exception thrown when finding existing cover.")
-                                print("Excpetion occured on: " + str(file))
+                                send_error_message("Exception thrown when finding existing cover.")
+                                send_error_message("Excpetion occured on: " + str(file))
             except FileNotFoundError:
-                print("\nERROR: " + path + " is not a valid path.")
+                send_error_message("\nERROR: " + path + " is not a valid path.\n")
         else:
             if path == "":
-                print("\nINVALID: Path cannot be empty.")
+                send_error_message("\nINVALID: Path cannot be empty.")
             else:
-                print("\nINVALID: " + path + " is an invalid path.")
+                send_error_message("\nINVALID: " + path + " is an invalid path.\n")
 
 main()
 print("\nFor all " + str(len(paths)) + " paths.")
