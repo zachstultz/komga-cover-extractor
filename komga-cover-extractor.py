@@ -65,11 +65,12 @@ class File:
 
 # Volume Class
 class Volume:
-    def __init__(self, volume_type, series_name, volume_year, volume_number, is_fixed, release_group, name, extensionless_name, basename, extension, root, path, extensionless_path):
+    def __init__(self, volume_type, series_name, volume_year, volume_number, volume_part, is_fixed, release_group, name, extensionless_name, basename, extension, root, path, extensionless_path):
         self.volume_type = volume_type
         self.series_name = series_name
         self.volume_year = volume_year
         self.volume_number = volume_number
+        self.volume_part = volume_part
         self.is_fixed = is_fixed
         self.release_group = release_group
         self.name = name
@@ -93,7 +94,11 @@ release_groups = [
     Release_Group("LuCaZ",  75),
     Release_Group("Shizu",  50),
     Release_Group("1r0n",  25),
-    Release_Group("Premium", 5) # For LN releases
+    Release_Group("Premium", 5), # For LN releases
+    Release_Group("{r2}", 1),
+    Release_Group("{r3}", 2),
+    Release_Group("{r4}", 3),
+    Release_Group("{r5}", 4)
 ]
 
 # Appends, sends, and prints our error message
@@ -232,8 +237,8 @@ def extract_cover(zip_file, zip_internal_image_file_path, zip_internal_image_fil
                         send_change_message("Copying file and renaming.")
                         shutil.copyfileobj(zf, f)
                         return
-            except zipfile.BadZipFile:
-                send_error_message("Bad Zipfile: " + str(file.path))
+            except IOError as io:
+                send_error_message(io)
     return
 
 # Checks the internal zip for covers.
@@ -400,9 +405,9 @@ def create_folders_for_items_in_download_folder():
                 send_error_message("\nERROR: " + download_folder + " is not a valid path.\n")
         else:
             if download_folder == "":
-                send_error_message("\nINVALID: Path cannot be empty.")
+                send_error_message("\nERROR: Path cannot be empty.")
             else:
-                send_error_message("\nINVALID: " + download_folder + " is an invalid path.\n")
+                send_error_message("\nERROR: " + download_folder + " is an invalid path.\n")
 
 # Returns the percentage of files that are epub, to the total amount of files
 def get_epub_percent_for_folder(files):
@@ -422,25 +427,25 @@ def get_cbz_percent_for_folder(files):
     cbz_percent = (cbz_folder_count / (len(files)) * 100) if cbz_folder_count != 0 else 0
     return cbz_percent
 
+# NEEDS REVISION
 # Finds the volume number and strips out everything except that number
 def remove_everything_but_volume_num(files, root):
     results = []
     for file in files[:]:
-        if(not re.search(r"(\b(LN|Light Novel|Novel|Book|Volume|Vol|V)([-_. ]|)([0-9]+)(.[0-9]+|)\b)", file, re.IGNORECASE) and os.path.isfile(os.path.join(root, file))):
+        if(not re.search(r"\b(LN|Light Novel|Novel|Book|Volume|Vol|V)([-_. ]|)([-_. ]|)([0-9]+)(.[0-9]+|)\b", file, re.IGNORECASE) and os.path.isfile(os.path.join(root, file))):
             files.remove(file)
         else:
             try:
-                file = re.search(r"(\b(LN|Light Novel|Novel|Book|Volume|Vol|V)([-_. ]|)([0-9]+)(.[0-9]+|)\b)", file, re.IGNORECASE)
+                file = re.search(r"\b(LN|Light Novel|Novel|Book|Volume|Vol|V)([-_. ]|)([-_. ]|)([0-9]+)(.[0-9]+|)\b", file, re.IGNORECASE)
                 if(hasattr(file, "group")):
-                    file = file.group(1)
+                    file = file.group()
                 else:
                     file = ""
-                file = re.sub(r"(\b(LN|Light Novel|Novel|Book|Volume|Vol|V))", "", file, flags=re.IGNORECASE).strip()
+                file = re.sub(r"(\b(LN|Light Novel|Novel|Book|Volume|Vol|V)(\.|))", "", file, flags=re.IGNORECASE).strip()
                 if(re.search(r"\b[0-9]+(LN|Light Novel|Novel|Book|Volume|Vol|V)[0-9]+\b", file, re.IGNORECASE)):
                     file = (re.sub(r"(LN|Light Novel|Novel|Book|Volume|Vol|V)", ".", file, flags=re.IGNORECASE)).strip()
                 try:
-                    float(file)
-                    results.append(file)
+                    results.append(float(file))
                 except ValueError:
                     print ("Not a float: " + file)
             except AttributeError:
@@ -481,11 +486,25 @@ def get_type(name):
     elif(str(name).endswith(".epub")):
         return "light novel"
 
+# Retrieves and returns the volume part from the file name
+def get_volume_part(file):
+    result = ""
+    search = re.search(r"(\b(Part)([-_. ]|)([0-9]+)\b)", file, re.IGNORECASE)
+    if(search):
+        result = search.group(1)
+        result = re.sub(r"(\b(Part)([-_. ]|)\b)", "", result, flags=re.IGNORECASE)
+        try:
+            return float(result)
+        except ValueError:
+            print ("Not a float: " + file)
+            result = ""
+    return result
+
 # Trades out our regular files for file objects
 def upgrade_to_volume_class(files):
     results = []
     for file in files:
-        volume_obj = Volume(get_type(file.extension), get_series_name_from_file_name(file.name), get_volume_year(file.name),remove_everything_but_volume_num([file.name], file.root)[0], is_fixed_volume(file.name), get_release_group(file.name), file.name, file.extensionless_name, file.basename, file.extension, file.root, file.path, file.extensionless_path)
+        volume_obj = Volume(get_type(file.extension), get_series_name_from_file_name(file.name), get_volume_year(file.name),remove_everything_but_volume_num([file.name], file.root)[0], get_volume_part(file.name), is_fixed_volume(file.name), get_release_group(file.name), file.name, file.extensionless_name, file.basename, file.extension, file.root, file.path, file.extensionless_path)
         results.append(volume_obj)
     return results
 
@@ -544,7 +563,7 @@ def move_file(file, new_location):
     try:
         shutil.move(file.path, new_location)
         if(os.path.isfile(os.path.join(new_location, file.name))):
-            send_change_message("File: " + file.name + " was successfully moved to: " + new_location)
+            send_change_message("\nFile: " + file.name + " was successfully moved to: " + new_location)
             move_images(file, new_location)
             return True
         else:
@@ -576,7 +595,8 @@ def remove_duplicate_releases_from_download(original_releases, downloaded_releas
                     if(not is_upgradeable(download, original)):
                         print("\n\tVolume: " + download.name + " is not an upgrade to: " + original.name)
                         print("\tDeleting " + download.name)
-                        downloaded_releases.remove(download)
+                        if(download in downloaded_releases):
+                            downloaded_releases.remove(download)
                         remove_file(download.path)
                     else:
                         print("\n\tVolume: " + download.name + " is an upgrade to: " + original.name)
@@ -657,23 +677,23 @@ def check_for_existing_series_and_move():
                                     send_error_message("\nERROR: " + path + " is not a valid path.\n")
                             else:
                                 if path == "":
-                                    send_error_message("\nINVALID: Path cannot be empty.")
+                                    send_error_message("\nERROR: Path cannot be empty.")
                                 else:
-                                    send_error_message("\nINVALID: " + path + " is an invalid path.\n")
+                                    send_error_message("\nERROR: " + path + " is an invalid path.\n")
                     else:
                         print(dir_clean + " is empty.")
                         print("Originally derived from: " + d)
                         print("Location: " + os.path.join(root, d))
         else:
             if download_folder == "":
-                send_error_message("\nINVALID: Path cannot be empty.")
+                send_error_message("\nERROR: Path cannot be empty.")
             else:
-                send_error_message("\nINVALID: " + download_folder + " is an invalid path.\n")
+                send_error_message("\nERROR: " + download_folder + " is an invalid path.\n")
                 
 
 # Removes any unnecessary junk through regex in the folder name and returns the result
 def get_series_name(dir): # SEP 10, 2021 - REMOVED | ON V, IT NOW REQUIRES ONE OF THE KEYWORDS TO BE PRESENT
-    dir = (re.sub(r"(\b|\s)(\s-\s|)(Part|)(LN|Light Novel|Novel|Book|Volume|Vol|V)([-_. ]|)([0-9]+)(\b|\s).*", "", dir, flags=re.IGNORECASE)).strip()
+    dir = (re.sub(r"(\b|\s)(\s-\s|)(Part|)(LN|Light Novel|Novel|Book|Volume|Vol|V)([-_. ]|)([-_. ]|)([0-9]+)(\b|\s).*", "", dir, flags=re.IGNORECASE)).strip()
     dir = (re.sub(r"(\([^()]*\))|(\[[^\[\]]*\])|(\{[^\{\}]*\})", "", dir)).strip()
     dir = (re.sub(r"(\(|\)|\[|\]|{|})", "", dir, flags=re.IGNORECASE)).strip()
     return dir
@@ -719,14 +739,14 @@ def rename_dirs_in_download_folder():
                 send_error_message("\nERROR: " + download_folder + " is not a valid path.\n")
         else:
             if download_folder == "":
-                send_error_message("\nINVALID: Path cannot be empty.")
+                send_error_message("\nERROR: Path cannot be empty.")
             else:
-                send_error_message("\nINVALID: " + download_folder + " is an invalid path.\n")
+                send_error_message("\nERROR: " + download_folder + " is an invalid path.\n")
 
 def main():
     create_folders_for_items_in_download_folder()
     rename_dirs_in_download_folder()
-    #check_for_existing_series_and_move()
+    check_for_existing_series_and_move()
     for path in paths:
         if os.path.exists(path):
             try:
@@ -753,9 +773,9 @@ def main():
                 send_error_message("\nERROR: " + path + " is not a valid path.\n")
         else:
             if path == "":
-                send_error_message("\nINVALID: Path cannot be empty.")
+                send_error_message("\nERROR: Path cannot be empty.")
             else:
-                send_error_message("\nINVALID: " + path + " is an invalid path.\n")
+                send_error_message("\nERROR: " + path + " is an invalid path.\n")
 
 main()
 print("\nFor all " + str(len(paths)) + " paths.")
