@@ -6,6 +6,7 @@ import zlib
 import zipfile
 import shutil
 from difflib import SequenceMatcher
+from datetime import datetime
 
 # ************************************
 # Created by: Zach Stultz            *
@@ -104,11 +105,13 @@ release_groups = [
 # Appends, sends, and prints our error message
 def send_error_message(error):
     print(error)
+    write_to_file("errors.txt", error)
 
 # Appends, sends, and prints our change message
 def send_change_message(message):
     print(message)
     items_changed.append(message)
+    write_to_file("changes.txt", message)
 
 # Checks if a file exists
 def if_file_exists(root, file):
@@ -407,7 +410,7 @@ def create_folders_for_items_in_download_folder():
             if download_folder == "":
                 send_error_message("\nERROR: Path cannot be empty.")
             else:
-                send_error_message("\nERROR: " + download_folder + " is an invalid path.\n")
+                print("\nERROR: " + download_folder + " is an invalid path.\n")
 
 # Returns the percentage of files that are epub, to the total amount of files
 def get_epub_percent_for_folder(files):
@@ -447,7 +450,9 @@ def remove_everything_but_volume_num(files, root):
                 try:
                     results.append(float(file))
                 except ValueError:
-                    print ("Not a float: " + file)
+                    message = "Not a float: " + files[0]
+                    print(message)
+                    write_to_file("errors.txt", message)
             except AttributeError:
                 print(str(AttributeError.with_traceback))
     if(len(results) != 0 and (len(results) == len(files))):
@@ -586,21 +591,21 @@ def replace_file(old_file, new_file):
 def remove_duplicate_releases_from_download(original_releases, downloaded_releases):
     for download in downloaded_releases[:]:
         if(download.volume_number == ""):
-            print("\n\tThe volume number is empty on: " + download.name)
-            print("\tAvoiding file, might be a chapter.")
+            send_error_message("\n\tThe volume number is empty on: " + download.name)
+            send_error_message("\tAvoiding file, might be a chapter.")
             downloaded_releases.remove(download)
         if(len(downloaded_releases) != 0):
             for original in original_releases:
                 if((download.volume_number == original.volume_number) and (download.volume_number != "" and original.volume_number != "")):
                     if(not is_upgradeable(download, original)):
-                        print("\n\tVolume: " + download.name + " is not an upgrade to: " + original.name)
-                        print("\tDeleting " + download.name)
+                        send_change_message("\n\tVolume: " + download.name + " is not an upgrade to: " + original.name)
+                        send_change_message("\tDeleting " + download.name)
                         if(download in downloaded_releases):
                             downloaded_releases.remove(download)
                         remove_file(download.path)
                     else:
-                        print("\n\tVolume: " + download.name + " is an upgrade to: " + original.name)
-                        print("\tUpgrading " + original.name)
+                        send_change_message("\n\tVolume: " + download.name + " is an upgrade to: " + original.name)
+                        send_change_message("\tUpgrading " + original.name)
                         replace_file(original, download)
 
 # Checks if the folder is empty, then deletes if it is
@@ -614,6 +619,60 @@ def check_and_delete_empty_folder(folder):
         except OSError as e:
             send_error_message(e)
 
+def write_to_file(file, message):
+    ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+    file_path = os.path.join(ROOT_DIR, file)
+    append_write = ""
+    if os.path.exists(file_path):
+        append_write = 'a' # append if already exists
+    else:
+        append_write = 'w' # make a new file if not
+    try:
+        if(append_write != ""):
+            now = datetime.now()
+            dt_string = now.strftime("%d/%m/%Y %H:%M:%S")
+            file = open(file_path, append_write)
+            file.write("\n" + dt_string + " " + message)
+            file.close()
+    except Exception as e:
+        print(e)
+
+def check_for_missing_volumes():
+    paths_clean = [p for p in paths if p not in download_folders]
+    for path in paths_clean:
+        if os.path.exists(path):
+            os.chdir(path)
+            path_dirs = os.listdir(path)
+            clean_and_sort_three(path_dirs, path)
+            global folder_accessor
+            folder_accessor = Folder(path, path_dirs, os.path.basename(os.path.dirname(path)), os.path.basename(path), [""])
+            for dir in folder_accessor.dirs:
+                current_folder_path = os.path.join(folder_accessor.root, dir)
+                existing_dir_full_file_path = os.path.dirname(os.path.join(folder_accessor.root, dir))
+                existing_dir = os.path.join(existing_dir_full_file_path, dir)
+                clean_existing = os.listdir(existing_dir)
+                clean_and_sort_two(clean_existing, existing_dir)
+                existing_dir_volumes = upgrade_to_volume_class(upgrade_to_file_class([f for f in clean_existing if os.path.isfile(os.path.join(existing_dir, f))], existing_dir))
+                for existing in existing_dir_volumes:
+                    if(existing.volume_number == ''):
+                        existing_dir_volumes.remove(existing)
+                if(len(existing_dir_volumes) >= 2):
+                    volume_numbers = []
+                    for volume in existing_dir_volumes:
+                        if(volume.volume_number != ''):
+                            volume_numbers.append(volume.volume_number)
+                    if(len(volume_numbers) >= 2):
+                        lowest_volume_number = 1
+                        highest_volume_number = int(max(volume_numbers))
+                        volume_num_range = list(range(lowest_volume_number, highest_volume_number+1))
+                        for number in volume_numbers:
+                            if(number in volume_num_range):
+                                volume_num_range.remove(number)
+                        if(len(volume_num_range) != 0):
+                            for number in volume_num_range:
+                                message = ("Volume " + str(number) + " in " + current_folder_path + " is missing.")
+                                print(message)
+                                write_to_file("missing_volumes.txt", message)
 
 # Checks for an existing series by pulling the folder name within the downloads_folder
 # Then checks for a 1:1 folder within the paths being scanned
@@ -646,7 +705,7 @@ def check_for_existing_series_and_move():
                                             dir_clean_compare = ((str(dir_clean)).lower()).strip()
                                             dir_compare = ((str(dir)).lower()).strip()
                                             similarity_score = similar(dir_compare, dir_clean_compare)
-                                            if(similarity_score >= 0.895):
+                                            if(similarity_score >= 0.9250):
                                                 print("\tSimilarity between: \"" + dir_compare + "\" and \"" + dir_clean_compare + "\"")
                                                 print("\tSimilarity Score: " + str(similarity_score) + " out of 1.0")
                                                 existing_dir_full_file_path = os.path.dirname(os.path.join(folder_accessor.root, dir))
@@ -663,12 +722,12 @@ def check_for_existing_series_and_move():
                                                     remove_duplicate_releases_from_download(existing_dir_volumes, download_dir_volumes)
                                                     if(len(download_dir_volumes) != 0):
                                                         for volume in download_dir_volumes:
-                                                            print("\n\tVolume: " + volume.name + " does note exist in: " + existing_dir)
-                                                            print("\tMoving: " + volume.name + " to " + existing_dir)
+                                                            send_change_message("\n\tVolume: " + volume.name + " does note exist in: " + existing_dir)
+                                                            send_change_message("\tMoving: " + volume.name + " to " + existing_dir)
                                                             move_file(volume, existing_dir)
                                                     print("\tChecking for empty folder: " + download_dir)
                                                     check_and_delete_empty_folder(download_dir)
-                                            elif(similarity_score >= 0.89 and similarity_score <= 0.9):
+                                            elif(similarity_score >= 0.89 and similarity_score < 0.925):
                                                 print("\tScore between 0.85 and 0.79")
                                                 print("\tScore: " + str(similarity_score))
                                                 print("\tScore for: \"" + dir_compare + "\" and \"" + dir_clean_compare + "\"")
@@ -679,7 +738,7 @@ def check_for_existing_series_and_move():
                                 if path == "":
                                     send_error_message("\nERROR: Path cannot be empty.")
                                 else:
-                                    send_error_message("\nERROR: " + path + " is an invalid path.\n")
+                                    print("\nERROR: " + path + " is an invalid path.\n")
                     else:
                         print(dir_clean + " is empty.")
                         print("Originally derived from: " + d)
@@ -688,7 +747,7 @@ def check_for_existing_series_and_move():
             if download_folder == "":
                 send_error_message("\nERROR: Path cannot be empty.")
             else:
-                send_error_message("\nERROR: " + download_folder + " is an invalid path.\n")
+                print("\nERROR: " + download_folder + " is an invalid path.\n")
                 
 
 # Removes any unnecessary junk through regex in the folder name and returns the result
@@ -741,12 +800,13 @@ def rename_dirs_in_download_folder():
             if download_folder == "":
                 send_error_message("\nERROR: Path cannot be empty.")
             else:
-                send_error_message("\nERROR: " + download_folder + " is an invalid path.\n")
+                print("\nERROR: " + download_folder + " is an invalid path.\n")
 
 def main():
-    create_folders_for_items_in_download_folder()
-    rename_dirs_in_download_folder()
-    check_for_existing_series_and_move()
+    #create_folders_for_items_in_download_folder()
+    #rename_dirs_in_download_folder()
+    #check_for_existing_series_and_move()
+    #check_for_missing_volumes()
     for path in paths:
         if os.path.exists(path):
             try:
@@ -775,7 +835,7 @@ def main():
             if path == "":
                 send_error_message("\nERROR: Path cannot be empty.")
             else:
-                send_error_message("\nERROR: " + path + " is an invalid path.\n")
+                print("\nERROR: " + path + " is an invalid path.\n")
 
 main()
 print("\nFor all " + str(len(paths)) + " paths.")
