@@ -764,36 +764,38 @@ def rename_dirs_in_download_folder():
     for download_folder in download_folders:
         if os.path.exists(download_folder):
             try:
-                for root, dirs, files in os.walk(download_folder):
-                    clean_and_sort(files, root, dirs)
-                    global folder_accessor
-                    file_objects = upgrade_to_file_class(files, root)
-                    folder_accessor = Folder(root, dirs, os.path.basename(os.path.dirname(root)), os.path.basename(root), file_objects) 
-                    for dir in folder_accessor.dirs: 
-                        full_file_path = os.path.dirname(os.path.join(folder_accessor.root, dir))
-                        directory = os.path.basename(os.path.join(folder_accessor.root, full_file_path))
-                        if(os.path.basename(download_folder) == directory):
-                            if (re.search(r"((\s\[|\]\s)|(\s\(|\)\s)|(\s\{|\}\s))", dir, re.IGNORECASE) or re.search(r"(\s-\s|\s-)$", dir, re.IGNORECASE) or re.search(r"(\bLN\b)", dir, re.IGNORECASE) or re.search(r"(\b|\s)(\s-\s|)(Part|)(LN|Light Novel|Novel|Book|Volume|Vol|V|)([-_. ]|)([0-9]+)(\b|\s)", dir, re.IGNORECASE) or re.search(r"\bPremium\b", dir, re.IGNORECASE)):
-                                dir_clean = get_series_name(dir)
-                                if(not os.path.isdir(os.path.join(folder_accessor.root, dir_clean))):
-                                    try:
-                                        os.rename(os.path.join(folder_accessor.root, dir), os.path.join(folder_accessor.root, dir_clean))
-                                    except OSError as e:
-                                        print(e)
-                                elif(os.path.isdir(os.path.join(folder_accessor.root, dir_clean)) and (os.path.join(folder_accessor.root, dir) != os.path.join(folder_accessor.root, dir_clean)) and dir_clean != ""):
-                                    for root, dirs, files in os.walk(os.path.join(folder_accessor.root, dir)):
+                download_folder_dirs = [f for f in os.listdir(download_folder) if os.path.isdir(join(download_folder, f))]
+                download_folder_files = [f for f in os.listdir(download_folder) if os.path.isfile(join(download_folder, f))]
+                clean_and_sort(download_folder_files, download_folder, download_folder_dirs)
+                global folder_accessor
+                file_objects = upgrade_to_file_class(download_folder_files[:], download_folder)
+                folder_accessor = Folder(download_folder, download_folder_dirs[:], os.path.basename(os.path.dirname(download_folder)), os.path.basename(download_folder), file_objects)
+                for folderDir in folder_accessor.dirs[:]:
+                    full_file_path = os.path.join(folder_accessor.root, folderDir)
+                    download_folder_basename = os.path.basename(download_folder)
+                    if(re.search(download_folder_basename, full_file_path, re.IGNORECASE)):
+                        if (re.search(r"((\s\[|\]\s)|(\s\(|\)\s)|(\s\{|\}\s))", folderDir, re.IGNORECASE) or re.search(r"(\s-\s|\s-)$", folderDir, re.IGNORECASE) or re.search(r"(\bLN\b)", folderDir, re.IGNORECASE) or re.search(r"(\b|\s)(\s-\s|)(Part|)(LN|Light Novel|Novel|Book|Volume|Vol|V|)([-_. ]|)([0-9]+)(\b|\s)", folderDir, re.IGNORECASE) or re.search(r"\bPremium\b", folderDir, re.IGNORECASE)):
+                            dir_clean = get_series_name(folderDir)
+                            if(not os.path.isdir(os.path.join(folder_accessor.root, dir_clean))):
+                                try:
+                                    os.rename(os.path.join(folder_accessor.root, folderDir), os.path.join(folder_accessor.root, dir_clean))
+                                except OSError as e:
+                                    print(e)
+                            elif(os.path.isdir(os.path.join(folder_accessor.root, dir_clean)) and dir_clean != ""):
+                                if(os.path.join(folder_accessor.root, folderDir) != os.path.join(folder_accessor.root, dir_clean)):
+                                    for root, dirs, files in os.walk(os.path.join(folder_accessor.root, folderDir)):
                                         remove_hidden_files(files, root)
                                         file_objects = upgrade_to_file_class(files, root)
-                                        folder_accessor = Folder(root, dirs, os.path.basename(os.path.dirname(root)), os.path.basename(root), file_objects)
-                                        for file in folder_accessor.files:
+                                        folder_accessor2 = Folder(root, dirs, os.path.basename(os.path.dirname(root)), os.path.basename(root), file_objects)
+                                        for file in folder_accessor2.files:
                                             new_location_folder = os.path.join(download_folder, dir_clean)
                                             if(not os.path.isfile(os.path.join(new_location_folder, file.name))):
-                                                shutil.move(os.path.join(folder_accessor.root, file.name), os.path.join(download_folder, dir_clean))
+                                                move_file(file, os.path.join(download_folder, dir_clean))
                                             else:
                                                 send_error_message("File: " + file.name + " already exists in: " + os.path.join(download_folder, dir_clean))
                                                 send_error_message("Removing duplicate from downloads.")
-                                                remove_file(os.path.join(folder_accessor.root, file.name))
-                                        check_and_delete_empty_folder(folder_accessor.root)
+                                                remove_file(os.path.join(folder_accessor2.root, file.name))
+                                        check_and_delete_empty_folder(folder_accessor2.root)
             except FileNotFoundError:
                 send_error_message("\nERROR: " + download_folder + " is not a valid path.\n")
         else:
