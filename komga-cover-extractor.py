@@ -374,7 +374,7 @@ def move_images(file, folder_name):
 
 # Retrieves the series name through various regexes
 def get_series_name_from_file_name(name):
-    name = (re.sub(r"(\b|\s)(\s-\s|)(Part|)(LN|Light Novel|Novel|Book|Volume|Vol|V|)([-_. ]|)([0-9]+)(\b|\s).*", "", name, flags=re.IGNORECASE)).strip()
+    name = (re.sub(r"(\b|\s)((\s|)-\s|)(Part|)(LN|Light Novel|Novel|Book|Volume|Vol|V|)([-_. ]|)([0-9]+)(\b|\s).*", "", name, flags=re.IGNORECASE)).strip()
     name = (re.sub(r"(\([^()]*\))|(\[[^\[\]]*\])|(\{[^\{\}]*\})", "", name)).strip()
     name = (re.sub(r"(\(|\)|\[|\]|{|})", "", name, flags=re.IGNORECASE)).strip()
     return name
@@ -434,12 +434,31 @@ def get_cbz_percent_for_folder(files):
 # Finds the volume number and strips out everything except that number
 def remove_everything_but_volume_num(files, root):
     results = []
+    is_omnibus = False
     for file in files[:]:
         if(not re.search(r"\b(LN|Light Novel|Novel|Book|Volume|Vol|V)([-_. ]|)([-_. ]|)([0-9]+)(.[0-9]+|)\b", file, re.IGNORECASE) and os.path.isfile(os.path.join(root, file))):
             files.remove(file)
+        # elif(re.search(r"\b(LN|Light Novel|Novel|Book|Volume|Vol|V)(\d+)(\.\d+)?([-_])(\d+)(\.\d+)?\b", file, re.IGNORECASE)):
+        #     is_omnibus = True
+        #     x = re.search(r"\b(LN|Light Novel|Novel|Book|Volume|Vol|V)(\d+)(\.\d+)?([-_])(\d+)(\.\d+)?\b", file, re.IGNORECASE).group()
+        #     y = x.split("-")
+        #     for item in y:
+        #         item = re.sub(r"(LN|Light Novel|Novel|Book|Volume|Vol|V)", "", item, flags=re.IGNORECASE)
+        #         try:
+        #             item = float(item)
+        #             results.append(item)
+        #         except Exception as e:
+        #             print(e)
+        #     try:
+        #         lowest_volume_number = int(min(results))
+        #         highest_volume_number = int(max(results))
+        #         volume_num_range = list(range(lowest_volume_number, highest_volume_number+1))
+        #         results = volume_num_range
+        #     except Exception as e:
+        #         print(e)
         else:
             try:
-                file = re.search(r"\b(LN|Light Novel|Novel|Book|Volume|Vol|V)([-_. ]|)([-_. ]|)([0-9]+)(.[0-9]+|)\b", file, re.IGNORECASE)
+                file = re.search(r"\b(LN|Light Novel|Novel|Book|Volume|Vol|V)([-_. ]|)([-_. ]|)([0-9]+)([0-9]+|)\b", file, re.IGNORECASE)
                 if(hasattr(file, "group")):
                     file = file.group()
                 else:
@@ -455,10 +474,12 @@ def remove_everything_but_volume_num(files, root):
                     write_to_file("errors.txt", message)
             except AttributeError:
                 print(str(AttributeError.with_traceback))
-    if(len(results) != 0 and (len(results) == len(files))):
+    if(is_omnibus == True and len(results) != 0):
         return results
+    elif(len(results) != 0 and (len(results) == len(files))):
+        return results[0]
     elif(len(results) == 0):
-        return [""]
+        return ""
 
 # Retrieves the release year
 def get_volume_year(name):
@@ -509,7 +530,7 @@ def get_volume_part(file):
 def upgrade_to_volume_class(files):
     results = []
     for file in files:
-        volume_obj = Volume(get_type(file.extension), get_series_name_from_file_name(file.name), get_volume_year(file.name),remove_everything_but_volume_num([file.name], file.root)[0], get_volume_part(file.name), is_fixed_volume(file.name), get_release_group(file.name), file.name, file.extensionless_name, file.basename, file.extension, file.root, file.path, file.extensionless_path)
+        volume_obj = Volume(get_type(file.extension), get_series_name_from_file_name(file.name), get_volume_year(file.name),remove_everything_but_volume_num([file.name], file.root), get_volume_part(file.name), is_fixed_volume(file.name), get_release_group(file.name), file.name, file.extensionless_name, file.basename, file.extension, file.root, file.path, file.extensionless_path)
         results.append(volume_obj)
     return results
 
@@ -577,7 +598,7 @@ def move_file(file, new_location):
     except OSError as e:
         print(e)
 
-# Replaces the old file.
+# Replaces an old file.
 def replace_file(old_file, new_file):
     if(remove_file(old_file.path)):
         if(move_file(new_file, old_file.root)):
@@ -590,7 +611,7 @@ def replace_file(old_file, new_file):
 # Removes the duplicate after determining it's upgrade status, otherwise, it upgrades
 def remove_duplicate_releases_from_download(original_releases, downloaded_releases):
     for download in downloaded_releases[:]:
-        if(download.volume_number == ""):
+        if(not isinstance(download.volume_number, int) and not isinstance(download.volume_number, float)):
             send_error_message("\n\tThe volume number is empty on: " + download.name)
             send_error_message("\tAvoiding file, might be a chapter.")
             downloaded_releases.remove(download)
@@ -637,6 +658,7 @@ def write_to_file(file, message):
     except Exception as e:
         print(e)
 
+# Checks for any missing volumes between the lowest volume of a series and the highest volume.
 def check_for_missing_volumes():
     paths_clean = [p for p in paths if p not in download_folders]
     for path in paths_clean:
@@ -653,8 +675,8 @@ def check_for_missing_volumes():
                 clean_existing = os.listdir(existing_dir)
                 clean_and_sort_two(clean_existing, existing_dir)
                 existing_dir_volumes = upgrade_to_volume_class(upgrade_to_file_class([f for f in clean_existing if os.path.isfile(os.path.join(existing_dir, f))], existing_dir))
-                for existing in existing_dir_volumes:
-                    if(existing.volume_number == ''):
+                for existing in existing_dir_volumes[:]:
+                    if(not isinstance(existing.volume_number, int) and not isinstance(existing.volume_number, float)):
                         existing_dir_volumes.remove(existing)
                 if(len(existing_dir_volumes) >= 2):
                     volume_numbers = []
@@ -728,7 +750,7 @@ def check_for_existing_series_and_move():
                                                     print("\tChecking for empty folder: " + download_dir)
                                                     check_and_delete_empty_folder(download_dir)
                                             elif(similarity_score >= 0.89 and similarity_score < 0.925):
-                                                print("\tScore between 0.85 and 0.79")
+                                                print("\tScore between 0.89 and 0.925")
                                                 print("\tScore: " + str(similarity_score))
                                                 print("\tScore for: \"" + dir_compare + "\" and \"" + dir_clean_compare + "\"")
                                                 print("")
@@ -749,10 +771,9 @@ def check_for_existing_series_and_move():
             else:
                 print("\nERROR: " + download_folder + " is an invalid path.\n")
                 
-
 # Removes any unnecessary junk through regex in the folder name and returns the result
-def get_series_name(dir): # SEP 10, 2021 - REMOVED | ON V, IT NOW REQUIRES ONE OF THE KEYWORDS TO BE PRESENT
-    dir = (re.sub(r"(\b|\s)(\s-\s|)(Part|)(LN|Light Novel|Novel|Book|Volume|Vol|V)([-_. ]|)([-_. ]|)([0-9]+)(\b|\s).*", "", dir, flags=re.IGNORECASE)).strip()
+def get_series_name(dir):
+    dir = (re.sub(r"(\b|\s)((\s|)-\s|)(Part|)(LN|Light Novel|Novel|Book|Volume|Vol|V)([-_. ]|)([-_. ]|)([0-9]+)(\b|\s).*", "", dir, flags=re.IGNORECASE)).strip()
     dir = (re.sub(r"(\([^()]*\))|(\[[^\[\]]*\])|(\{[^\{\}]*\})", "", dir)).strip()
     dir = (re.sub(r"(\(|\)|\[|\]|{|})", "", dir, flags=re.IGNORECASE)).strip()
     return dir
@@ -774,7 +795,7 @@ def rename_dirs_in_download_folder():
                     full_file_path = os.path.join(folder_accessor.root, folderDir)
                     download_folder_basename = os.path.basename(download_folder)
                     if(re.search(download_folder_basename, full_file_path, re.IGNORECASE)):
-                        if (re.search(r"((\s\[|\]\s)|(\s\(|\)\s)|(\s\{|\}\s))", folderDir, re.IGNORECASE) or re.search(r"(\s-\s|\s-)$", folderDir, re.IGNORECASE) or re.search(r"(\bLN\b)", folderDir, re.IGNORECASE) or re.search(r"(\b|\s)(\s-\s|)(Part|)(LN|Light Novel|Novel|Book|Volume|Vol|V|)([-_. ]|)([0-9]+)(\b|\s)", folderDir, re.IGNORECASE) or re.search(r"\bPremium\b", folderDir, re.IGNORECASE)):
+                        if (re.search(r"((\s\[|\]\s)|(\s\(|\)\s)|(\s\{|\}\s))", folderDir, re.IGNORECASE) or re.search(r"(\s-\s|\s-)$", folderDir, re.IGNORECASE) or re.search(r"(\bLN\b)", folderDir, re.IGNORECASE) or re.search(r"(\b|\s)((\s|)-\s|)(Part|)(LN|Light Novel|Novel|Book|Volume|Vol|V|)([-_. ]|)([0-9]+)(\b|\s)", folderDir, re.IGNORECASE) or re.search(r"\bPremium\b", folderDir, re.IGNORECASE)):
                             dir_clean = get_series_name(folderDir)
                             if(not os.path.isdir(os.path.join(folder_accessor.root, dir_clean))):
                                 try:
@@ -804,7 +825,69 @@ def rename_dirs_in_download_folder():
             else:
                 print("\nERROR: " + download_folder + " is an invalid path.\n")
 
+def rename_files():
+    for path in paths:
+        if os.path.exists(path):
+            for root, dirs, files in os.walk(path):
+                clean_and_sort(files, root, dirs)
+                print("\nLocation: " + root)
+                print("Searching for files to rename...")
+                for file in files:
+                    if(re.search(r"\s(LN|Light Novel|Novel|Book|Volume|Vol)([-_. ]|)([0-9]+)(\s|\.)", file, re.IGNORECASE)):
+                        print("\nFound file to rename: " + file)
+                        result = re.search(r"\s(LN|Light Novel|Novel|Book|Volume|Vol)([-_. ]|)([0-9]+)(\s|\.)", file, re.IGNORECASE).group().strip()
+                        result = re.sub(r"\.", "", result)
+                        results = re.split(r"(LN|Light Novel|Novel|Book|Volume|Vol)", result, flags=re.IGNORECASE)
+                        modified = []
+                        for r in results[:]:
+                            r = r.strip()
+                            if(r == ""):
+                                results.remove(r)
+                            if(re.search(r"[0-9]+", r, re.IGNORECASE)):
+                                modified.append(r)
+                            if(isinstance(r, str)):
+                                if(r != ""):
+                                    if(re.search(r"(LN|Light Novel|Novel|Book|Volume|Vol)", r, re.IGNORECASE)):
+                                        modified.append(re.sub(r"(LN|Light Novel|Novel|Book|Volume|Vol)", "v", r, flags=re.IGNORECASE))
+                        if len(modified) == 2 and len(results) == 2:
+                            combined = modified[0]+str(modified[1])
+                            replacement = re.sub(r"(LN|Light Novel|Novel|Book|Volume|Vol)([-_. ]|)([0-9]+)", combined, file, flags=re.IGNORECASE)
+                            print(file)
+                            print(replacement)
+                            try:
+                                os.rename(os.path.join(root, file), os.path.join(root, replacement))
+                                if(os.path.isfile(os.path.join(root, replacement))):
+                                    send_change_message("Successfully renamed file: " + file + " to " + replacement)
+                                    for image_extension in image_extensions:
+                                        extensionless_file = get_extensionless_name(file)
+                                        image_file = extensionless_file + "." + image_extension
+                                        if(os.path.isfile(os.path.join(root, image_file))):
+                                            extensionless_replacement = get_extensionless_name(replacement)
+                                            replacement_image = extensionless_replacement + "." + image_extension
+                                            try:
+                                                os.rename(os.path.join(root, image_file), os.path.join(root, replacement_image))
+                                            except OSError as ose:
+                                                send_error_message(ose)
+                                else:
+                                    send_error_message("\nRename failed on: " + file)
+                            except OSError as ose:
+                                send_error_message(ose)
+                        else:
+                            send_error_message(error)("More than two for either array.")
+                            print("Modified Array:")
+                            for i in modified:
+                                print(str(i))
+                            print("Results Array:")
+                            for b in results:
+                                print(str(b))
+        else:
+            if path == "":
+                print("\nERROR: Path cannot be empty.")
+            else:
+                print("\nERROR: " + path + " is an invalid path.\n")
+
 def main():
+    #rename_files()
     #create_folders_for_items_in_download_folder()
     #rename_dirs_in_download_folder()
     #check_for_existing_series_and_move()
@@ -832,10 +915,10 @@ def main():
                                 send_error_message("Exception thrown when finding existing cover.")
                                 send_error_message("Excpetion occured on: " + str(file))
             except FileNotFoundError:
-                send_error_message("\nERROR: " + path + " is not a valid path.\n")
+                print("\nERROR: " + path + " is not a valid path.\n")
         else:
             if path == "":
-                send_error_message("\nERROR: Path cannot be empty.")
+                print("\nERROR: Path cannot be empty.")
             else:
                 print("\nERROR: " + path + " is an invalid path.\n")
 
