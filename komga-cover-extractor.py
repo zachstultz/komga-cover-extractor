@@ -18,12 +18,14 @@ from datetime import datetime
 
 # [ADD IN THE PATHS YOU WANT SCANNED]
 download_folders = [
-    ""
+    "",
 ]  # OPTIONAL [STILL IN TESTING]
 paths = [
-    ""
+    "",
 ]
-ignored_folders = [""]
+ignored_folders = [
+    "",
+]
 # [ADD IN THE PATHS YOU WANT SCANNED]
 
 # List of file types used throughout the program
@@ -286,7 +288,8 @@ def check_for_image(file):
 # Removes all results that aren't an image.
 def zip_images_only(zip):
     results = []
-    for z in zip.namelist():
+    list = zip.namelist()
+    for z in list:
         for extension in image_extensions:
             if z.endswith("." + extension):
                 results.append(z)
@@ -518,7 +521,7 @@ def move_images(file, folder_name):
 def get_series_name_from_file_name(name):
     name = (
         re.sub(
-            r"(\b|\s)((\s|)-\s|)(Part|)(LN|Light Novel|Novel|Book|Volume|Vol|V|)([-_. ]|)([0-9]+)(\b|\s).*",
+            r"(\b|\s)((\s|)-(\s|)|)(Part|)(LN|Light Novel|Novel|Book|Volume|Vol|V|)([-_. ]|)([0-9]+)(\b|\s).*",
             "",
             name,
             flags=re.IGNORECASE,
@@ -992,6 +995,31 @@ def check_for_missing_volumes():
                                 write_to_file("missing_volumes.txt", message)
 
 
+def rename_file(
+    src, dest, root, extensionless_filename_src, extenionless_filename_dest
+):
+    if os.path.isfile(src):
+        print("\tRenaming " + src)
+        os.rename(src, dest)
+        if os.path.isfile(dest):
+            send_change_message(
+                "\t"
+                + extensionless_filename_src
+                + " renamed to "
+                + extenionless_filename_dest
+            )
+            for image_extension in image_extensions:
+                image_file = extensionless_filename_src + "." + image_extension
+                image_file_rename = extenionless_filename_dest + "." + image_extension
+                if os.path.isfile(os.path.join(root, image_file)):
+                    os.rename(
+                        os.path.join(root, image_file),
+                        os.path.join(root, image_file_rename),
+                    )
+        else:
+            send_error_message("Failed to rename " + src + " to " + dest)
+
+
 def reorganize_and_rename(files, dir):
     base_dir = os.path.basename(dir)
     for file in files:
@@ -1023,7 +1051,13 @@ def reorganize_and_rename(files, dir):
                 try:
                     print("\tOriginal: " + file.name)
                     print("\tRename: " + rename)
-                    os.rename(file.path, os.path.join(file.root, rename))
+                    rename_file(
+                        file.path,
+                        os.path.join(file.root, rename),
+                        file.root,
+                        file.extensionless_name,
+                        get_extensionless_name(rename),
+                    )
                     send_change_message("\tRenamed: " + file.name + " to " + rename)
                     file.series_name = get_series_name_from_file_name(rename)
                     file.volume_year = get_volume_year(rename)
@@ -1271,7 +1305,7 @@ def check_for_existing_series_and_move():
 def get_series_name(dir):
     dir = (
         re.sub(
-            r"(\b|\s)((\s|)-\s|)(Part|)(LN|Light Novel|Novel|Book|Volume|Vol|V)([-_. ]|)([-_. ]|)([0-9]+)(\b|\s).*",
+            r"(\b|\s)((\s|)-(\s|)|)(Part|)(LN|Light Novel|Novel|Book|Volume|Vol|V)([-_. ]|)([-_. ]|)([0-9]+)(\b|\s).*",
             "",
             dir,
             flags=re.IGNORECASE,
@@ -1328,7 +1362,7 @@ def rename_dirs_in_download_folder():
                             or re.search(r"(\s-\s|\s-)$", folderDir, re.IGNORECASE)
                             or re.search(r"(\bLN\b)", folderDir, re.IGNORECASE)
                             or re.search(
-                                r"(\b|\s)((\s|)-\s|)(Part|)(LN|Light Novel|Novel|Book|Volume|Vol|V|)([-_. ]|)([0-9]+)(\b|\s)",
+                                r"(\b|\s)((\s|)-(\s|)|)(Part|)(LN|Light Novel|Novel|Book|Volume|Vol|V|)([-_. ]|)([0-9]+)(\b|\s)",
                                 folderDir,
                                 re.IGNORECASE,
                             )
