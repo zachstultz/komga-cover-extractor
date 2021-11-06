@@ -4,7 +4,7 @@ Then takes the cover from the first volume and copies that as a cover file for y
 
 Allowing the user to use local higher-resolution covers within Komga instead of the compressed versions that Komga generates.
 
-Primary usage is with https://github.com/gotson/komga
+Primary usage is with https://github.com/gotson/komga, with volume releases, chapter files are not supported.
 
 ## Cover Detection
 Cover-string detection is based on various scene releases, if none are detected, it will default to the first image. Which, unless you have scans from online, will almost always be the cover.
