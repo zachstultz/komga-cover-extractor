@@ -9,6 +9,9 @@ Primary usage is with https://github.com/gotson/komga
 ## Cover Detection
 Cover-string detection is based on various scene releases, if none are detected, it will default to the first image. Which, unless you have scans from online, will almost always be the cover.
 
+## Finished Result EX:
+![Screen Shot 2021-11-06 at 11 46 38 AM](https://user-images.githubusercontent.com/8385256/140617357-245cb8e1-0622-45f3-be0b-291dfadcf8a7.png)
+
 ## Usage
 Add desired paths that you want scanned into the string array at the top of komga-cover-extractor.py
 Run komga-cover-extractor.py
