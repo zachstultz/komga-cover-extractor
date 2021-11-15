@@ -333,6 +333,13 @@ def extract_cover(
     return
 
 
+def remove_hidden_files_with_basename(files):
+    for file in files[:]:
+        base = os.path.basename(file)
+        if file.startswith(".") or base.startswith("."):
+            files.remove(file)
+
+
 # Checks the internal zip for covers.
 def check_internal_zip_for_cover(file):
     global poster_found
@@ -344,6 +351,7 @@ def check_internal_zip_for_cover(file):
             zip_file = zipfile.ZipFile(file.path)
             send_change_message("\n" + "Zip found\n" + "Entering zip: " + file.name)
             internal_zip_images = zip_images_only(zip_file)
+            remove_hidden_files_with_basename(internal_zip_images)
             for image_file in internal_zip_images:
                 head_tail = os.path.split(image_file)
                 image_file_path = head_tail[0]
@@ -877,29 +885,32 @@ def remove_duplicate_releases_from_download(original_releases, downloaded_releas
             downloaded_releases.remove(download)
         if len(downloaded_releases) != 0:
             for original in original_releases:
-                if (download.volume_number == original.volume_number) and (
-                    download.volume_number != "" and original.volume_number != ""
+                if isinstance(download.volume_number, float) and isinstance(
+                    original.volume_number, float
                 ):
-                    if not is_upgradeable(download, original):
-                        send_change_message(
-                            "\n\tVolume: "
-                            + download.name
-                            + " is not an upgrade to: "
-                            + original.name
-                        )
-                        send_change_message("\tDeleting " + download.name)
-                        if download in downloaded_releases:
-                            downloaded_releases.remove(download)
-                        remove_file(download.path)
-                    else:
-                        send_change_message(
-                            "\n\tVolume: "
-                            + download.name
-                            + " is an upgrade to: "
-                            + original.name
-                        )
-                        send_change_message("\tUpgrading " + original.name)
-                        replace_file(original, download)  # HERE
+                    if (download.volume_number == original.volume_number) and (
+                        download.volume_number != "" and original.volume_number != ""
+                    ):
+                        if not is_upgradeable(download, original):
+                            send_change_message(
+                                "\n\tVolume: "
+                                + download.name
+                                + " is not an upgrade to: "
+                                + original.name
+                            )
+                            send_change_message("\tDeleting " + download.name)
+                            if download in downloaded_releases:
+                                downloaded_releases.remove(download)
+                            remove_file(download.path)
+                        else:
+                            send_change_message(
+                                "\n\tVolume: "
+                                + download.name
+                                + " is an upgrade to: "
+                                + original.name
+                            )
+                            send_change_message("\tUpgrading " + original.name)
+                            replace_file(original, download)  # HERE
 
 
 # Checks if the folder is empty, then deletes if it is
@@ -1247,28 +1258,32 @@ def check_for_existing_series_and_move():
                                                         for (
                                                             volume
                                                         ) in download_dir_volumes:
-                                                            send_change_message(
-                                                                "\n\tVolume: "
-                                                                + volume.name
-                                                                + " does note exist in: "
-                                                                + existing_dir
-                                                            )
-                                                            send_change_message(
-                                                                "\tMoving: "
-                                                                + volume.name
-                                                                + " to "
-                                                                + existing_dir
-                                                            )
-                                                            move_file(
-                                                                volume, existing_dir
-                                                            )  # AND HERE
-                                                    print(
-                                                        "\tChecking for empty folder: "
-                                                        + download_dir
-                                                    )
-                                                    check_and_delete_empty_folder(
-                                                        download_dir
-                                                    )
+                                                            if isinstance(
+                                                                volume.volume_number,
+                                                                float,
+                                                            ):
+                                                                send_change_message(
+                                                                    "\n\tVolume: "
+                                                                    + volume.name
+                                                                    + " does note exist in: "
+                                                                    + existing_dir
+                                                                )
+                                                                send_change_message(
+                                                                    "\tMoving: "
+                                                                    + volume.name
+                                                                    + " to "
+                                                                    + existing_dir
+                                                                )
+                                                                move_file(
+                                                                    volume, existing_dir
+                                                                )  # AND HERE
+                                                                print(
+                                                                    "\tChecking for empty folder: "
+                                                                    + download_dir
+                                                                )
+                                                                check_and_delete_empty_folder(
+                                                                    download_dir
+                                                                )
                                             elif (
                                                 similarity_score >= 0.89
                                                 and similarity_score < 0.925
