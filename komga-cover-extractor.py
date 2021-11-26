@@ -147,6 +147,7 @@ release_groups = [
     Release_Group("Edge", 0),
     Release_Group("LostNerevarine-Empire", 0),
     Release_Group("0v3r", 0),
+    Release_Group("PNG4", -5),
 ]
 
 # Appends, sends, and prints our error message
@@ -568,6 +569,15 @@ def create_folders_for_items_in_download_folder():
                                 file_extension
                             ) and download_folder_basename == directory_basename:
                                 similarity_result = similar(file.name, file.basename)
+                                write_to_file(
+                                    "changes.txt",
+                                    "Similarity Result between: "
+                                    + file.name
+                                    + " and "
+                                    + file.basename
+                                    + " was "
+                                    + str(similarity_result),
+                                )
                                 if similarity_result < 0.4:
                                     folder_name = get_series_name_from_file_name(
                                         os.path.splitext(file.name)[0]
@@ -778,16 +788,15 @@ def upgrade_to_volume_class(files):
 def get_release_group_score(name):
     score = 0.0
     for group in release_groups:
-        similarity_score = similar(name, group.name)
-        if similarity_score >= 0.9:
+        if re.search(group.name, name, re.IGNORECASE):
             score += group.score
     return score
 
 
 # Checks if the downloaded release is an upgrade for the current release.
 def is_upgradeable(downloaded_release, current_release):
-    downloaded_release_score = get_release_group_score(downloaded_release.release_group)
-    current_release_score = get_release_group_score(current_release.release_group)
+    downloaded_release_score = get_release_group_score(downloaded_release.name)
+    current_release_score = get_release_group_score(current_release.name)
     if downloaded_release_score > current_release_score:
         return True
     elif (downloaded_release_score == current_release_score) and (
@@ -1152,7 +1161,25 @@ def check_for_existing_series_and_move():
                                             similarity_score = similar(
                                                 dir_compare, dir_clean_compare
                                             )
-                                            if similarity_score >= 0.9250:
+                                            if similarity_score >= 0.9790:
+                                                write_to_file(
+                                                    "changes.txt",
+                                                    (
+                                                        '\tSimilarity between: "'
+                                                        + dir_compare
+                                                        + '" and "'
+                                                        + dir_clean_compare
+                                                        + '"'
+                                                    ),
+                                                )
+                                                write_to_file(
+                                                    "changes.txt",
+                                                    (
+                                                        "\tSimilarity Score: "
+                                                        + str(similarity_score)
+                                                        + " out of 1.0"
+                                                    ),
+                                                )
                                                 print(
                                                     '\tSimilarity between: "'
                                                     + dir_compare
@@ -1679,7 +1706,57 @@ def rename_files():
                 print("\nERROR: " + path + " is an invalid path.\n")
 
 
+def delete_chapters_from_downloads():
+    try:
+        for path in download_folders:
+            if os.path.exists(path):
+                os.chdir(path)
+                for root, dirs, files in os.walk(path):
+                    clean_and_sort(files, root, dirs)
+                    for file in files:
+                        if not (
+                            re.search(
+                                r"(LN|Light Novel|Novel|Book|Volume|Vol|V)([-_. ]|)([-_. ]|)([0-9]+)(([-_. ])([0-9]+)|)",
+                                file,
+                                re.IGNORECASE,
+                            )
+                        ):
+                            if re.search(
+                                r"\s(\d)+(([.]\d)?)(\s|(.cbz)?(.epub)?)",
+                                file,
+                                re.IGNORECASE,
+                            ):
+                                if not file.__contains__("Extra"):
+                                    if file.endswith(".cbz"):
+                                        message = (
+                                            "File: "
+                                            + file
+                                            + " does not contain volume keyword"
+                                        )
+                                        print(message)
+                                        write_to_file("changes.txt", message)
+                                        message = "Location: " + root
+                                        write_to_file("changes.txt", message)
+                                        print(message)
+                                        message = "Deleting chapter releases."
+                                        print(message)
+                                        write_to_file("changes.txt", message)
+                                        remove_file(os.path.join(root, file))
+                for root, dirs, files in os.walk(path):
+                    clean_and_sort(files, root, dirs)
+                    for dir in dirs:
+                        check_and_delete_empty_folder(os.path.join(root, dir))
+            else:
+                if path == "":
+                    print("\nERROR: Path cannot be empty.")
+                else:
+                    print("\nERROR: " + path + " is an invalid path.\n")
+    except Exception as e:
+        print(e)
+
+
 def main():
+    #delete_chapters_from_downloads()
     #rename_files()
     #create_folders_for_items_in_download_folder()
     #rename_dirs_in_download_folder()
