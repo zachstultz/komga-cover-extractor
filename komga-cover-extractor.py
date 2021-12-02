@@ -710,6 +710,10 @@ def get_volume_year(name):
     result = re.search(r"\((\d{4})\)", name, re.IGNORECASE)
     if hasattr(result, "group"):
         result = result.group(1).strip()
+        try:
+            result = int(result)
+        except ValueError as ve:
+            print(ve)
     else:
         result == ""
     return result
