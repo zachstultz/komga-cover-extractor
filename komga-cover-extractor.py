@@ -1086,7 +1086,7 @@ def reorganize_and_rename(files, dir):
                         file.extensionless_name,
                         get_extensionless_name(rename),
                     )
-                    send_change_message("\tRenamed: " + file.name + " to " + rename)
+                    send_change_message("\tRenamed: " + file.name + " to \n" + rename)
                     file.series_name = get_series_name_from_file_name(rename)
                     file.volume_year = get_volume_year(rename)
                     file.volume_number = remove_everything_but_volume_num(
@@ -1498,6 +1498,11 @@ def rename_dirs_in_download_folder():
                 print("\nERROR: " + download_folder + " is an invalid path.\n")
 
 
+def add_to_list(item, list):
+    if item != "" and not item in list:
+        list.append(item)
+
+
 def get_extras(file_name):
     series_name = get_series_name_from_file_name(file_name)
     if re.search(series_name, file_name, re.IGNORECASE) and series_name != "":
@@ -1517,8 +1522,7 @@ def get_extras(file_name):
         combined = ""
         for r in result:
             combined += r
-        if combined != "":
-            modified.append(combined)
+        add_to_list(combined, modified)
     for item in modified[:]:
         if re.search(
             r"(\{|\(|\[)(Premium|J-Novel Club Premium)(\]|\)|\})", item, re.IGNORECASE
@@ -1544,7 +1548,7 @@ def get_extras(file_name):
             modified.remove(item)
     for keyword in keywords:
         if re.search(keyword, file_name, re.IGNORECASE):
-            modified.append("[" + keyword.strip() + "]")
+            add_to_list("[" + keyword.strip() + "]", modified)
     for keyword_two in keywords_two:
         if re.search(
             rf"(([A-Za-z]|[0-9]+)|)+ {keyword_two}([-_ ]|)([0-9]+|([A-Za-z]|[0-9]+)+|)",
@@ -1559,17 +1563,17 @@ def get_extras(file_name):
             if result != "Episode " or (
                 result != "Arc " | result != "arc " | result != "ARC "
             ):
-                modified.append("[" + result.strip() + "]")
+                add_to_list("[" + result.strip() + "]", modified)
     if re.search(r"(\s|\b)Part([-_. ]|)([0-9]+)", file_name, re.IGNORECASE):
         result = re.search(
             r"(\s|\b)Part([-_. ]|)([0-9]+)", file_name, re.IGNORECASE
         ).group()
-        modified.append("[" + result.strip() + "]")
+        add_to_list("[" + result.strip() + "]", modified)
     if re.search(r"(\s|\b)Season([-_. ]|)([0-9]+)", file_name, re.IGNORECASE):
         result = re.search(
             r"(\s|\b)Season([-_. ]|)([0-9]+)", file_name, re.IGNORECASE
         ).group()
-        modified.append("[" + result.strip() + "]")
+        add_to_list("[" + result.strip() + "]", modified)
     if re.search(
         r"(\s|\b)(Chapter|Ch|Chpt|Chpter|C)([-_. ]|)([0-9]+)(\.[0-9]+|)(([-_. ]|)([0-9]+)(\.[0-9]+|)|)(\s|\b)",
         file_name,
@@ -1580,7 +1584,7 @@ def get_extras(file_name):
             file_name,
             re.IGNORECASE,
         ).group()
-        modified.append("[" + result.strip() + "]")
+        add_to_list("[" + result.strip() + "]", modified)
     return modified
 
 
