@@ -5,6 +5,7 @@ import re
 import zlib
 import zipfile
 import shutil
+import regex as re
 from difflib import SequenceMatcher
 from datetime import datetime
 
@@ -532,16 +533,27 @@ def move_images(file, folder_name):
 
 # Retrieves the series name through various regexes
 def get_series_name_from_file_name(name):
+    # Removes all brackets with or without text that occur after the (volume keyword+number).
+    # name = (
+    # re.sub(
+    # r"(?<=(LN|Light Novel|Novel|Book|Volume|Vol|V|)(\.|)([-_. ]|)([0-9]+))((\b|\s)((\([^()]*\))|(\[[^\[\]]*\])|(\{[^\{\}]*\})))+",
+    # "",
+    # name,
+    # flags=re.IGNORECASE,
+    # )
+    # ).strip()
+
+    # Removes the volume number and anything to the right of it, and strips it.
     name = (
         re.sub(
-            r"(\b|\s)((\s|)-(\s|)|)(Part|)(LN|Light Novel|Novel|Book|Volume|Vol|V|)(\.|)([-_. ]|)([0-9]+)(\b|\s).*",
+            r"(\b|\s)((\s|)-(\s|)|)(Part|)(\[|\(|\{)?(LN|Light Novel|Novel|Book|Volume|Vol|V)(\.|)([-_. ]|)([0-9]+)(\b|\s).*",
             "",
             name,
             flags=re.IGNORECASE,
         )
     ).strip()
-    name = (re.sub(r"(\([^()]*\))|(\[[^\[\]]*\])|(\{[^\{\}]*\})", "", name)).strip()
-    name = (re.sub(r"(\(|\)|\[|\]|{|})", "", name, flags=re.IGNORECASE)).strip()
+    # name = (re.sub(r"(\([^()]*\))|(\[[^\[\]]*\])|(\{[^\{\}]*\})", "", name)).strip()
+    # name = (re.sub(r"(\(|\)|\[|\]|{|})", "", name, flags=re.IGNORECASE)).strip()
     return name
 
 
@@ -1505,8 +1517,13 @@ def add_to_list(item, list):
 
 def get_extras(file_name):
     series_name = get_series_name_from_file_name(file_name)
-    if re.search(series_name, file_name, re.IGNORECASE) and series_name != "":
-        file_name = re.sub(series_name, "", file_name).strip()
+    if (
+        re.search(re.escape(series_name), file_name, re.IGNORECASE)
+        and series_name != ""
+    ):
+        file_name = re.sub(
+            re.escape(series_name), "", file_name, flags=re.IGNORECASE
+        ).strip()
     results = re.findall(r"(\{|\(|\[)(.*?)(\]|\)|\})", file_name, flags=re.IGNORECASE)
     modified = []
     keywords = [
@@ -1603,32 +1620,34 @@ def rename_files():
                 print("Searching for files to rename...")
                 for file in volumes:
                     if re.search(
-                        r"\s(LN|Light Novel|Novel|Book|Volume|Vol)(\.|)([-_. ]|)([0-9]+)(([-_. ]|)([0-9]+)|)(\s|\.)",
+                        r"\s(\[|\(|\{)?(LN|Light Novel|Novel|Book|Volume|Vol)(\.|)([-_. ]|)([0-9]+)(([-_. ]|)([0-9]+)|)(\]|\)|\})?(\s|\.)",
                         file.name,
                         re.IGNORECASE,
                     ):
                         print("\nFound file to rename: " + file.name)
                         result = (
                             re.search(
-                                r"\s(LN|Light Novel|Novel|Book|Volume|Vol)(\.|)([-_. ]|)([0-9]+)(([-_. ]|)([0-9]+)|)(\s|\.)",
+                                r"\s(\[|\(|\{)?(LN|Light Novel|Novel|Book|Volume|Vol)(\.|)([-_. ]|)([0-9]+)(([-_. ]|)([0-9]+)|)(\]|\)|\})?(\s|\.)",
                                 file.name,
                                 re.IGNORECASE,
                             )
                             .group()
                             .strip()
                         )
-                        result = re.sub(r"\.", "", result)
+                        result = re.sub(r"[\[\(\{\]\)\}]", "", result)
                         results = re.split(
-                            r"(LN|Light Novel|Novel|Book|Volume|Vol)",
+                            r"(LN|Light Novel|Novel|Book|Volume|Vol)(\.|)",
                             result,
                             flags=re.IGNORECASE,
                         )
                         modified = []
                         for r in results[:]:
                             r = r.strip()
-                            if r == "":
+                            if r == "" or r == ".":
                                 results.remove(r)
-                            if re.search(r"[0-9]+", r, re.IGNORECASE):
+                            if re.search(
+                                r"([0-9]+)(([-_. ]|)([0-9]+)|)", r, re.IGNORECASE
+                            ):
                                 modified.append(r)
                             if isinstance(r, str):
                                 if r != "":
@@ -1648,7 +1667,7 @@ def rename_files():
                         if len(modified) == 2 and len(results) == 2:
                             combined = modified[0] + str(modified[1])
                             replacement = re.sub(
-                                r"(LN|Light Novel|Novel|Book|Volume|Vol)(\.|)([-_. ]|)([0-9]+)(([-_. ]|)([0-9]+)|)",
+                                r"(\[|\(|\{)?(LN|Light Novel|Novel|Book|Volume|Vol)(\.|)([-_. ]|)([0-9]+)(([-_. ]|)([0-9]+)|)(\]|\)|\})?",
                                 combined,
                                 file.name,
                                 flags=re.IGNORECASE,
