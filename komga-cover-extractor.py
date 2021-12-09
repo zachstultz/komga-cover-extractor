@@ -1605,6 +1605,25 @@ def get_extras(file_name):
     return modified
 
 
+def isfloat(x):
+    try:
+        a = float(x)
+    except (TypeError, ValueError):
+        return False
+    else:
+        return True
+
+
+def isint(x):
+    try:
+        a = float(x)
+        b = int(a)
+    except (TypeError, ValueError):
+        return False
+    else:
+        return a == b
+
+
 def rename_files():
     for path in download_folders:
         if os.path.exists(path):
@@ -1619,15 +1638,16 @@ def rename_files():
                 print("\nLocation: " + root)
                 print("Searching for files to rename...")
                 for file in volumes:
+                    # if file.extension != "" and file.extension.startswith("."):
+                    # file.name = re.sub(file.extension, "", file.name)
                     if re.search(
-                        r"\s(\[|\(|\{)?(LN|Light Novel|Novel|Book|Volume|Vol)(\.|)([-_. ]|)([0-9]+)(([-_. ]|)([0-9]+)|)(\]|\)|\})?(\s|\.)",
+                        r"\s(\[|\(|\{)?(LN|Light Novel|Novel|Book|Volume|Vol|V)(\.|)([-_. ]|)([0-9]+)(([-_. ]|)([0-9]+)|)(\]|\)|\})?(\s|\.)",
                         file.name,
                         re.IGNORECASE,
                     ):
-                        print("\nFound file to rename: " + file.name)
                         result = (
                             re.search(
-                                r"\s(\[|\(|\{)?(LN|Light Novel|Novel|Book|Volume|Vol)(\.|)([-_. ]|)([0-9]+)(([-_. ]|)([0-9]+)|)(\]|\)|\})?(\s|\.)",
+                                r"\s(\[|\(|\{)?(LN|Light Novel|Novel|Book|Volume|Vol|V)(\.|)([-_. ]|)([0-9]+)(([-_. ]|)([0-9]+)|)(\]|\)|\})?(\s|\.)",
                                 file.name,
                                 re.IGNORECASE,
                             )
@@ -1636,7 +1656,7 @@ def rename_files():
                         )
                         result = re.sub(r"[\[\(\{\]\)\}]", "", result)
                         results = re.split(
-                            r"(LN|Light Novel|Novel|Book|Volume|Vol)(\.|)",
+                            r"(LN|Light Novel|Novel|Book|Volume|Vol|V)(\.|)",
                             result,
                             flags=re.IGNORECASE,
                         )
@@ -1645,87 +1665,122 @@ def rename_files():
                             r = r.strip()
                             if r == "" or r == ".":
                                 results.remove(r)
-                            if re.search(
-                                r"([0-9]+)(([-_. ]|)([0-9]+)|)", r, re.IGNORECASE
-                            ):
-                                modified.append(r)
-                            if isinstance(r, str):
-                                if r != "":
-                                    if re.search(
-                                        r"(LN|Light Novel|Novel|Book|Volume|Vol)",
-                                        r,
-                                        re.IGNORECASE,
-                                    ):
-                                        modified.append(
-                                            re.sub(
-                                                r"(LN|Light Novel|Novel|Book|Volume|Vol)",
-                                                "v",
-                                                r,
-                                                flags=re.IGNORECASE,
+                            else:
+                                found = re.search(
+                                    r"([0-9]+)((([-_.])([0-9]+))|)", r, re.IGNORECASE
+                                )
+                                if found:
+                                    r = found.group()
+                                    try:
+                                        if isint(r):
+                                            r = int(r)
+                                            modified.append(r)
+                                        elif isfloat(r):
+                                            r = float(r)
+                                            modified.append(r)
+                                    except ValueError as ve:
+                                        print(ve)
+                                if isinstance(r, str):
+                                    if r != "":
+                                        if re.search(
+                                            r"(LN|Light Novel|Novel|Book|Volume|Vol|V)",
+                                            r,
+                                            re.IGNORECASE,
+                                        ):
+                                            modified.append(
+                                                re.sub(
+                                                    r"(LN|Light Novel|Novel|Book|Volume|Vol|V)",
+                                                    "v",
+                                                    r,
+                                                    flags=re.IGNORECASE,
+                                                )
                                             )
-                                        )
                         if len(modified) == 2 and len(results) == 2:
+                            if type(modified[1]) == int:
+                                if modified[1] < 10:
+                                    modified[1] = str(modified[1]).zfill(2)
+                            elif type(modified[1]) == float:
+                                if modified[1] < 10:
+                                    modified[1] = str(modified[1]).zfill(4)
                             combined = modified[0] + str(modified[1])
                             replacement = re.sub(
-                                r"(\[|\(|\{)?(LN|Light Novel|Novel|Book|Volume|Vol)(\.|)([-_. ]|)([0-9]+)(([-_. ]|)([0-9]+)|)(\]|\)|\})?",
+                                r"(\[|\(|\{)?(LN|Light Novel|Novel|Book|Volume|Vol|V)(\.|)([-_. ]|)([0-9]+)(([-_. ]|)([0-9]+)|)(\]|\)|\})?",
                                 combined,
                                 file.name,
                                 flags=re.IGNORECASE,
+                                count=1,
                             )
-                            print(file.name)
-                            print(replacement)
-                            try:
-                                os.rename(
-                                    os.path.join(root, file.name),
-                                    os.path.join(root, replacement),
-                                )
-                                if os.path.isfile(os.path.join(root, replacement)):
-                                    send_change_message(
-                                        "Successfully renamed file: "
-                                        + file.name
-                                        + " to "
-                                        + replacement
-                                    )
-                                    for image_extension in image_extensions:
-                                        image_file = (
-                                            file.extensionless_name
-                                            + "."
-                                            + image_extension
-                                        )
-                                        if os.path.isfile(
-                                            os.path.join(root, image_file)
-                                        ):
-                                            extensionless_replacement = (
-                                                get_extensionless_name(replacement)
+                            if file.name != replacement:
+                                try:
+                                    if not (
+                                        os.path.isfile(os.path.join(root, replacement))
+                                    ):
+                                        print(file.name)
+                                        print(replacement)
+                                        print("y or n")
+                                        user_input = "y"  # input()
+                                        if user_input == "y":
+                                            os.rename(
+                                                os.path.join(root, file.name),
+                                                os.path.join(root, replacement),
                                             )
-                                            replacement_image = (
-                                                extensionless_replacement
-                                                + "."
-                                                + image_extension
-                                            )
-                                            try:
-                                                os.rename(
-                                                    os.path.join(root, image_file),
-                                                    os.path.join(
-                                                        root, replacement_image
-                                                    ),
+                                            if os.path.isfile(
+                                                os.path.join(root, replacement)
+                                            ):
+                                                send_change_message(
+                                                    "Successfully renamed file: "
+                                                    + file.name
+                                                    + " to "
+                                                    + replacement
+                                                    + "\n"
                                                 )
-                                            except OSError as ose:
-                                                send_error_message(ose)
-                                else:
-                                    send_error_message(
-                                        "\nRename failed on: " + file.name
-                                    )
-                            except OSError as ose:
-                                send_error_message(ose)
+                                                for image_extension in image_extensions:
+                                                    image_file = (
+                                                        file.extensionless_name
+                                                        + "."
+                                                        + image_extension
+                                                    )
+                                                    if os.path.isfile(
+                                                        os.path.join(root, image_file)
+                                                    ):
+                                                        extensionless_replacement = (
+                                                            get_extensionless_name(
+                                                                replacement
+                                                            )
+                                                        )
+                                                        replacement_image = (
+                                                            extensionless_replacement
+                                                            + "."
+                                                            + image_extension
+                                                        )
+                                                        try:
+                                                            os.rename(
+                                                                os.path.join(
+                                                                    root, image_file
+                                                                ),
+                                                                os.path.join(
+                                                                    root,
+                                                                    replacement_image,
+                                                                ),
+                                                            )
+                                                        except OSError as ose:
+                                                            send_error_message(ose)
+                                            else:
+                                                send_error_message(
+                                                    "\nRename failed on: " + file.name
+                                                )
+                                except OSError as ose:
+                                    send_error_message(ose)
                         else:
-                            send_error_message(error)("More than two for either array.")
+                            send_error_message(
+                                "More than two for either array: " + file.name
+                            )
                             print("Modified Array:")
                             for i in modified:
-                                print(str(i))
+                                print("\t" + str(i))
                             print("Results Array:")
                             for b in results:
-                                print(str(b))
+                                print("\t" + str(b))
         else:
             if path == "":
                 print("\nERROR: Path cannot be empty.")
