@@ -16,7 +16,8 @@ Cover-string detection is based on various scene releases, if none are detected,
 1. Clone or download repository.
 2. Run ```pip3 install -r requirements.txt```
 3. Add desired paths that you want scanned into the paths string array at the top of komga-cover-extractor.py
-4. Run komga-cover-extractor.py ```python3 komga-cover-extractor.py```
+![Screen Shot 2021-12-09 at 11 28 29 AM (1)](https://user-images.githubusercontent.com/8385256/145447043-150a9a96-f85b-4304-94f1-29b71383156b.png)
+5. Run komga-cover-extractor.py ```python3 komga-cover-extractor.py```
 
 ## Contact
 Discord: HCAZ#0665
