@@ -1,11 +1,12 @@
-from genericpath import isfile
 import os
-from posixpath import join
 import re
 import zlib
 import zipfile
 import shutil
+import string
 import regex as re
+from genericpath import isfile
+from posixpath import join
 from difflib import SequenceMatcher
 from datetime import datetime
 
@@ -31,7 +32,7 @@ ignored_folders = [
 
 # List of file types used throughout the program
 file_extensions = ["epub", "cbz", "cbr"]
-image_extensions = ["jpg", "jpeg", "png", "tbn", "jpeg"]
+image_extensions = ["jpg", "jpeg", "png", "tbn"]
 series_cover_file_names = ["cover", "poster"]
 
 # Our global folder_accessor
@@ -50,6 +51,13 @@ cbz_internal_covers_found = 0
 poster_found = 0
 errors = []
 items_changed = []
+
+# The required file type matching percentage between
+# the download folder and the existing folder
+required_matching_percentage = 90
+
+# The required score when comparing two strings likeness
+required_similarity_score = 0.9790
 
 # Folder Class
 class Folder:
@@ -132,7 +140,8 @@ release_groups = [
     Release_Group("LuCaZ", 75),
     Release_Group("Shizu", 50),
     Release_Group("1r0n", 25),
-    Release_Group("Premium", 5),  # For LN releases
+    Release_Group("Premium", 105),  # For LN releases
+    Release_Group("Digital HD", 5),
     Release_Group("{r2}", 1),
     Release_Group("{r3}", 2),
     Release_Group("{r4}", 3),
@@ -141,6 +150,10 @@ release_groups = [
     Release_Group("{f3}", 2),
     Release_Group("{f4}", 3),
     Release_Group("{f5}", 4),
+    Release_Group("(f2)", 1),
+    Release_Group("(f3)", 2),
+    Release_Group("(f4)", 3),
+    Release_Group("(f5)", 4),
     Release_Group("AkaHummingBird", 0),
     Release_Group("Shellshock", 0),
     Release_Group("aKraa", 0),
@@ -443,15 +456,22 @@ def check_for_duplicate_cover(file):
                 send_error_message("File not found: " + file)
 
 
+def is_volume_one(volume_name):
+    if re.search(
+        r"(\b(LN|Light Novel|Novel|Book|Volume|Vol|V)([-_. ]|)(One|1|01|001|0001)\b)",
+        volume_name,
+        re.IGNORECASE,
+    ):
+        return True
+    else:
+        return False
+
+
 # Checks for the existance of a volume one.
 def check_for_volume_one_cover(file, zip_file, files):
     extensionless_path = file.extensionless_path
     zip_basename = os.path.basename(zip_file.filename)
-    if re.search(
-        r"(\b(LN|Light Novel|Novel|Book|Volume|Vol|V)([-_. ]|)(One|1|01|001|0001)\b)",
-        zip_basename,
-        re.IGNORECASE,
-    ):
+    if is_volume_one(zip_basename):
         send_change_message(
             "Volume 1 Cover Found: " + zip_basename + " in " + file.root
         )
@@ -733,16 +753,12 @@ def get_volume_year(name):
 
 # Determines whether or not the release is a fixed release
 def is_fixed_volume(name):
-    if re.search(r"(\(|\[|\{)f(\)|\]|\})", name, re.IGNORECASE):
+    if re.search(r"(\(|\[|\{)f([0-9]+|)(\)|\]|\})", name, re.IGNORECASE):
         return True
     else:
         return False
 
 
-# Patterns:
-# 1. (Digital) (danke-Empire).cbz
-# 2. (Digital) (F) (danke-Empire).cbz # less frequent
-# 3. (Digital) (1r0n) (f).cbz , less frequent
 # Retrieves the release_group on the file name
 def get_release_group(name):
     result = ""
@@ -832,12 +848,13 @@ def delete_hidden_files(files, root):
 # Removes the old series and cover image
 def remove_images(path):
     for image_extension in image_extensions:
-        for cover_file_name in series_cover_file_names:
-            cover_file_name = os.path.join(
-                os.path.dirname(path), cover_file_name + "." + image_extension
-            )
-            if os.path.isfile(cover_file_name):
-                remove_file(cover_file_name)
+        if is_volume_one(os.path.basename(path)):
+            for cover_file_name in series_cover_file_names:
+                cover_file_name = os.path.join(
+                    os.path.dirname(path), cover_file_name + "." + image_extension
+                )
+                if os.path.isfile(cover_file_name):
+                    remove_file(cover_file_name)
         volume_image_cover_file_name = (
             get_extensionless_name(path) + "." + image_extension
         )
@@ -863,40 +880,45 @@ def remove_file(full_file_path):
 # Move a file
 def move_file(file, new_location):
     try:
-        shutil.move(file.path, new_location)
-        if os.path.isfile(os.path.join(new_location, file.name)):
-            send_change_message(
-                "\nFile: " + file.name + " was successfully moved to: " + new_location
-            )
-            move_images(file, new_location)
-            return True
-        else:
-            send_error_message(
-                "Failed to move: "
-                + os.path.join(file.root, file.name)
-                + " to: "
-                + new_location
-            )
-            return False
+        if os.path.isfile(file.path):
+            shutil.move(file.path, new_location)
+            if os.path.isfile(os.path.join(new_location, file.name)):
+                send_change_message(
+                    "\nFile: "
+                    + file.name
+                    + " was successfully moved to: "
+                    + new_location
+                )
+                move_images(file, new_location)
+            else:
+                send_error_message(
+                    "Failed to move: "
+                    + os.path.join(file.root, file.name)
+                    + " to: "
+                    + new_location
+                )
     except OSError as e:
         print(e)
 
 
 # Replaces an old file.
 def replace_file(old_file, new_file):
-    if remove_file(old_file.path):
-        if move_file(new_file, old_file.root):
-            send_change_message(
-                "\tFile: " + old_file.name + " moved to: " + new_file.root
-            )
+    if os.path.isfile(old_file.path) and os.path.isfile(new_file.path):
+        remove_file(old_file.path)
+        if not os.path.isfile(old_file.path):
+            move_file(new_file, old_file.root)
+            if os.path.isfile(os.path.join(old_file.root, new_file.name)):
+                send_change_message(
+                    "\tFile: " + old_file.name + " moved to: " + new_file.root
+                )
+            else:
+                send_error_message(
+                    "\tFailed to replace: " + old_file.name + " with: " + new_file.name
+                )
         else:
             send_error_message(
-                "\tFailed to replace: " + old_file.name + " with: " + new_file.name
+                "\tFailed to remove old file: " + old_file.name + "\nUpgrade aborted."
             )
-    else:
-        send_error_message(
-            "\tFailed to remove old file: " + old_file.name + "\nUpgrade aborted."
-        )
 
 
 # Removes the duplicate after determining it's upgrade status, otherwise, it upgrades
@@ -935,16 +957,18 @@ def remove_duplicate_releases_from_download(original_releases, downloaded_releas
                                 + original.name
                             )
                             send_change_message("\tUpgrading " + original.name)
-                            replace_file(original, download)  # HERE
+                            replace_file(original, download)
 
 
 # Checks if the folder is empty, then deletes if it is
 def check_and_delete_empty_folder(folder):
+    print("\tChecking for empty folder: " + folder)
     delete_hidden_files(os.listdir(folder), folder)
     folder_contents = os.listdir(folder)
     remove_hidden_files(folder_contents, folder)
     if len(folder_contents) == 0:
         try:
+            print("Removing empty folder: " + folder)
             os.rmdir(folder)
         except OSError as e:
             send_error_message(e)
@@ -1025,7 +1049,7 @@ def check_for_missing_volumes():
                         if len(volume_num_range) != 0:
                             for number in volume_num_range:
                                 message = (
-                                    "Volume "
+                                    "\nVolume "
                                     + str(number)
                                     + " in "
                                     + current_folder_path
@@ -1112,228 +1136,211 @@ def reorganize_and_rename(files, dir):
                     file.extras = get_extras(rename)
                 except OSError as ose:
                     send_error_message(ose)
-            else:
-                print(rename)
 
 
-# Checks for an existing series by pulling the folder name within the downloads_folder
-# Then checks for a 1:1 folder within the paths being scanned
+# Returns a string without punctuation.
+def remove_punctuation(s):
+    return s.translate(str.maketrans("", "", string.punctuation)).strip()
+
+
+# Checks for an existing series by pulling the series name from each elidable file in the downloads_folder
+# Then checks for a 1:1 folder within the paths being scanned from the paths array.
 def check_for_existing_series_and_move():
     for download_folder in download_folders:
         if os.path.exists(download_folder):
             for root, dirs, files in os.walk(download_folder):
-                download_folder_dirs = [d for d in dirs]
-                clean_and_sort_three(download_folder_dirs, download_folder)
-                for d in download_folder_dirs:
-                    dir_clean = d
-                    if dir_clean != "":
-                        current_download_folder_index = (
-                            download_folder_dirs.index(d) + 1
-                        )
-                        total_download_folders_to_check = len(download_folder_dirs)
-                        for path in paths:
-                            if os.path.exists(path):
-                                try:
-                                    os.chdir(path)
-                                    path_dirs = os.listdir(path)
-                                    clean_and_sort_three(path_dirs, path)
-                                    global folder_accessor
-                                    folder_accessor = Folder(
-                                        path,
-                                        path_dirs,
-                                        os.path.basename(os.path.dirname(path)),
-                                        os.path.basename(path),
-                                        [""],
-                                    )
-                                    print("\n")
+                clean_and_sort(files, root, dirs)
+                volumes = upgrade_to_volume_class(
+                    upgrade_to_file_class(
+                        [f for f in files if os.path.isfile(os.path.join(root, f))],
+                        root,
+                    )
+                )
+                for file in volumes:
+                    done = False
+                    dir_clean = file.series_name
+                    for path in paths:
+                        if os.path.exists(path) and done == False:
+                            try:
+                                os.chdir(path)
+                                path_dirs = os.listdir(path)
+                                clean_and_sort_three(path_dirs, path)
+                                global folder_accessor
+                                folder_accessor = Folder(
+                                    path,
+                                    path_dirs,
+                                    os.path.basename(os.path.dirname(path)),
+                                    os.path.basename(path),
+                                    [""],
+                                )
+                                current_folder_path = folder_accessor.root
+                                download_folder_basename = os.path.basename(
+                                    download_folder
+                                )
+                                if not re.search(
+                                    download_folder_basename,
+                                    current_folder_path,
+                                    re.IGNORECASE,
+                                ):
+                                    print("\nFile: " + file.name)
+                                    print("Looking for: " + dir_clean)
+                                    print("\tInside of: " + folder_accessor.root)
                                     for dir in folder_accessor.dirs:
-                                        print(
-                                            '\nLooking for "'
-                                            + dir_clean
-                                            + '" - item ['
-                                            + str(current_download_folder_index)
-                                            + " of "
-                                            + str(total_download_folders_to_check)
-                                            + "]"
+                                        dir_clean_compare = (
+                                            (str(dir_clean)).lower()
+                                        ).strip()
+                                        dir_clean_compare = remove_punctuation(
+                                            dir_clean_compare
                                         )
-                                        print_info_two(
-                                            os.path.join(folder_accessor.root, dir)
+                                        dir_compare = ((str(dir)).lower()).strip()
+                                        dir_compare = remove_punctuation(dir_compare)
+                                        similarity_score = similar(
+                                            dir_compare, dir_clean_compare
                                         )
-                                        current_folder_path = os.path.join(
-                                            folder_accessor.root, dir
-                                        )
-                                        download_folder_basename = os.path.basename(
-                                            download_folder
-                                        )
-                                        if not re.search(
-                                            download_folder_basename,
-                                            current_folder_path,
-                                            re.IGNORECASE,
+                                        if (
+                                            similarity_score
+                                            >= required_similarity_score
                                         ):
-                                            dir_clean_compare = (
-                                                (str(dir_clean)).lower()
-                                            ).strip()
-                                            dir_compare = ((str(dir)).lower()).strip()
-                                            similarity_score = similar(
-                                                dir_compare, dir_clean_compare
-                                            )
-                                            if similarity_score >= 0.9790:
-                                                write_to_file(
-                                                    "changes.txt",
-                                                    (
-                                                        '\tSimilarity between: "'
-                                                        + dir_compare
-                                                        + '" and "'
-                                                        + dir_clean_compare
-                                                        + '"'
-                                                    ),
-                                                )
-                                                write_to_file(
-                                                    "changes.txt",
-                                                    (
-                                                        "\tSimilarity Score: "
-                                                        + str(similarity_score)
-                                                        + " out of 1.0"
-                                                    ),
-                                                )
-                                                print(
+                                            write_to_file(
+                                                "changes.txt",
+                                                (
                                                     '\tSimilarity between: "'
                                                     + dir_compare
                                                     + '" and "'
                                                     + dir_clean_compare
                                                     + '"'
-                                                )
-                                                print(
+                                                ),
+                                            )
+                                            write_to_file(
+                                                "changes.txt",
+                                                (
                                                     "\tSimilarity Score: "
                                                     + str(similarity_score)
                                                     + " out of 1.0"
-                                                )
-                                                existing_dir_full_file_path = (
-                                                    os.path.dirname(
-                                                        os.path.join(
-                                                            folder_accessor.root, dir
-                                                        )
+                                                ),
+                                            )
+                                            print(
+                                                '\tSimilarity between: "'
+                                                + dir_compare
+                                                + '" and "'
+                                                + dir_clean_compare
+                                                + '" Score: '
+                                                + str(similarity_score)
+                                                + " out of 1.0"
+                                            )
+                                            existing_dir = os.path.join(
+                                                folder_accessor.root, dir
+                                            )
+                                            clean_existing = os.listdir(existing_dir)
+                                            clean_and_sort_two(
+                                                clean_existing, existing_dir
+                                            )
+                                            download_dir_volumes = []
+                                            download_dir_volumes.append(file)
+                                            reorganize_and_rename(
+                                                download_dir_volumes, existing_dir
+                                            )
+                                            existing_dir_volumes = (
+                                                upgrade_to_volume_class(
+                                                    upgrade_to_file_class(
+                                                        [
+                                                            f
+                                                            for f in clean_existing
+                                                            if os.path.isfile(
+                                                                os.path.join(
+                                                                    existing_dir, f
+                                                                )
+                                                            )
+                                                        ],
+                                                        existing_dir,
                                                     )
                                                 )
-                                                download_dir = os.path.join(
-                                                    download_folder, dir_clean
+                                            )
+                                            cbz_percent_download_folder = (
+                                                get_cbz_percent_for_folder(
+                                                    download_dir_volumes
                                                 )
-                                                existing_dir = os.path.join(
-                                                    existing_dir_full_file_path, dir
+                                            )
+                                            cbz_percent_existing_folder = (
+                                                get_cbz_percent_for_folder(
+                                                    existing_dir_volumes
                                                 )
-                                                clean_downloads = os.listdir(
-                                                    download_dir
+                                            )
+                                            epub_percent_download_folder = (
+                                                get_epub_percent_for_folder(
+                                                    download_dir_volumes
                                                 )
-                                                clean_existing = os.listdir(
-                                                    existing_dir
+                                            )
+                                            epub_percent_existing_folder = (
+                                                get_epub_percent_for_folder(
+                                                    existing_dir_volumes
                                                 )
-                                                clean_and_sort_two(
-                                                    clean_downloads, download_dir
+                                            )
+                                            lower_range_score = 1 * 0.089
+                                            higher_range_score = 1 * 0.0970
+                                            if (
+                                                (
+                                                    cbz_percent_download_folder
+                                                    and cbz_percent_existing_folder
                                                 )
-                                                clean_and_sort_two(
-                                                    clean_existing, existing_dir
+                                                > required_matching_percentage
+                                            ) or (
+                                                (
+                                                    epub_percent_download_folder
+                                                    and epub_percent_existing_folder
                                                 )
-                                                download_dir_volumes = (
-                                                    upgrade_to_volume_class(
-                                                        upgrade_to_file_class(
-                                                            [
-                                                                f
-                                                                for f in clean_downloads
-                                                                if os.path.isfile(
-                                                                    os.path.join(
-                                                                        download_dir, f
-                                                                    )
-                                                                )
-                                                            ],
-                                                            download_dir,
-                                                        )
-                                                    )
-                                                )
-                                                reorganize_and_rename(
-                                                    download_dir_volumes, existing_dir
-                                                )
-                                                existing_dir_volumes = (
-                                                    upgrade_to_volume_class(
-                                                        upgrade_to_file_class(
-                                                            [
-                                                                f
-                                                                for f in clean_existing
-                                                                if os.path.isfile(
-                                                                    os.path.join(
-                                                                        existing_dir, f
-                                                                    )
-                                                                )
-                                                            ],
-                                                            existing_dir,
-                                                        )
-                                                    )
-                                                )
-                                                if (
-                                                    (
-                                                        get_cbz_percent_for_folder(
-                                                            download_dir_volumes
-                                                        )
-                                                        and get_cbz_percent_for_folder(
-                                                            existing_dir_volumes
-                                                        )
-                                                    )
-                                                    > 90
-                                                ) or (
-                                                    (
-                                                        get_epub_percent_for_folder(
-                                                            download_dir_volumes
-                                                        )
-                                                        and get_epub_percent_for_folder(
-                                                            existing_dir_volumes
-                                                        )
-                                                    )
-                                                    > 90
-                                                ):
-                                                    send_change_message(
-                                                        "\tFound existing series: "
-                                                        + existing_dir
-                                                    )
-                                                    remove_duplicate_releases_from_download(
-                                                        existing_dir_volumes,
-                                                        download_dir_volumes,
-                                                    )  # HERE
-                                                    if len(download_dir_volumes) != 0:
-                                                        for (
-                                                            volume
-                                                        ) in download_dir_volumes:
-                                                            if isinstance(
-                                                                volume.volume_number,
-                                                                float,
-                                                            ):
-                                                                send_change_message(
-                                                                    "\n\tVolume: "
-                                                                    + volume.name
-                                                                    + " does note exist in: "
-                                                                    + existing_dir
-                                                                )
-                                                                send_change_message(
-                                                                    "\tMoving: "
-                                                                    + volume.name
-                                                                    + " to "
-                                                                    + existing_dir
-                                                                )
-                                                                move_file(
-                                                                    volume, existing_dir
-                                                                )  # AND HERE
-                                                                print(
-                                                                    "\tChecking for empty folder: "
-                                                                    + download_dir
-                                                                )
-                                                                check_and_delete_empty_folder(
-                                                                    download_dir
-                                                                )
-                                            elif (
-                                                similarity_score >= 0.89
-                                                and similarity_score < 0.925
+                                                > required_matching_percentage
                                             ):
-                                                print("\tScore between 0.89 and 0.925")
+                                                send_change_message(
+                                                    "\tFound existing series: "
+                                                    + existing_dir
+                                                )
+                                                remove_duplicate_releases_from_download(
+                                                    existing_dir_volumes,
+                                                    download_dir_volumes,
+                                                )
+                                                if len(download_dir_volumes) != 0:
+                                                    volume = download_dir_volumes[0]
+                                                    if isinstance(
+                                                        volume.volume_number,
+                                                        float,
+                                                    ):
+                                                        send_change_message(
+                                                            "\n\tVolume: "
+                                                            + volume.name
+                                                            + " does note exist in: "
+                                                            + existing_dir
+                                                        )
+                                                        send_change_message(
+                                                            "\tMoving: "
+                                                            + volume.name
+                                                            + " to "
+                                                            + existing_dir
+                                                        )
+                                                        move_file(volume, existing_dir)
+                                                        check_and_delete_empty_folder(
+                                                            volume.root
+                                                        )
+                                                        done = True
+                                                        break
+                                                else:
+                                                    check_and_delete_empty_folder(
+                                                        file.root
+                                                    )
+                                                    done = True
+                                                    break
+                                            elif (
+                                                similarity_score >= lower_range_score
+                                            ) and (
+                                                similarity_score <= higher_range_score
+                                            ):
                                                 print(
-                                                    "\tScore: " + str(similarity_score)
+                                                    "\tScore between "
+                                                    + lower_range_score
+                                                    + " and "
+                                                    + higher_range_score
+                                                    + "\tScore: "
+                                                    + str(similarity_score)
                                                 )
                                                 print(
                                                     '\tScore for: "'
@@ -1343,24 +1350,10 @@ def check_for_existing_series_and_move():
                                                     + '"'
                                                 )
                                                 print("")
-                                except FileNotFoundError:
-                                    send_error_message(
-                                        "\nERROR: " + path + " is not a valid path.\n"
-                                    )
-                            else:
-                                if path == "":
-                                    send_error_message("\nERROR: Path cannot be empty.")
-                                else:
-                                    print("\nERROR: " + path + " is an invalid path.\n")
-                    else:
-                        print(dir_clean + " is empty.")
-                        print("Originally derived from: " + d)
-                        print("Location: " + os.path.join(root, d))
-        else:
-            if download_folder == "":
-                send_error_message("\nERROR: Path cannot be empty.")
-            else:
-                print("\nERROR: " + download_folder + " is an invalid path.\n")
+                            except FileNotFoundError:
+                                send_error_message(
+                                    "\nERROR: " + path + " is not a valid path.\n"
+                                )
 
 
 # Removes any unnecessary junk through regex in the folder name and returns the result
