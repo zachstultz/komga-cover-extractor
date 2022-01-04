@@ -59,6 +59,16 @@ required_matching_percentage = 90
 # The required score when comparing two strings likeness
 required_similarity_score = 0.9790
 
+# The preferred naming format used by rename_files()
+# v = v01, Volume = Volume 01, and so on.
+preferred_volume_renaming_format = "v"
+
+# Whether or not to add the issue number to the file names
+# Useful when using ComicTagger
+# TRUE: manga v01 #01 (2001).cbz
+# FALSE: manga v01 (2001).cbz
+add_issue_number_to_file_name = False
+
 # Folder Class
 class Folder:
     def __init__(self, root, dirs, basename, folder_name, files):
@@ -410,7 +420,11 @@ def check_internal_zip_for_cover(file):
                 return
         else:
             files_with_no_image.append(file.path)
-            send_error_message("Invalid Zip File at: \n" + file.path)
+            send_error_message(
+                "Invalid Zip File at: \n"
+                + file.path
+                + "\nCheck that you have permissions to open the file."
+            )
 
     except zipfile.BadZipFile:
         print("Bad Zipfile: " + file.path)
@@ -1094,17 +1108,29 @@ def reorganize_and_rename(files, dir):
         ):
             rename = ""
             rename += base_dir
-            rename += " " + "v"
+            rename += " " + preferred_volume_renaming_format
             if file.volume_number.is_integer():
                 if file.volume_number < 10:
-                    rename += str(int(file.volume_number)).zfill(2)
+                    volume_number = str(int(file.volume_number)).zfill(2)
+                    rename += volume_number
+                    if add_issue_number_to_file_name == True:
+                        rename += " #" + volume_number
                 else:
-                    rename += str(int(file.volume_number))
+                    volume_number = str(int(file.volume_number))
+                    rename += volume_number
+                    if add_issue_number_to_file_name == True:
+                        rename += " #" + volume_number
             elif isinstance(file.volume_number, float):
                 if file.volume_number < 10:
-                    rename += str(file.volume_number).zfill(4)
+                    volume_number = str(file.volume_number).zfill(4)
+                    rename += volume_number
+                    if add_issue_number_to_file_name == True:
+                        rename += " #" + volume_number
                 else:
-                    rename += str(file.volume_number)
+                    volume_number = str(file.volume_number)
+                    rename += volume_number
+                    if add_issue_number_to_file_name == True:
+                        rename += " #" + volume_number
             if isinstance(file.volume_year, int):
                 rename += " (" + str(file.volume_year) + ")"
             if len(file.extras) != 0:
@@ -1617,6 +1643,14 @@ def isint(x):
         return a == b
 
 
+def contains_issue_number(file_name, volume_number):
+    issue_number = "#" + volume_number
+    if re.search(issue_number, file_name, re.IGNORECASE):
+        return True
+    else:
+        return False
+
+
 def rename_files():
     for path in download_folders:
         if os.path.exists(path):
@@ -1683,7 +1717,7 @@ def rename_files():
                                             modified.append(
                                                 re.sub(
                                                     r"(LN|Light Novel|Novel|Book|Volume|Vol|V)",
-                                                    "v",
+                                                    preferred_volume_renaming_format,
                                                     r,
                                                     flags=re.IGNORECASE,
                                                 )
@@ -1696,6 +1730,12 @@ def rename_files():
                                 if modified[1] < 10:
                                     modified[1] = str(modified[1]).zfill(4)
                             combined = modified[0] + str(modified[1])
+                            issue_number = "#" + str(modified[1])
+                            if (
+                                not contains_issue_number(file.name, str(modified[1]))
+                                and add_issue_number_to_file_name == True
+                            ):
+                                combined += " " + issue_number
                             replacement = re.sub(
                                 r"(\[|\(|\{)?(LN|Light Novel|Novel|Book|Volume|Vol|V)(\.|)([-_. ]|)([0-9]+)(([-_. ]|)([0-9]+)|)(\]|\)|\})?",
                                 combined,
@@ -1710,8 +1750,13 @@ def rename_files():
                                     ):
                                         print(file.name)
                                         print(replacement)
-                                        print("y or n")
-                                        user_input = "y"  # input()
+                                        manual_rename = False  # Set to True for user input renaming, otherwise False
+                                        user_input = ""
+                                        if manual_rename == False:
+                                            user_input = "y"
+                                        else:
+                                            print("y or n")
+                                            user_input = input()
                                         if user_input == "y":
                                             os.rename(
                                                 os.path.join(root, file.name),
