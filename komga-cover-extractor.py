@@ -13,22 +13,17 @@ from datetime import datetime
 # ************************************
 # Created by: Zach Stultz            *
 # Git: https://github.com/zachstultz *
-# ***************************************************
-# A manga/light novel processor script for use with *
-# the manga/light novel reader gotson/komga.        *
-# ***************************************************
+# ************************************
 
-# [ADD IN THE PATHS YOU WANT SCANNED]
-download_folders = [
-    "",
-]  # OPTIONAL [STILL IN TESTING]
-paths = [
+download_folders = [  # OPTIONAL [STILL IN TESTING]
     "",
 ]
-ignored_folders = [
+paths = [  # [ADD IN THE PATHS YOU WANT SCANNED]
     "",
 ]
-# [ADD IN THE PATHS YOU WANT SCANNED]
+ignored_folder_names = [
+    "",
+]
 
 # List of file types used throughout the program
 file_extensions = ["epub", "cbz", "cbr"]
@@ -39,9 +34,9 @@ series_cover_file_names = ["cover", "poster"]
 folder_accessor = None
 
 # The remaining files without covers
-files_with_no_image = []
+files_with_no_cover = []
 
-# Stat-related variables
+# Stat-related
 file_count = 0
 cbz_count = 0
 epub_count = 0
@@ -60,7 +55,8 @@ required_matching_percentage = 90
 required_similarity_score = 0.9790
 
 # The preferred naming format used by rename_files()
-# v = v01, Volume = Volume 01, and so on.
+# v = v01, Volume = Volume01, and so on.
+# IF YOU WANT A SPACE BETWEEN THE TWO, ADD IT IN THE PREFERRED NAMING.
 preferred_volume_renaming_format = "v"
 
 # Whether or not to add the issue number to the file names
@@ -146,11 +142,11 @@ class Release_Group:
 
 # Release Groups Ranked by Point Values
 release_groups = [
+    Release_Group("Premium", 105),  # For LN releases
     Release_Group("danke-empire", 100),
     Release_Group("LuCaZ", 75),
     Release_Group("Shizu", 50),
     Release_Group("1r0n", 25),
-    Release_Group("Premium", 105),  # For LN releases
     Release_Group("Digital HD", 5),
     Release_Group("{r2}", 1),
     Release_Group("{r3}", 2),
@@ -210,8 +206,8 @@ def remove_unaccepted_file_types(files, root):
 
 # Removes any folder names in the ignored_folders
 def remove_ignored_folders(dirs):
-    if len(ignored_folders) != 0:
-        dirs[:] = [d for d in dirs if d not in ignored_folders]
+    if len(ignored_folder_names) != 0:
+        dirs[:] = [d for d in dirs if d not in ignored_folder_names]
 
 
 # Cleans up the files array before usage
@@ -358,6 +354,7 @@ def extract_cover(
     return
 
 
+# Removes hidden files with the base name.
 def remove_hidden_files_with_basename(files):
     for file in files[:]:
         base = os.path.basename(file)
@@ -419,7 +416,7 @@ def check_internal_zip_for_cover(file):
                 extract_cover(zip_file, image_file_path, image_file, file)
                 return
         else:
-            files_with_no_image.append(file.path)
+            files_with_no_cover.append(file.path)
             send_error_message(
                 "Invalid Zip File at: \n"
                 + file.path
@@ -470,9 +467,10 @@ def check_for_duplicate_cover(file):
                 send_error_message("File not found: " + file)
 
 
+# Checks if the passed string is a volume one.
 def is_volume_one(volume_name):
     if re.search(
-        r"(\b(LN|Light Novel|Novel|Book|Volume|Vol|V)([-_. ]|)(One|1|01|001|0001)\b)",
+        r"(\b(LN|Light Novel|Novel|Book|Volume|Vol|V|第)([-_. ]|)(One|1|01|001|0001)\b)",
         volume_name,
         re.IGNORECASE,
     ):
@@ -500,14 +498,14 @@ def check_for_volume_one_cover(file, zip_file, files):
         volume_files_exists_within_folder = False
         for item in files:
             if re.search(
-                r"((\s(\s-\s|)(Part|)(Part|)(LN|Light Novel|Novel|Book|Volume|Vol|V|)(\.|)([-_. ]|)([0-9]+)\b)|\s(\s-\s|)(Part|)(LN|Light Novel|Novel|Book|Volume|Vol|V|)(\.|)([-_. ]|)([0-9]+)([-_.])(\s-\s|)(Part|)(LN|Light Novel|Novel|Book|Volume|Vol|V|)([0-9]+)\s|\s(\s-\s|)(Part|)(LN|Light Novel|Novel|Book|Volume|Vol|V|)(\.|)([-_. ]|)([0-9]+)([-_.])(\s-\s|)(Part|)(LN|Light Novel|Novel|Book|Volume|Vol|V|)([0-9]+)\s)",
+                r"((\s(\s-\s|)(Part|)(Part|)(LN|Light Novel|Novel|Book|Volume|Vol|V|第|)(\.|)([-_. ]|)([0-9]+)\b)|\s(\s-\s|)(Part|)(LN|Light Novel|Novel|Book|Volume|Vol|V|第|)(\.|)([-_. ]|)([0-9]+)([-_.])(\s-\s|)(Part|)(LN|Light Novel|Novel|Book|Volume|Vol|V|第|)([0-9]+)\s|\s(\s-\s|)(Part|)(LN|Light Novel|Novel|Book|Volume|Vol|V|第|)(\.|)([-_. ]|)([0-9]+)([-_.])(\s-\s|)(Part|)(LN|Light Novel|Novel|Book|Volume|Vol|V|第|)([0-9]+)\s)",
                 item.name,
                 re.IGNORECASE,
             ):
                 volume_files_exists_within_folder = True
         if (
             not re.search(
-                r"((\s(\s-\s|)(Part|)(LN|Light Novel|Novel|Book|Volume|Vol|V|)(\.|)([-_. ]|)([0-9]+)\b)|\s(\s-\s|)(Part|)(LN|Light Novel|Novel|Book|Volume|Vol|V|)(\.|)([-_. ]|)([0-9]+)([-_.])(\s-\s|)(Part|)(LN|Light Novel|Novel|Book|Volume|Vol|V|)([0-9]+)\s|\s(\s-\s|)(Part|)(LN|Light Novel|Novel|Book|Volume|Vol|V|)(\.|)([-_. ]|)([0-9]+)([-_.])(\s-\s|)(Part|)(LN|Light Novel|Novel|Book|Volume|Vol|V|)([0-9]+)\s)",
+                r"((\s(\s-\s|)(Part|)(LN|Light Novel|Novel|Book|Volume|Vol|V|第|)(\.|)([-_. ]|)([0-9]+)\b)|\s(\s-\s|)(Part|)(LN|Light Novel|Novel|Book|Volume|Vol|V|第|)(\.|)([-_. ]|)([0-9]+)([-_.])(\s-\s|)(Part|)(LN|Light Novel|Novel|Book|Volume|Vol|V|第|)([0-9]+)\s|\s(\s-\s|)(Part|)(LN|Light Novel|Novel|Book|Volume|Vol|V|第|)(\.|)([-_. ]|)([0-9]+)([-_.])(\s-\s|)(Part|)(LN|Light Novel|Novel|Book|Volume|Vol|V|第|)([0-9]+)\s)",
                 zip_basename,
                 re.IGNORECASE,
             )
@@ -566,18 +564,8 @@ def move_images(file, folder_name):
 
 
 # Retrieves the series name through various regexes
+# Removes the volume number and anything to the right of it, and strips it.
 def get_series_name_from_file_name(name):
-    # Removes all brackets with or without text that occur after the (volume keyword+number).
-    # name = (
-    # re.sub(
-    # r"(?<=(LN|Light Novel|Novel|Book|Volume|Vol|V|)(\.|)([-_. ]|)([0-9]+))((\b|\s)((\([^()]*\))|(\[[^\[\]]*\])|(\{[^\{\}]*\})))+",
-    # "",
-    # name,
-    # flags=re.IGNORECASE,
-    # )
-    # ).strip()
-
-    # Removes the volume number and anything to the right of it, and strips it.
     name = (
         re.sub(
             r"(\b|\s)((\s|)-(\s|)|)(Part|)(\[|\(|\{)?(LN|Light Novel|Novel|Book|Volume|Vol|V)(\.|)([-_. ]|)([0-9]+)(\b|\s).*",
@@ -586,8 +574,6 @@ def get_series_name_from_file_name(name):
             flags=re.IGNORECASE,
         )
     ).strip()
-    # name = (re.sub(r"(\([^()]*\))|(\[[^\[\]]*\])|(\{[^\{\}]*\})", "", name)).strip()
-    # name = (re.sub(r"(\(|\)|\[|\]|{|})", "", name, flags=re.IGNORECASE)).strip()
     return name
 
 
@@ -680,19 +666,19 @@ def remove_everything_but_volume_num(files, root):
     for file in files[:]:
         if (
             not re.search(
-                r"\b(LN|Light Novel|Novel|Book|Volume|Vol|V)([-_. ]|)([-_. ]|)([0-9]+)((\.)([0-9]+)|)\b",
+                r"\b(LN|Light Novel|Novel|Book|Volume|Vol|V|第)([-_. ]|)([-_. ]|)([0-9]+)((\.)([0-9]+)|)\b",
                 file,
                 re.IGNORECASE,
             )
             and os.path.isfile(os.path.join(root, file))
         ):
             files.remove(file)
-        # elif(re.search(r"\b(LN|Light Novel|Novel|Book|Volume|Vol|V)(\d+)(\.\d+)?([-_])(\d+)(\.\d+)?\b", file, re.IGNORECASE)):
+        # elif(re.search(r"\b(LN|Light Novel|Novel|Book|Volume|Vol|V|第)(\d+)(\.\d+)?([-_])(\d+)(\.\d+)?\b", file, re.IGNORECASE)):
         #     is_omnibus = True
-        #     x = re.search(r"\b(LN|Light Novel|Novel|Book|Volume|Vol|V)(\d+)(\.\d+)?([-_])(\d+)(\.\d+)?\b", file, re.IGNORECASE).group()
+        #     x = re.search(r"\b(LN|Light Novel|Novel|Book|Volume|Vol|V|第)(\d+)(\.\d+)?([-_])(\d+)(\.\d+)?\b", file, re.IGNORECASE).group()
         #     y = x.split("-")
         #     for item in y:
-        #         item = re.sub(r"(LN|Light Novel|Novel|Book|Volume|Vol|V)", "", item, flags=re.IGNORECASE)
+        #         item = re.sub(r"(LN|Light Novel|Novel|Book|Volume|Vol|V|第)", "", item, flags=re.IGNORECASE)
         #         try:
         #             item = float(item)
         #             results.append(item)
@@ -708,7 +694,7 @@ def remove_everything_but_volume_num(files, root):
         else:
             try:
                 file = re.search(
-                    r"\b(LN|Light Novel|Novel|Book|Volume|Vol|V)([-_. ]|)([-_. ]|)([0-9]+)((\.)([0-9]+)|)\b",
+                    r"\b(LN|Light Novel|Novel|Book|Volume|Vol|V|第)([-_. ]|)([-_. ]|)([0-9]+)((\.)([0-9]+)|)\b",
                     file,
                     re.IGNORECASE,
                 )
@@ -717,19 +703,19 @@ def remove_everything_but_volume_num(files, root):
                 else:
                     file = ""
                 file = re.sub(
-                    r"\b(LN|Light Novel|Novel|Book|Volume|Vol|V)(\.|)([-_. ])?",
+                    r"\b(LN|Light Novel|Novel|Book|Volume|Vol|V|第)(\.|)([-_. ])?",
                     "",
                     file,
                     flags=re.IGNORECASE,
                 ).strip()
                 if re.search(
-                    r"\b[0-9]+(LN|Light Novel|Novel|Book|Volume|Vol|V)[0-9]+\b",
+                    r"\b[0-9]+(LN|Light Novel|Novel|Book|Volume|Vol|V|第)[0-9]+\b",
                     file,
                     re.IGNORECASE,
                 ):
                     file = (
                         re.sub(
-                            r"(LN|Light Novel|Novel|Book|Volume|Vol|V)",
+                            r"(LN|Light Novel|Novel|Book|Volume|Vol|V|第)",
                             ".",
                             file,
                             flags=re.IGNORECASE,
@@ -853,6 +839,7 @@ def is_upgradeable(downloaded_release, current_release):
         return False
 
 
+# Deletes hidden files, used when checking if a folder is empty.
 def delete_hidden_files(files, root):
     for file in files[:]:
         if (str(file)).startswith(".") and if_file_exists(root, file):
@@ -988,6 +975,7 @@ def check_and_delete_empty_folder(folder):
             send_error_message(e)
 
 
+# Writes a log file
 def write_to_file(file, message):
     ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
     file_path = os.path.join(ROOT_DIR, file)
@@ -1073,6 +1061,7 @@ def check_for_missing_volumes():
                                 write_to_file("missing_volumes.txt", message)
 
 
+# Renames the file.
 def rename_file(
     src, dest, root, extensionless_filename_src, extenionless_filename_dest
 ):
@@ -1102,7 +1091,7 @@ def reorganize_and_rename(files, dir):
     base_dir = os.path.basename(dir)
     for file in files:
         if re.search(
-            r"\b(LN|Light Novel|Novel|Book|Volume|Vol|V)([-_. ]|)([0-9]+)(\.[0-9]+|)(\s|\.epub|\.cbz)",
+            r"\b(LN|Light Novel|Novel|Book|Volume|Vol|V|第)([-_. ]|)([0-9]+)(\.[0-9]+|)(\s|\.epub|\.cbz)",
             file.name,
             re.IGNORECASE,
         ):
@@ -1170,7 +1159,7 @@ def remove_punctuation(s):
 
 
 # Checks for an existing series by pulling the series name from each elidable file in the downloads_folder
-# Then checks for a 1:1 folder within the paths being scanned from the paths array.
+# and comparing it to an existin folder within the user's library.
 def check_for_existing_series_and_move():
     for download_folder in download_folders:
         if os.path.exists(download_folder):
@@ -1386,7 +1375,7 @@ def check_for_existing_series_and_move():
 def get_series_name(dir):
     dir = (
         re.sub(
-            r"(\b|\s)((\s|)-(\s|)|)(Part|)(LN|Light Novel|Novel|Book|Volume|Vol|V)([-_. ]|)([-_. ]|)([0-9]+)(\b|\s).*",
+            r"(\b|\s)((\s|)-(\s|)|)(Part|)(LN|Light Novel|Novel|Book|Volume|Vol|V|第)([-_. ]|)([-_. ]|)([0-9]+)(\b|\s).*",
             "",
             dir,
             flags=re.IGNORECASE,
@@ -1443,7 +1432,7 @@ def rename_dirs_in_download_folder():
                             or re.search(r"(\s-\s|\s-)$", folderDir, re.IGNORECASE)
                             or re.search(r"(\bLN\b)", folderDir, re.IGNORECASE)
                             or re.search(
-                                r"(\b|\s)((\s|)-(\s|)|)(Part|)(LN|Light Novel|Novel|Book|Volume|Vol|V|)(\.|)([-_. ]|)([0-9]+)(\b|\s)",
+                                r"(\b|\s)((\s|)-(\s|)|)(Part|)(LN|Light Novel|Novel|Book|Volume|Vol|V|第|)(\.|)([-_. ]|)([0-9]+)(\b|\s)",
                                 folderDir,
                                 re.IGNORECASE,
                             )
@@ -1643,6 +1632,7 @@ def isint(x):
         return a == b
 
 
+# Determines if the file name contains an issue number.
 def contains_issue_number(file_name, volume_number):
     issue_number = "#" + volume_number
     if re.search(issue_number, file_name, re.IGNORECASE):
@@ -1651,6 +1641,7 @@ def contains_issue_number(file_name, volume_number):
         return False
 
 
+# Renames files.
 def rename_files():
     for path in download_folders:
         if os.path.exists(path):
@@ -1668,13 +1659,13 @@ def rename_files():
                     # if file.extension != "" and file.extension.startswith("."):
                     # file.name = re.sub(file.extension, "", file.name)
                     if re.search(
-                        r"\s(\[|\(|\{)?(LN|Light Novel|Novel|Book|Volume|Vol|V)(\.|)([-_. ]|)([0-9]+)(([-_. ]|)([0-9]+)|)(\]|\)|\})?(\s|\.)",
+                        r"\s(\[|\(|\{)?(LN|Light Novel|Novel|Book|Volume|Vol|V|第)(\.|)([-_. ]|)([0-9]+)(([-_. ]|)([0-9]+)|)(\]|\)|\})?(\s|\.)",
                         file.name,
                         re.IGNORECASE,
                     ):
                         result = (
                             re.search(
-                                r"\s(\[|\(|\{)?(LN|Light Novel|Novel|Book|Volume|Vol|V)(\.|)([-_. ]|)([0-9]+)(([-_. ]|)([0-9]+)|)(\]|\)|\})?(\s|\.)",
+                                r"\s(\[|\(|\{)?(LN|Light Novel|Novel|Book|Volume|Vol|V|第)(\.|)([-_. ]|)([0-9]+)(([-_. ]|)([0-9]+)|)(\]|\)|\})?(\s|\.)",
                                 file.name,
                                 re.IGNORECASE,
                             )
@@ -1683,7 +1674,7 @@ def rename_files():
                         )
                         result = re.sub(r"[\[\(\{\]\)\}]", "", result)
                         results = re.split(
-                            r"(LN|Light Novel|Novel|Book|Volume|Vol|V)(\.|)",
+                            r"(LN|Light Novel|Novel|Book|Volume|Vol|V|第)(\.|)",
                             result,
                             flags=re.IGNORECASE,
                         )
@@ -1710,13 +1701,13 @@ def rename_files():
                                 if isinstance(r, str):
                                     if r != "":
                                         if re.search(
-                                            r"(LN|Light Novel|Novel|Book|Volume|Vol|V)",
+                                            r"(LN|Light Novel|Novel|Book|Volume|Vol|V|第)",
                                             r,
                                             re.IGNORECASE,
                                         ):
                                             modified.append(
                                                 re.sub(
-                                                    r"(LN|Light Novel|Novel|Book|Volume|Vol|V)",
+                                                    r"(LN|Light Novel|Novel|Book|Volume|Vol|V|第)",
                                                     preferred_volume_renaming_format,
                                                     r,
                                                     flags=re.IGNORECASE,
@@ -1737,7 +1728,7 @@ def rename_files():
                             ):
                                 combined += " " + issue_number
                             replacement = re.sub(
-                                r"(\[|\(|\{)?(LN|Light Novel|Novel|Book|Volume|Vol|V)(\.|)([-_. ]|)([0-9]+)(([-_. ]|)([0-9]+)|)(\]|\)|\})?",
+                                r"(\[|\(|\{)?(LN|Light Novel|Novel|Book|Volume|Vol|V|第)(\.|)([-_. ]|)([0-9]+)(([-_. ]|)([0-9]+)|)(\]|\)|\})?",
                                 combined,
                                 file.name,
                                 flags=re.IGNORECASE,
@@ -1826,6 +1817,7 @@ def rename_files():
                 print("\nERROR: " + path + " is an invalid path.\n")
 
 
+# Deletes chapter files from the download folder.
 def delete_chapters_from_downloads():
     try:
         for path in download_folders:
@@ -1836,7 +1828,7 @@ def delete_chapters_from_downloads():
                     for file in files:
                         if not (
                             re.search(
-                                r"(LN|Light Novel|Novel|Book|Volume|Vol|V)([-_. ]|)([-_. ]|)([0-9]+)(([-_. ])([0-9]+)|)",
+                                r"(LN|Light Novel|Novel|Book|Volume|Vol|V|第)([-_. ]|)([-_. ]|)([0-9]+)(([-_. ])([0-9]+)|)",
                                 file,
                                 re.IGNORECASE,
                             )
@@ -1934,9 +1926,9 @@ print("\t" + str(cbz_count) + " were cbz files")
 print("\t" + str(cbr_count) + " were cbr files")
 print("\t" + str(epub_count) + " were epub files")
 print("\tof those we found " + str(image_count) + " had a cover image file.")
-if len(files_with_no_image) != 0:
+if len(files_with_no_cover) != 0:
     print("\nRemaining files without covers:")
-    for lonely_file in files_with_no_image:
+    for lonely_file in files_with_no_cover:
         print("\t" + lonely_file)
 if len(errors) != 0:
     print("\nErrors:")
