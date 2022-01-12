@@ -1728,7 +1728,7 @@ def rename_files():
                             ):
                                 combined += " " + issue_number
                             replacement = re.sub(
-                                r"(\[|\(|\{)?(LN|Light Novel|Novel|Book|Volume|Vol|V|第)(\.|)([-_. ]|)([0-9]+)(([-_. ]|)([0-9]+)|)(\]|\)|\})?",
+                                r"([-_. ]\s|)(\[|\(|\{)?(LN|Light Novel|Novel|Book|Volume|Vol|V|第)(\.|)([-_. ]|)([0-9]+)(([-_. ]|)([0-9]+)|)(\]|\)|\})?",
                                 combined,
                                 file.name,
                                 flags=re.IGNORECASE,
