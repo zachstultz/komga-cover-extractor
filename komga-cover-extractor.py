@@ -5,6 +5,7 @@ import zipfile
 import shutil
 import string
 import regex as re
+import argparse
 from genericpath import isfile
 from posixpath import join
 from difflib import SequenceMatcher
@@ -169,6 +170,61 @@ release_groups = [
     Release_Group("0v3r", 0),
     Release_Group("PNG4", -5),
 ]
+
+# Parses the passed command line arguments
+parser = argparse.ArgumentParser(
+    description="Scans for covers in the cbz and epub files."
+)
+parser.add_argument(
+    "-d",
+    "--download_folder",
+    help="The download folder for processing, renaming, and moving of downloaded files.",
+    required=False,
+)
+parser.add_argument(
+    "-p", "--paths", help="The paths to be scanned for cover extraction.", required=True
+)
+parser.add_argument(
+    "-i",
+    "--ignored_folder_names",
+    help="Ignore the specified folders by name.",
+    required=False,
+)
+parser.add_argument(
+    "-rmp",
+    "--required_matching_percentage",
+    help="The required matching percentage that must be met between the download folder and the existing folder when automatically moving files to existing llibrary folders.",
+    default=90,
+    required=False,
+)
+parser.add_argument(
+    "-rms",
+    "--required_similarity_score",
+    help="The required similarity score that must be met when comparing two strings between the volume series name and the existing library folder name.",
+    default=0.9790,
+    required=False,
+)
+parser.add_argument(
+    "-pvr",
+    "--preferred_volume_renaming_format",
+    help="The preferred volume naming format. # v = v01, Volume = Volume01, and so on. IF YOU WANT A SPACE BETWEEN THE TWO, ADD IT IN THE PREFERRED NAMING.",
+    default="v",
+    required=False,
+)
+parser.add_argument(
+    "-a",
+    "--add_issue_number_to_file_name",
+    help="Whether or not to add the issue number to the renamed file names. Issue number is added directly after the volume number.",
+    default=False,
+    required=False,
+)
+parser.add_argument(
+    "-w",
+    "--discord_webhook_url",
+    help="The webhook URL to send the results to Discord.",
+    default=None,
+    required=False,
+)
 
 # Appends, sends, and prints our error message
 def send_error_message(error):
@@ -1728,7 +1784,7 @@ def rename_files():
                             ):
                                 combined += " " + issue_number
                             replacement = re.sub(
-                                r"([-_. ]\s|)(\[|\(|\{)?(LN|Light Novel|Novel|Book|Volume|Vol|V|第)(\.|)([-_. ]|)([0-9]+)(([-_. ]|)([0-9]+)|)(\]|\)|\})?",
+                                r"((?<![A-Za-z]+)[-_. ]\s|)(\[|\(|\{)?(LN|Light Novel|Novel|Book|Volume|Vol|v|第)(\.|)([-_. ]|)([0-9]+)(([-_. ]|)([0-9]+)|)(\]|\)|\})?",
                                 combined,
                                 file.name,
                                 flags=re.IGNORECASE,
