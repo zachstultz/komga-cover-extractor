@@ -427,7 +427,7 @@ def check_internal_zip_for_cover(file):
     try:
         if zipfile.is_zipfile(file.path):
             zip_file = zipfile.ZipFile(file.path)
-            send_change_message("\n" + "Zip found\n" + "Entering zip: " + file.name)
+            send_change_message("Zip found" + "Entering zip: " + file.name)
             internal_zip_images = zip_images_only(zip_file)
             remove_hidden_files_with_basename(internal_zip_images)
             for image_file in internal_zip_images:
@@ -941,10 +941,7 @@ def move_file(file, new_location):
             shutil.move(file.path, new_location)
             if os.path.isfile(os.path.join(new_location, file.name)):
                 send_change_message(
-                    "\nFile: "
-                    + file.name
-                    + " was successfully moved to: "
-                    + new_location
+                    "File: " + file.name + " was successfully moved to: " + new_location
                 )
                 move_images(file, new_location)
             else:
@@ -1211,7 +1208,7 @@ def reorganize_and_rename(files, dir):
 
 # Returns a string without punctuation.
 def remove_punctuation(s):
-    return s.translate(str.maketrans("", "", string.punctuation)).strip()
+    return re.sub(r"[^\w\s]", "", s)
 
 
 # Checks for an existing series by pulling the series name from each elidable file in the downloads_folder
@@ -1257,16 +1254,22 @@ def check_for_existing_series_and_move():
                                     print("Looking for: " + dir_clean)
                                     print("\tInside of: " + folder_accessor.root)
                                     for dir in folder_accessor.dirs:
-                                        dir_clean_compare = (
+                                        downloaded_file_series_name = (
                                             (str(dir_clean)).lower()
                                         ).strip()
-                                        dir_clean_compare = remove_punctuation(
-                                            dir_clean_compare
+                                        downloaded_file_series_name = (
+                                            remove_punctuation(
+                                                downloaded_file_series_name
+                                            )
                                         )
-                                        dir_compare = ((str(dir)).lower()).strip()
-                                        dir_compare = remove_punctuation(dir_compare)
+                                        existing_series_folder_from_library = (
+                                            remove_punctuation(
+                                                ((str(dir)).lower()).strip()
+                                            )
+                                        )
                                         similarity_score = similar(
-                                            dir_compare, dir_clean_compare
+                                            existing_series_folder_from_library,
+                                            downloaded_file_series_name,
                                         )
                                         if (
                                             similarity_score
@@ -1276,9 +1279,9 @@ def check_for_existing_series_and_move():
                                                 "changes.txt",
                                                 (
                                                     '\tSimilarity between: "'
-                                                    + dir_compare
+                                                    + existing_series_folder_from_library
                                                     + '" and "'
-                                                    + dir_clean_compare
+                                                    + downloaded_file_series_name
                                                     + '"'
                                                 ),
                                             )
@@ -1292,9 +1295,9 @@ def check_for_existing_series_and_move():
                                             )
                                             print(
                                                 '\tSimilarity between: "'
-                                                + dir_compare
+                                                + existing_series_folder_from_library
                                                 + '" and "'
-                                                + dir_clean_compare
+                                                + downloaded_file_series_name
                                                 + '" Score: '
                                                 + str(similarity_score)
                                                 + " out of 1.0"
@@ -1377,7 +1380,7 @@ def check_for_existing_series_and_move():
                                                         float,
                                                     ):
                                                         send_change_message(
-                                                            "\n\tVolume: "
+                                                            "\tVolume: "
                                                             + volume.name
                                                             + " does note exist in: "
                                                             + existing_dir
@@ -1415,9 +1418,9 @@ def check_for_existing_series_and_move():
                                                 )
                                                 print(
                                                     '\tScore for: "'
-                                                    + dir_compare
+                                                    + existing_series_folder_from_library
                                                     + '" and "'
-                                                    + dir_clean_compare
+                                                    + downloaded_file_series_name
                                                     + '"'
                                                 )
                                                 print("")
@@ -1817,7 +1820,6 @@ def rename_files():
                                                     + file.name
                                                     + " to "
                                                     + replacement
-                                                    + "\n"
                                                 )
                                                 for image_extension in image_extensions:
                                                     image_file = (
