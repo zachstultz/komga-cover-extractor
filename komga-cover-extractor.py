@@ -5,6 +5,7 @@ import zipfile
 import shutil
 import string
 import regex as re
+import sys
 import argparse
 from genericpath import isfile
 from posixpath import join
@@ -59,6 +60,9 @@ required_similarity_score = 0.9790
 # v = v01, Volume = Volume01, and so on.
 # IF YOU WANT A SPACE BETWEEN THE TWO, ADD IT IN THE PREFERRED NAMING.
 preferred_volume_renaming_format = "v"
+
+# A discord webhook url used to send messages to discord about the changes made.
+discord_webhook_url = ""
 
 # Whether or not to add the issue number to the file names
 # Useful when using ComicTagger
@@ -182,7 +186,10 @@ parser.add_argument(
     required=False,
 )
 parser.add_argument(
-    "-p", "--paths", help="The paths to be scanned for cover extraction.", required=True
+    "-p",
+    "--paths",
+    help="The paths to be scanned for cover extraction.",
+    required=False,
 )
 parser.add_argument(
     "-i",
@@ -222,41 +229,64 @@ parser.add_argument(
     "-w",
     "--discord_webhook_url",
     help="The webhook URL to send the results to Discord.",
-    default=None,
+    default="",
     required=False,
 )
 
+
+# set parser arguments if something is passed
+if len(sys.argv) > 1:
+    args = parser.parse_args()
+    download_folders = [args.download_folder]
+    paths = args.paths
+    ignored_folder_names = [args.ignored_folder_names]
+    required_matching_percentage = args.required_matching_percentage
+    required_similarity_score = args.required_similarity_score
+    preferred_volume_renaming_format = args.preferred_volume_renaming_format
+    add_issue_number_to_file_name = args.add_issue_number_to_file_name
+    discord_webhook_url = args.discord_webhook_url
+
+
 # Appends, sends, and prints our error message
 def send_error_message(error):
-    print(error)
+    send_discord_message(error)
     write_to_file("errors.txt", error)
 
 
 # Appends, sends, and prints our change message
 def send_change_message(message):
-    print(message)
+    send_discord_message(message)
     items_changed.append(message)
     write_to_file("changes.txt", message)
 
 
+# Sends a discord message
+def send_discord_message(message):
+    if discord_webhook_url != "":
+        webhook = DiscordWebhook(
+            url=discord_webhook_url, content=message, rate_limit_retry=True
+        )
+        webhook.execute()
+    print(message)
+
+
 # Checks if a file exists
-def if_file_exists(root, file):
+def file_exists(root, file):
     return os.path.isfile(os.path.join(root, file))
 
 
 # Removes hidden files
 def remove_hidden_files(files, root):
     for file in files[:]:
-        if file.startswith(".") and if_file_exists(root, file):
+        if file.startswith(".") and file_exists(root, file):
             files.remove(file)
 
 
 # Removes any unaccepted file types
 def remove_unaccepted_file_types(files, root):
     for file in files[:]:
-        if not (
-            str(file).endswith(".epub") or str(file).endswith(".cbz")
-        ) and if_file_exists(root, file):
+        extension = re.sub("\.", "", get_file_extension(file))
+        if extension not in file_extensions and file_exists(root, file):
             files.remove(file)
 
 
@@ -265,34 +295,30 @@ def remove_ignored_folders(dirs):
     if len(ignored_folder_names) != 0:
         dirs[:] = [d for d in dirs if d not in ignored_folder_names]
 
+# Remove hidden folders from the list
+def remove_hidden_folders(root, dirs):
+    for folder in dirs[:]:
+        if folder.startswith(".") and os.path.isdir(os.path.join(root, folder)):
+            dirs.remove(folder)
 
 # Cleans up the files array before usage
-def clean_and_sort(files, root, dirs):
-    remove_hidden_files(files, root)
-    remove_unaccepted_file_types(files, root)
-    remove_ignored_folders(dirs)
-    dirs.sort()
-    files.sort()
-
-
-def clean_and_sort_two(files, root):
-    remove_hidden_files(files, root)
-    remove_unaccepted_file_types(files, root)
-    files.sort()
-
-
-def clean_and_sort_three(dirs, root):
-    remove_hidden_files(dirs, root)
-    remove_ignored_folders(dirs)
-    remove_unaccepted_file_types(dirs, root)
-    dirs.sort()
+def clean_and_sort(root, files=None, dirs=None):
+    if files is not None:
+        files.sort()
+        remove_hidden_files(files, root)
+        remove_unaccepted_file_types(files, root)
+    if dirs is not None:
+        dirs.sort()
+        remove_hidden_folders(root, dirs)
+        remove_ignored_folders(dirs)
 
 
 # Checks for the existance of a cover or poster file
 def check_for_existing_cover(files):
-    for f in files:
-        if str(f).__contains__("cover") | str(f).__contains__("poster"):
-            return True
+    for file in files:
+        for string in series_cover_file_names:
+            if string in file:
+                return True
     return False
 
 
@@ -321,7 +347,7 @@ def get_extensionless_name(file):
 
 # Trades out our regular files for file objects
 def upgrade_to_file_class(files, root):
-    clean_and_sort_two(files, root)
+    clean_and_sort(root, files)
     results = []
     for file in files:
         file_obj = File(
@@ -639,7 +665,7 @@ def create_folders_for_items_in_download_folder():
         if os.path.exists(download_folder):
             try:
                 for root, dirs, files in os.walk(download_folder):
-                    clean_and_sort(files, root, dirs)
+                    clean_and_sort(root, files, dirs)
                     global folder_accessor
                     file_objects = upgrade_to_file_class(files, root)
                     folder_accessor = Folder(
@@ -898,7 +924,7 @@ def is_upgradeable(downloaded_release, current_release):
 # Deletes hidden files, used when checking if a folder is empty.
 def delete_hidden_files(files, root):
     for file in files[:]:
-        if (str(file)).startswith(".") and if_file_exists(root, file):
+        if (str(file)).startswith(".") and file_exists(root, file):
             remove_file(os.path.join(root, file))
 
 
@@ -1054,8 +1080,9 @@ def check_for_missing_volumes():
     for path in paths_clean:
         if os.path.exists(path):
             os.chdir(path)
-            path_dirs = os.listdir(path)
-            clean_and_sort_three(path_dirs, path)
+            # get list of folders from path directory
+            path_dirs = [f for f in os.listdir(path) if os.path.isdir(f)]
+            clean_and_sort(path, dirs=path_dirs)
             global folder_accessor
             folder_accessor = Folder(
                 path,
@@ -1071,7 +1098,7 @@ def check_for_missing_volumes():
                 )
                 existing_dir = os.path.join(existing_dir_full_file_path, dir)
                 clean_existing = os.listdir(existing_dir)
-                clean_and_sort_two(clean_existing, existing_dir)
+                clean_and_sort(existing_dir, clean_existing)
                 existing_dir_volumes = upgrade_to_volume_class(
                     upgrade_to_file_class(
                         [
@@ -1217,7 +1244,7 @@ def check_for_existing_series_and_move():
     for download_folder in download_folders:
         if os.path.exists(download_folder):
             for root, dirs, files in os.walk(download_folder):
-                clean_and_sort(files, root, dirs)
+                clean_and_sort(root, files, dirs)
                 volumes = upgrade_to_volume_class(
                     upgrade_to_file_class(
                         [f for f in files if os.path.isfile(os.path.join(root, f))],
@@ -1232,7 +1259,7 @@ def check_for_existing_series_and_move():
                             try:
                                 os.chdir(path)
                                 path_dirs = os.listdir(path)
-                                clean_and_sort_three(path_dirs, path)
+                                clean_and_sort(path, dirs=path_dirs)
                                 global folder_accessor
                                 folder_accessor = Folder(
                                     path,
@@ -1306,9 +1333,7 @@ def check_for_existing_series_and_move():
                                                 folder_accessor.root, dir
                                             )
                                             clean_existing = os.listdir(existing_dir)
-                                            clean_and_sort_two(
-                                                clean_existing, existing_dir
-                                            )
+                                            clean_and_sort(existing_dir, clean_existing)
                                             download_dir_volumes = []
                                             download_dir_volumes.append(file)
                                             reorganize_and_rename(
@@ -1463,7 +1488,7 @@ def rename_dirs_in_download_folder():
                     if os.path.isfile(join(download_folder, f))
                 ]
                 clean_and_sort(
-                    download_folder_files, download_folder, download_folder_dirs
+                    download_folder, download_folder_files, download_folder_dirs
                 )
                 global folder_accessor
                 file_objects = upgrade_to_file_class(
@@ -1705,7 +1730,7 @@ def rename_files():
     for path in download_folders:
         if os.path.exists(path):
             for root, dirs, files in os.walk(path):
-                clean_and_sort(files, root, dirs)
+                clean_and_sort(root, files, dirs)
                 volumes = upgrade_to_volume_class(
                     upgrade_to_file_class(
                         [f for f in files if os.path.isfile(os.path.join(root, f))],
@@ -1882,7 +1907,7 @@ def delete_chapters_from_downloads():
             if os.path.exists(path):
                 os.chdir(path)
                 for root, dirs, files in os.walk(path):
-                    clean_and_sort(files, root, dirs)
+                    clean_and_sort(root, files, dirs)
                     for file in files:
                         if not (
                             re.search(
@@ -1913,7 +1938,7 @@ def delete_chapters_from_downloads():
                                         write_to_file("changes.txt", message)
                                         remove_file(os.path.join(root, file))
                 for root, dirs, files in os.walk(path):
-                    clean_and_sort(files, root, dirs)
+                    clean_and_sort(root, files, dirs)
                     for dir in dirs:
                         check_and_delete_empty_folder(os.path.join(root, dir))
             else:
@@ -1939,7 +1964,7 @@ def main():
                 for root, dirs, files in os.walk(path):
                     remove_hidden_files(files, root)
                     has_cover = check_for_existing_cover(files)
-                    clean_and_sort(files, root, dirs)
+                    clean_and_sort(root, files, dirs)
                     global folder_accessor
                     file_objects = upgrade_to_file_class(files, root)
                     folder_accessor = Folder(
