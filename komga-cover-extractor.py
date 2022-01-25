@@ -234,19 +234,6 @@ parser.add_argument(
 )
 
 
-# set parser arguments if something is passed
-if len(sys.argv) > 1:
-    args = parser.parse_args()
-    download_folders = [args.download_folder]
-    paths = args.paths
-    ignored_folder_names = [args.ignored_folder_names]
-    required_matching_percentage = args.required_matching_percentage
-    required_similarity_score = args.required_similarity_score
-    preferred_volume_renaming_format = args.preferred_volume_renaming_format
-    add_issue_number_to_file_name = args.add_issue_number_to_file_name
-    discord_webhook_url = args.discord_webhook_url
-
-
 # Appends, sends, and prints our error message
 def send_error_message(error):
     send_discord_message(error)
