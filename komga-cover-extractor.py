@@ -7,6 +7,8 @@ import string
 import regex as re
 import sys
 import argparse
+import subprocess
+from lxml import etree
 from genericpath import isfile
 from posixpath import join
 from difflib import SequenceMatcher
@@ -282,11 +284,13 @@ def remove_ignored_folders(dirs):
     if len(ignored_folder_names) != 0:
         dirs[:] = [d for d in dirs if d not in ignored_folder_names]
 
+
 # Remove hidden folders from the list
 def remove_hidden_folders(root, dirs):
     for folder in dirs[:]:
         if folder.startswith(".") and os.path.isdir(os.path.join(root, folder)):
             dirs.remove(folder)
+
 
 # Cleans up the files array before usage
 def clean_and_sort(root, files=None, dirs=None):
@@ -431,46 +435,98 @@ def remove_hidden_files_with_basename(files):
             files.remove(file)
 
 
+class ImageInfo:
+    def __init__(self, path, name):
+        self.path = path
+        self.name = name
+
+
+# Credit to original source: https://alamot.github.io/epub_cover/
+# Modified by me.
+# Retrieves the inner epub cover
+def get_epub_cover(epub_path):
+    namespaces = {
+        "calibre": "http://calibre.kovidgoyal.net/2009/metadata",
+        "dc": "http://purl.org/dc/elements/1.1/",
+        "dcterms": "http://purl.org/dc/terms/",
+        "opf": "http://www.idpf.org/2007/opf",
+        "u": "urn:oasis:names:tc:opendocument:xmlns:container",
+        "xsi": "http://www.w3.org/2001/XMLSchema-instance",
+    }
+    with zipfile.ZipFile(epub_path) as z:
+        t = etree.fromstring(z.read("META-INF/container.xml"))
+        rootfile_path = t.xpath(
+            "/u:container/u:rootfiles/u:rootfile", namespaces=namespaces
+        )[0].get("full-path")
+        t = etree.fromstring(z.read(rootfile_path))
+        cover_id = t.xpath(
+            "//opf:metadata/opf:meta[@name='cover']", namespaces=namespaces
+        )[0].get("content")
+        cover_href = t.xpath(
+            "//opf:manifest/opf:item[@id='" + cover_id + "']", namespaces=namespaces
+        )[0].get("href")
+        cover_path = os.path.join(os.path.dirname(rootfile_path), cover_href)
+        return ImageInfo(
+            cover_path,
+            get_base_name(cover_path),
+        )
+
+
 # Checks the internal zip for covers.
 def check_internal_zip_for_cover(file):
     global poster_found
     global cbz_internal_covers_found
     cover_found = False
     poster_found = False
+    image_cover_name = ""
+    if file.name.endswith(".epub") and not file.name.startswith("."):
+        try:
+            image_cover_name = get_epub_cover(file.path).path
+        except Exception as e:
+            print(e)
     try:
         if zipfile.is_zipfile(file.path):
             zip_file = zipfile.ZipFile(file.path)
             send_change_message("Zip found" + "Entering zip: " + file.name)
             internal_zip_images = zip_images_only(zip_file)
             remove_hidden_files_with_basename(internal_zip_images)
-            for image_file in internal_zip_images:
-                head_tail = os.path.split(image_file)
+            if image_cover_name != "":
+                head_tail = os.path.split(image_cover_name)
                 image_file_path = head_tail[0]
                 image_file = head_tail[1]
-                if cover_found != True:
-                    if (
-                        re.search(
-                            r"(\b(Cover([0-9]+|)|CoverDesign)\b)",
-                            image_file,
-                            re.IGNORECASE,
-                        )
-                        or re.search(
-                            r"(\b(p000|page_000)\b)", image_file, re.IGNORECASE
-                        )
-                        or re.search(
-                            r"(\bindex[-_. ]1[-_. ]1\b)", image_file, re.IGNORECASE
-                        )
-                    ):
-                        send_change_message(
-                            "Found cover: "
-                            + get_base_name(image_file)
-                            + " in "
-                            + file.name
-                        )
-                        cover_found = True
-                        cbz_internal_covers_found += 1
-                        extract_cover(zip_file, image_file_path, image_file, file)
-                        return
+                cover_found = True
+                cbz_internal_covers_found += 1
+                extract_cover(zip_file, image_file_path, image_file, file)
+                return
+            else:
+                for image_file in internal_zip_images:
+                    head_tail = os.path.split(image_file)
+                    image_file_path = head_tail[0]
+                    image_file = head_tail[1]
+                    if cover_found != True:
+                        if (
+                            re.search(
+                                r"(\b(Cover([0-9]+|)|CoverDesign)\b)",
+                                image_file,
+                                re.IGNORECASE,
+                            )
+                            or re.search(
+                                r"(\b(p000|page_000)\b)", image_file, re.IGNORECASE
+                            )
+                            or re.search(
+                                r"(\bindex[-_. ]1[-_. ]1\b)", image_file, re.IGNORECASE
+                            )
+                        ):
+                            send_change_message(
+                                "Found cover: "
+                                + get_base_name(image_file)
+                                + " in "
+                                + file.name
+                            )
+                            cover_found = True
+                            cbz_internal_covers_found += 1
+                            extract_cover(zip_file, image_file_path, image_file, file)
+                            return
             if cover_found != True and len(internal_zip_images) != False:
                 head_tail = os.path.split(internal_zip_images[0])
                 image_file_path = head_tail[0]
@@ -1933,6 +1989,14 @@ def delete_chapters_from_downloads():
                     print("\nERROR: Path cannot be empty.")
                 else:
                     print("\nERROR: " + path + " is an invalid path.\n")
+    except Exception as e:
+        print(e)
+
+
+# execute terminal command
+def execute_command(command):
+    try:
+        subprocess.call(command, shell=True)
     except Exception as e:
         print(e)
 
