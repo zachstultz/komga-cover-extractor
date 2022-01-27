@@ -239,6 +239,7 @@ parser.add_argument(
 # Appends, sends, and prints our error message
 def send_error_message(error):
     send_discord_message(error)
+    errors.append(error)
     write_to_file("errors.txt", error)
 
 
@@ -422,8 +423,8 @@ def extract_cover(
                     send_change_message("Copying file and renaming.")
                     shutil.copyfileobj(zf, f)
                     return
-            except IOError as io:
-                send_error_message(io)
+            except Exception as e:
+                send_error_message(e)
     return
 
 
@@ -549,8 +550,7 @@ def check_internal_zip_for_cover(file):
             )
 
     except zipfile.BadZipFile:
-        print("Bad Zipfile: " + file.path)
-        errors.append("Bad Zipfile: " + file.path)
+        send_error_message("Bad Zipfile: " + file.path)
     return cover_found
 
 
@@ -1301,7 +1301,9 @@ def check_for_existing_series_and_move():
                         if os.path.exists(path) and done == False:
                             try:
                                 os.chdir(path)
-                                path_dirs = os.listdir(path)
+                                path_dirs = [
+                                    f for f in os.listdir(path) if os.path.isdir(f)
+                                ]
                                 clean_and_sort(path, dirs=path_dirs)
                                 global folder_accessor
                                 folder_accessor = Folder(
@@ -1398,6 +1400,10 @@ def check_for_existing_series_and_move():
                                                     )
                                                 )
                                             )
+                                            cbz_percent_download_folder = 0
+                                            cbz_percent_existing_folder = 0
+                                            epub_percent_download_folder = 0
+                                            epub_percent_existing_folder = 0
                                             cbz_percent_download_folder = (
                                                 get_cbz_percent_for_folder(
                                                     download_dir_volumes
@@ -2067,4 +2073,4 @@ if len(files_with_no_cover) != 0:
 if len(errors) != 0:
     print("\nErrors:")
     for error in errors:
-        print("\t" + error)
+        print(str(error))
