@@ -10,13 +10,13 @@ Primary usage is with https://github.com/gotson/komga, **with volume releases**.
 Cover-string detection is based on various scene releases, if none are detected, it will default to the first image. Which, unless you have scans from online, will almost always be the cover.
 
 ## Finished Result EX:
-![Screen Shot 2021-11-06 at 11 46 38 AM](https://user-images.githubusercontent.com/8385256/140617357-245cb8e1-0622-45f3-be0b-291dfadcf8a7.png)
+![image](https://user-images.githubusercontent.com/8385256/152403016-90660098-0b04-4178-babd-87e56ff1b390.png)
 
 ## Usage
-1. Clone ```https://github.com/zachstultz/komga-cover-extractor.git``` or download the repository up above.
+1. Run ```git clone https://github.com/zachstultz/komga-cover-extractor.git``` or download the repository up above.
 2. Run ```pip3 install -r requirements.txt```
 3. Add desired paths that you want scanned into the paths string array at the top of komga-cover-extractor.py
-![Screen Shot 2021-12-09 at 11 28 29 AM (1)](https://user-images.githubusercontent.com/8385256/145447043-150a9a96-f85b-4304-94f1-29b71383156b.png)
+![image](https://user-images.githubusercontent.com/8385256/152403252-8799fe4c-a5b0-4296-9d13-43728a060491.png)
 5. Run komga-cover-extractor.py ```python3 komga-cover-extractor.py```
 
 ## Contact
