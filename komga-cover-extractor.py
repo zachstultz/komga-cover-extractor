@@ -8,11 +8,15 @@ import regex as re
 import sys
 import argparse
 import subprocess
+from PIL import Image
+from PIL import ImageFile
 from lxml import etree
 from genericpath import isfile
 from posixpath import join
 from difflib import SequenceMatcher
 from datetime import datetime
+from discord_webhook import DiscordWebhook
+
 
 # ************************************
 # Created by: Zach Stultz            *
@@ -39,6 +43,12 @@ folder_accessor = None
 
 # The remaining files without covers
 files_with_no_cover = []
+
+# whether or not to compress the extractred images
+compress_image_option = False
+
+# Image compression value
+compression_quality = 80
 
 # Stat-related
 file_count = 0
@@ -155,25 +165,11 @@ release_groups = [
     Release_Group("Shizu", 50),
     Release_Group("1r0n", 25),
     Release_Group("Digital HD", 5),
-    Release_Group("{r2}", 1),
-    Release_Group("{r3}", 2),
-    Release_Group("{r4}", 3),
-    Release_Group("{r5}", 4),
-    Release_Group("{f2}", 1),
-    Release_Group("{f3}", 2),
-    Release_Group("{f4}", 3),
-    Release_Group("{f5}", 4),
-    Release_Group("(f2)", 1),
-    Release_Group("(f3)", 2),
-    Release_Group("(f4)", 3),
-    Release_Group("(f5)", 4),
-    Release_Group("AkaHummingBird", 0),
-    Release_Group("Shellshock", 0),
-    Release_Group("aKraa", 0),
-    Release_Group("Ushi", 0),
-    Release_Group("Edge", 0),
-    Release_Group("LostNerevarine-Empire", 0),
-    Release_Group("0v3r", 0),
+    Release_Group("([\[\{\(](f|r)2[\]\}\)]|v2)", 1),
+    Release_Group("([\[\{\(](f|r)3[\]\}\)]|v3)", 2),
+    Release_Group("([\[\{\(](f|r)4[\]\}\)]|v4)", 3),
+    Release_Group("([\[\{\(](f|r)5[\]\}\)]|v5)", 4),
+    Release_Group("AkaHummingBird|Shellshock|aKraa|Ushi|Edge|LostNerevarine-Empire|0v3r", 0),
     Release_Group("PNG4", -5),
 ]
 
@@ -235,9 +231,39 @@ parser.add_argument(
     required=False,
 )
 
+# Convert png to jpg and return image path
+def convert_png_to_jpg(image_path):
+    im = Image.open(image_path)
+    ImageFile.LOAD_TRUNCATED_IMAGES = True
+    rgb_im = im.convert("RGB")
+    rgb_im.save(image_path.replace(".png", ".jpg"), "JPEG", quality=100)
+    if os.path.isfile(image_path.replace(".png", ".jpg")):
+        os.remove(image_path)
+    # return the new image path
+    return image_path.replace(".png", ".jpg")
+
+
+# Compress image with maximum quality
+def compress_image(image_path):
+    if get_file_extension(image_path) == ".png":
+        image_path = convert_png_to_jpg(image_path)
+    extension = get_file_extension(image_path)
+    ImageFile.LOAD_TRUNCATED_IMAGES = True
+    image = Image.open(image_path)
+    image_format = image.format
+    image_format_extension = image_format.lower()
+    if image_format_extension == "jpeg":
+        image_format_extension = "jpg"
+    compressed_image_path = image_path.replace(
+        ".{}".format(image_format_extension), extension
+    )
+    image.save(compressed_image_path, image.format, quality=compression_quality)
+    return compressed_image_path
+
 
 # Appends, sends, and prints our error message
 def send_error_message(error):
+    print(error)
     send_discord_message(error)
     errors.append(error)
     write_to_file("errors.txt", error)
@@ -245,6 +271,7 @@ def send_error_message(error):
 
 # Appends, sends, and prints our change message
 def send_change_message(message):
+    print(message)
     send_discord_message(message)
     items_changed.append(message)
     write_to_file("changes.txt", message)
@@ -257,7 +284,6 @@ def send_discord_message(message):
             url=discord_webhook_url, content=message, rate_limit_retry=True
         )
         webhook.execute()
-    print(message)
 
 
 # Checks if a file exists
@@ -422,6 +448,11 @@ def extract_cover(
                 ) as f:
                     send_change_message("Copying file and renaming.")
                     shutil.copyfileobj(zf, f)
+                    try:
+                        if compress_image_option:
+                            compress_image(f.name)
+                    except Exception as e:
+                        send_error_message(e)
                     return
             except Exception as e:
                 send_error_message(e)
@@ -488,7 +519,8 @@ def check_internal_zip_for_cover(file):
     try:
         if zipfile.is_zipfile(file.path):
             zip_file = zipfile.ZipFile(file.path)
-            send_change_message("Zip found" + "Entering zip: " + file.name)
+            send_change_message("Zip found")
+            send_change_message("Entering zip: " + file.name)
             internal_zip_images = zip_images_only(zip_file)
             remove_hidden_files_with_basename(internal_zip_images)
             if image_cover_name != "":
@@ -1956,7 +1988,8 @@ def delete_chapters_from_downloads():
             if os.path.exists(path):
                 os.chdir(path)
                 for root, dirs, files in os.walk(path):
-                    clean_and_sort(root, files, dirs)
+                    # clean_and_sort(root, files, dirs)
+                    remove_hidden_files(files, root)
                     for file in files:
                         if not (
                             re.search(
@@ -1966,12 +1999,12 @@ def delete_chapters_from_downloads():
                             )
                         ):
                             if re.search(
-                                r"\s(\d)+(([.]\d)?)(\s|(.cbz)?(.epub)?)",
+                                r"\s((ch|c|chapter|chap)([-_. ](\s|)|)|)(\d)+(([.](\d)+)?)(([-_. ](\s|)|)|)(\d)+(([.](\d)+)?)(\s|(.cbz)?(.epub)?)",
                                 file,
                                 re.IGNORECASE,
                             ):
                                 if not file.__contains__("Extra"):
-                                    if file.endswith(".cbz"):
+                                    if file.endswith(".cbz") or file.endswith(".zip"):
                                         message = (
                                             "File: "
                                             + file
@@ -2073,4 +2106,4 @@ if len(files_with_no_cover) != 0:
 if len(errors) != 0:
     print("\nErrors:")
     for error in errors:
-        print(str(error))
+        print("\t" + str(error))
