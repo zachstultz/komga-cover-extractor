@@ -2113,4 +2113,6 @@ def main():
     print_stats()
 
 
-main()
+if __name__ == "__main__":
+    main()
+
