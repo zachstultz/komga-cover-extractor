@@ -2037,7 +2037,7 @@ def execute_command(command):
         except Exception as e:
             print(e)
 
-            
+
 # Extracts the covers out from our cbz and epub files
 def extract_covers():
     for path in paths:
@@ -2085,6 +2085,23 @@ def extract_covers():
                 print("\nERROR: " + path + " is an invalid path.\n")
 
 
+def print_stats():
+    print("\nFor all " + str(len(paths)) + " paths.")
+    print("Total Files Found: " + str(file_count))
+    print("\t" + str(cbz_count) + " were cbz files")
+    print("\t" + str(cbr_count) + " were cbr files")
+    print("\t" + str(epub_count) + " were epub files")
+    print("\tof those we found " + str(image_count) + " had a cover image file.")
+    if len(files_with_no_cover) != 0:
+        print("\nRemaining files without covers:")
+        for lonely_file in files_with_no_cover:
+            print("\t" + lonely_file)
+    if len(errors) != 0:
+        print("\nErrors:")
+        for error in errors:
+            print("\t" + str(error))
+
+
 def main():
     #delete_chapters_from_downloads()
     #rename_files()
@@ -2093,20 +2110,7 @@ def main():
     #check_for_existing_series_and_move()
     #check_for_missing_volumes()
     extract_covers()
+    print_stats()
 
 
 main()
-print("\nFor all " + str(len(paths)) + " paths.")
-print("Total Files Found: " + str(file_count))
-print("\t" + str(cbz_count) + " were cbz files")
-print("\t" + str(cbr_count) + " were cbr files")
-print("\t" + str(epub_count) + " were epub files")
-print("\tof those we found " + str(image_count) + " had a cover image file.")
-if len(files_with_no_cover) != 0:
-    print("\nRemaining files without covers:")
-    for lonely_file in files_with_no_cover:
-        print("\t" + lonely_file)
-if len(errors) != 0:
-    print("\nErrors:")
-    for error in errors:
-        print("\t" + str(error))
