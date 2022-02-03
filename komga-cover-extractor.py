@@ -821,14 +821,11 @@ def remove_everything_but_volume_num(files, root):
     results = []
     is_omnibus = False
     for file in files[:]:
-        if (
-            not re.search(
-                r"\b(LN|Light Novel|Novel|Book|Volume|Vol|V|第)([-_. ]|)([-_. ]|)([0-9]+)((\.)([0-9]+)|)\b",
-                file,
-                re.IGNORECASE,
-            )
-            and os.path.isfile(os.path.join(root, file))
-        ):
+        if not re.search(
+            r"\b(LN|Light Novel|Novel|Book|Volume|Vol|V|第)([-_. ]|)([-_. ]|)([0-9]+)((\.)([0-9]+)|)\b",
+            file,
+            re.IGNORECASE,
+        ) and os.path.isfile(os.path.join(root, file)):
             files.remove(file)
         # elif(re.search(r"\b(LN|Light Novel|Novel|Book|Volume|Vol|V|第)(\d+)(\.\d+)?([-_])(\d+)(\.\d+)?\b", file, re.IGNORECASE)):
         #     is_omnibus = True
@@ -2034,19 +2031,15 @@ def delete_chapters_from_downloads():
 
 # execute terminal command
 def execute_command(command):
-    try:
-        subprocess.call(command, shell=True)
-    except Exception as e:
-        print(e)
+    if command != "":
+        try:
+            subprocess.call(command, shell=True)
+        except Exception as e:
+            print(e)
 
-
-def main():
-    #delete_chapters_from_downloads()
-    #rename_files()
-    #create_folders_for_items_in_download_folder()
-    #rename_dirs_in_download_folder()
-    #check_for_existing_series_and_move()
-    #check_for_missing_volumes()
+            
+# Extracts the covers out from our cbz and epub files
+def extract_covers():
     for path in paths:
         if os.path.exists(path):
             try:
@@ -2090,6 +2083,16 @@ def main():
                 print("\nERROR: Path cannot be empty.")
             else:
                 print("\nERROR: " + path + " is an invalid path.\n")
+
+
+def main():
+    #delete_chapters_from_downloads()
+    #rename_files()
+    #create_folders_for_items_in_download_folder()
+    #rename_dirs_in_download_folder()
+    #check_for_existing_series_and_move()
+    #check_for_missing_volumes()
+    extract_covers()
 
 
 main()
