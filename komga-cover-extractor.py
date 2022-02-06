@@ -158,20 +158,7 @@ class Release_Group:
 
 
 # Release Groups Ranked by Point Values
-release_groups = [
-    Release_Group("Premium", 105),  # For LN releases
-    Release_Group("danke-empire", 100),
-    Release_Group("LuCaZ", 75),
-    Release_Group("Shizu", 50),
-    Release_Group("1r0n", 25),
-    Release_Group("Digital HD", 5),
-    Release_Group("([\[\{\(](f|r)2[\]\}\)])", 1),
-    Release_Group("([\[\{\(](f|r)3[\]\}\)])", 2),
-    Release_Group("([\[\{\(](f|r)4[\]\}\)])", 3),
-    Release_Group("([\[\{\(](f|r)5[\]\}\)])", 4),
-    Release_Group("AkaHummingBird|Shellshock|aKraa|Ushi|Edge|LostNerevarine-Empire|0v3r", 0),
-    Release_Group("PNG4", -5),
-]
+release_groups = []
 
 # Parses the passed command line arguments
 parser = argparse.ArgumentParser(
@@ -1307,7 +1294,12 @@ def reorganize_and_rename(files, dir):
 
 # Returns a string without punctuation.
 def remove_punctuation(s):
-    return re.sub(r"[^\w\s]", "", s)
+    return remove_dual_space(re.sub(r"[^\w\s]", "", s))
+
+
+# Replaces any pesky double spaces
+def remove_dual_space(s):
+    return re.sub("\s\s", " ", s, re.IGNORECASE)
 
 
 # Checks for an existing series by pulling the series name from each elidable file in the downloads_folder
@@ -1996,7 +1988,7 @@ def delete_chapters_from_downloads():
                             )
                         ):
                             if re.search(
-                                r"\s((ch|c|chapter|chap)([-_. ](\s|)|)|)(\d)+(([.](\d)+)?)(([-_. ](\s|)|)|)(\d)+(([.](\d)+)?)(\s|(.cbz)?(.epub)?)",
+                                r"\s((ch|c|d|chapter|chap)([-_. ](\s|)|)|)(\d)+(([.](\d)+)?)(([-_. ](\s|)|)|)(\d)+(([.](\d)+)?)(\s|(.cbz)?(.epub)?)",
                                 file,
                                 re.IGNORECASE,
                             ):
@@ -2093,11 +2085,13 @@ def print_stats():
     print("\t" + str(epub_count) + " were epub files")
     print("\tof those we found " + str(image_count) + " had a cover image file.")
     if len(files_with_no_cover) != 0:
-        print("\nRemaining files without covers:")
+        print(
+            "\nRemaining files without covers (" + str(len(files_with_no_cover)) + "):"
+        )
         for lonely_file in files_with_no_cover:
             print("\t" + lonely_file)
     if len(errors) != 0:
-        print("\nErrors:")
+        print("\nErrors (" + str(len(errors)) + "):")
         for error in errors:
             print("\t" + str(error))
 
@@ -2115,4 +2109,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
