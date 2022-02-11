@@ -158,7 +158,7 @@ class Release_Group:
 
 
 # Release Groups Ranked by Point Values
-release_groups = []
+ranked_keywords = []
 
 # Parses the passed command line arguments
 parser = argparse.ArgumentParser(
@@ -251,7 +251,7 @@ def compress_image(image_path):
 # Appends, sends, and prints our error message
 def send_error_message(error):
     print(error)
-    send_discord_message(error)
+    # send_discord_message(error)
     errors.append(error)
     write_to_file("errors.txt", error)
 
@@ -433,8 +433,8 @@ def extract_cover(
                     ),
                     "wb",
                 ) as f:
-                    send_change_message("Copying file and renaming.")
                     shutil.copyfileobj(zf, f)
+                    send_change_message("Copied file and renamed.")
                     try:
                         if compress_image_option:
                             compress_image(f.name)
@@ -903,9 +903,9 @@ def is_fixed_volume(name):
 # Retrieves the release_group on the file name
 def get_release_group(name):
     result = ""
-    for release_group in release_groups:
-        if re.search(release_group.name, name, re.IGNORECASE):
-            result = release_group.name
+    for keyword in ranked_keywords:
+        if re.search(keyword.name, name, re.IGNORECASE):
+            result = keyword.name
     return result
 
 
@@ -960,9 +960,9 @@ def upgrade_to_volume_class(files):
 # Retrieves the release_group score from the list, using a high similarity
 def get_release_group_score(name):
     score = 0.0
-    for group in release_groups:
-        if re.search(group.name, name, re.IGNORECASE):
-            score += group.score
+    for keyword in ranked_keywords:
+        if re.search(keyword.name, name, re.IGNORECASE):
+            score += keyword.score
     return score
 
 
@@ -1211,7 +1211,7 @@ def rename_file(
             send_change_message(
                 "\t"
                 + extensionless_filename_src
-                + " renamed to "
+                + " was renamed to "
                 + extenionless_filename_dest
             )
             for image_extension in image_extensions:
@@ -1477,7 +1477,7 @@ def check_for_existing_series_and_move():
                                                         send_change_message(
                                                             "\tVolume: "
                                                             + volume.name
-                                                            + " does note exist in: "
+                                                            + " does not exist in: "
                                                             + existing_dir
                                                         )
                                                         send_change_message(
@@ -1978,6 +1978,8 @@ def delete_chapters_from_downloads():
                 os.chdir(path)
                 for root, dirs, files in os.walk(path):
                     # clean_and_sort(root, files, dirs)
+                    dirs.sort()
+                    files.sort()
                     remove_hidden_files(files, root)
                     for file in files:
                         if not (
