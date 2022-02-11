@@ -18,6 +18,3 @@ Cover-string detection is based on various scene releases, if none are detected,
 3. Add desired paths that you want scanned into the paths string array at the top of komga-cover-extractor.py
 ![image](https://user-images.githubusercontent.com/8385256/152403252-8799fe4c-a5b0-4296-9d13-43728a060491.png)
 5. Run ```python3 komga-cover-extractor.py```
-
-## Contact
-Discord: HCAZ#0665
