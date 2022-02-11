@@ -151,13 +151,13 @@ class Volume:
 
 
 # Release Group Class
-class Release_Group:
+class Keyword:
     def __init__(self, name, score):
         self.name = name
         self.score = score
 
 
-# Release Groups Ranked by Point Values
+# Keywords ranked by point values
 ranked_keywords = []
 
 # Parses the passed command line arguments
@@ -958,7 +958,7 @@ def upgrade_to_volume_class(files):
 
 
 # Retrieves the release_group score from the list, using a high similarity
-def get_release_group_score(name):
+def get_keyword_score(name):
     score = 0.0
     for keyword in ranked_keywords:
         if re.search(keyword.name, name, re.IGNORECASE):
@@ -968,8 +968,8 @@ def get_release_group_score(name):
 
 # Checks if the downloaded release is an upgrade for the current release.
 def is_upgradeable(downloaded_release, current_release):
-    downloaded_release_score = get_release_group_score(downloaded_release.name)
-    current_release_score = get_release_group_score(current_release.name)
+    downloaded_release_score = get_keyword_score(downloaded_release.name)
+    current_release_score = get_keyword_score(current_release.name)
     if downloaded_release_score > current_release_score:
         return True
     elif (downloaded_release_score == current_release_score) and (
