@@ -6,6 +6,8 @@ Allowing the user to use local high-resolution covers within Komga instead of th
 
 Primary usage is with https://github.com/gotson/komga, **with volume releases**.
 
+There is no compression of the cover by default, so take that into account in-relation to your setup.
+
 ## Cover Detection
 Cover-string detection is based on various scene releases, if none are detected, it will default to the first image. Which, unless you have scans from online, will almost always be the cover.
 
