@@ -1979,7 +1979,7 @@ def delete_chapters_from_downloads():
                             )
                         ):
                             if re.search(
-                                r"\b((ch|c|d|chapter|chap)([-_. ](\s|)|)|)(\d)+(([.](\d)+)?)(([-_. ](\s|)|)|)(\d)+(([.](\d)+)?)(\s|(.cbz)?(.epub)?)",
+                                r"(((ch|c|d|chapter|chap)([-_. ]+)?([0-9]+))|\s([0-9]+)(\.[0-9]+)?\s)",
                                 file,
                                 re.IGNORECASE,
                             ):
