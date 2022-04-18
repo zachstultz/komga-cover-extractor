@@ -22,7 +22,7 @@ Cover-string detection is based on various scene releases, if none are detected,
 ## Usage
 ```
 usage: komga_cover_extractor.py [-h] [-p [PATHS [PATHS ...]]]
-                                [-df [DOWNLOAD_FOLDERS [DOWNLOAD_FOLDERS ...]]]
+                                [-df [DOWNLOAD_FOLDERS [DOWNLOAD_FOLDERS ...]]] (OPTIONAL, STILL IN TESTING)
                                 [-wh WEBHOOK]
 
 Scans for covers in the cbz and epub files.
