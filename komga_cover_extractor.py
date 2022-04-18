@@ -25,7 +25,7 @@ from discord_webhook import DiscordWebhook
 
 paths = [""]
 download_folders = [""]
-ignored_folder_names = []
+ignored_folder_names = [""]
 
 # List of file types used throughout the program
 file_extensions = ["epub", "cbz", "cbr"]  # (cbr is only used for the stat printout)
@@ -198,7 +198,7 @@ def parse_my_args():
     parser.add_argument(
         "-df",
         "--download_folders",
-        help="The download folder/download folders for processing, renaming, and moving of downloaded files.",
+        help="[OPTIONAL, STILL IN TESTING] The download folder/download folders for processing, renaming, and moving of downloaded files.",
         action="append",
         nargs="*",
         required=False,
@@ -210,6 +210,10 @@ def parse_my_args():
         required=False,
     )
     parser = parser.parse_args()
+    if not parser.paths and not parser.download_folders:
+        print("No paths or download folders were passed to the script.")
+        print("Exiting...")
+        exit()
     if parser.paths is not None:
         paths = []
         for path in parser.paths:
@@ -2234,7 +2238,7 @@ def print_stats():
         print("\nErrors (" + str(len(errors)) + "):")
         for error in errors:
             print("\t" + str(error))
-
+            
             
 def main():
     parse_my_args()
