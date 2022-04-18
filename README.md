@@ -32,8 +32,9 @@ optional arguments:
   -p [PATHS [PATHS ...]], --paths [PATHS [PATHS ...]]
                         The path/paths to be scanned for cover extraction.
   -df [DOWNLOAD_FOLDERS [DOWNLOAD_FOLDERS ...]], --download_folders [DOWNLOAD_FOLDERS [DOWNLOAD_FOLDERS ...]]
-                        The download folder/download folders for processing,
-                        renaming, and moving of downloaded files.
+                        [OPTIONAL, STILL IN TESTING] The download
+                        folder/download folders for processing, renaming, and
+                        moving of downloaded files.
   -wh WEBHOOK, --webhook WEBHOOK
                         The discord webhook url for notifications about
                         changes and errors.
