@@ -38,3 +38,4 @@ optional arguments:
                         The discord webhook url for notifications about
                         changes and errors.
 ```
+```EX: python3 komga_cover_extractor.py -p "/path/to/manga" -p "/path/to/novels" -wh "WEBHOOK_URL"```
