@@ -23,18 +23,12 @@ from discord_webhook import DiscordWebhook
 # Git: https://github.com/zachstultz *
 # ************************************
 
-download_folders = [  # OPTIONAL [STILL IN TESTING]
-    "",
-]
-paths = [  # [ADD IN THE PATHS YOU WANT SCANNED]
-    "",
-]
-ignored_folder_names = [
-    "",
-]
+paths = [""]
+download_folders = [""]
+ignored_folder_names = []
 
 # List of file types used throughout the program
-file_extensions = ["epub", "cbz", "cbr"]
+file_extensions = ["epub", "cbz", "cbr"]  # (cbr is only used for the stat printout)
 image_extensions = ["jpg", "jpeg", "png", "tbn"]
 series_cover_file_names = ["cover", "poster"]
 
@@ -185,92 +179,67 @@ volume_keywords = [
 
 volume_one_number_keywords = ["One", "1", "01", "001", "0001"]
 
-# Parses the passed command line arguments
-parser = argparse.ArgumentParser(
-    description="Scans for covers in the cbz and epub files."
-)
-parser.add_argument(
-    "-d",
-    "--download_folder",
-    help="The download folder for processing, renaming, and moving of downloaded files.",
-    required=False,
-)
-parser.add_argument(
-    "-p",
-    "--paths",
-    help="The paths to be scanned for cover extraction.",
-    required=False,
-)
-parser.add_argument(
-    "-i",
-    "--ignored_folder_names",
-    help="Ignore the specified folders by name.",
-    required=False,
-)
-parser.add_argument(
-    "-rmp",
-    "--required_matching_percentage",
-    help="The required matching percentage that must be met between the download folder and the existing folder when automatically moving files to existing llibrary folders.",
-    default=90,
-    required=False,
-)
-parser.add_argument(
-    "-rms",
-    "--required_similarity_score",
-    help="The required similarity score that must be met when comparing two strings between the volume series name and the existing library folder name.",
-    default=0.9790,
-    required=False,
-)
-parser.add_argument(
-    "-pvr",
-    "--preferred_volume_renaming_format",
-    help="The preferred volume naming format. # v = v01, Volume = Volume01, and so on. IF YOU WANT A SPACE BETWEEN THE TWO, ADD IT IN THE PREFERRED NAMING.",
-    default="v",
-    required=False,
-)
-parser.add_argument(
-    "-a",
-    "--add_issue_number_to_cbz_file_name",
-    help="Whether or not to add the issue number to the renamed file names. Issue number is added directly after the volume number.",
-    default=False,
-    required=False,
-)
-parser.add_argument(
-    "-w",
-    "--discord_webhook_url",
-    help="The webhook URL to send the results to Discord.",
-    default="",
-    required=False,
-)
+# parses the passed command line arguments
+def parse_my_args():
+    global paths
+    global download_folders
+    global discord_webhook_url
+    parser = argparse.ArgumentParser(
+        description="Scans for covers in the cbz and epub files."
+    )
+    parser.add_argument(
+        "-p",
+        "--paths",
+        help="The path/paths to be scanned for cover extraction.",
+        action="append",
+        nargs="*",
+        required=False,
+    )
+    parser.add_argument(
+        "-df",
+        "--download_folders",
+        help="The download folder/download folders for processing, renaming, and moving of downloaded files.",
+        action="append",
+        nargs="*",
+        required=False,
+    )
+    parser.add_argument(
+        "-wh",
+        "--webhook",
+        help="The discord webhook url for notifications about changes and errors.",
+        required=False,
+    )
+    parser = parser.parse_args()
+    if parser.paths is not None:
+        paths = []
+        for path in parser.paths:
+            for p in path:
+                paths.append(p)
+    if parser.download_folders is not None:
+        download_folders = []
+        for download_folder in parser.download_folders:
+            for folder in download_folder:
+                download_folders.append(folder)
+    if parser.webhook is not None:
+        discord_webhook_url = parser.webhook
 
-# Convert png to jpg and return image path
-def convert_png_to_jpg(image_path):
-    im = Image.open(image_path)
-    rgb_im = im.convert("RGB")
-    rgb_im.save(image_path.replace(".png", ".jpg"), "JPEG", quality=image_quality)
-    if os.path.isfile(image_path.replace(".png", ".jpg")):
-        os.remove(image_path)
-    # return the new image path
-    return image_path.replace(".png", ".jpg")
-
-
-# Compress image with maximum quality
+        
 def compress_image(image_path):
     ImageFile.LOAD_TRUNCATED_IMAGES = True
-    if get_file_extension(image_path) == ".png":
-        return convert_png_to_jpg(image_path)
+    if image_path.endswith(".png"):
+        im = Image.open(image_path)
+        image_path = image_path.replace(".png", ".jpg")
+        rgb_im = im.convert("RGB")
+        rgb_im.save(image_path, optimize=True, quality=image_quality)
+        rgb_im.close()
+        im.close()
+        if os.path.exists(image_path.replace(".jpg", ".png")):
+            os.remove(image_path.replace(".jpg", ".png"))
     else:
-        extension = get_file_extension(image_path)
-        image = Image.open(image_path)
-        image_format = image.format
-        image_format_extension = image_format.lower()
-        if image_format_extension == "jpeg":
-            image_format_extension = "jpg"
-        compressed_image_path = image_path.replace(
-            ".{}".format(image_format_extension), extension
-        )
-        image.save(compressed_image_path, image.format, quality=image_quality)
-        return compressed_image_path
+        im = Image.open(image_path)
+        im.save(image_path, optimize=True, quality=image_quality)
+        im.close()
+    return image_path
 
 
 # Appends, sends, and prints our error message
@@ -463,7 +432,7 @@ def extract_cover(
                     "wb",
                 ) as f:
                     shutil.copyfileobj(zf, f)
-                    send_change_message("\tCopied file and renamed.")
+                    send_change_message("\tCopied file and renamed.\n")
                     try:
                         if compress_image_option:
                             compress_image(f.name)
@@ -766,14 +735,26 @@ def get_series_name_from_file_name(name, root):
             flags=re.IGNORECASE,
         ).strip()
     else:
-        name = (
-            re.sub(
-                r"(\b|\s)((\s|)-(\s|)|)(Part|)(\[|\(|\{)?(LN|Light Novel|Novel|Book|Volume|Vol|V|第|Disc)(\.|)([-_. ]|)([0-9]+)(\b|\s).*",
+        if re.search(
+            r"(\b|\s)((\s|)-(\s|)|)(Part|)(\[|\(|\{)?(LN|Light Novel|Novel|Book|Volume|Vol|V|第|Disc)(\.|)([-_. ]|)([0-9]+)(\b|\s).*",
+            name,
+            flags=re.IGNORECASE,
+        ):
+            name = (
+                re.sub(
+                    r"(\b|\s)((\s|)-(\s|)|)(Part|)(\[|\(|\{)?(LN|Light Novel|Novel|Book|Volume|Vol|V|第|Disc)(\.|)([-_. ]|)([0-9]+)(\b|\s).*",
+                    "",
+                    name,
+                    flags=re.IGNORECASE,
+                )
+            ).strip()
+        else:
+            name = re.sub(
+                r"(\d+)?([-_. ]+)?((\[|\(|\})(.*)(\]|\)|\}))?([-_. ]+)?(\.cbz|\.epub)$",
                 "",
                 name,
                 flags=re.IGNORECASE,
-            )
-        ).strip()
+            ).strip()
     return name
 
 
@@ -968,6 +949,12 @@ def get_type(name):
 # Retrieves and returns the volume part from the file name
 def get_volume_part(file):
     result = ""
+    file = re.sub(
+        r".*(LN|Light Novel|Novel|Book|Volume|Vol|V|第|Disc)([-_. ]|)([-_. ]|)([0-9]+)(\b|\s)",
+        "",
+        file,
+        flags=re.IGNORECASE,
+    ).strip()
     search = re.search(r"(\b(Part)([-_. ]|)([0-9]+)\b)", file, re.IGNORECASE)
     if search:
         result = search.group(1)
@@ -1131,7 +1118,8 @@ def remove_duplicate_releases_from_download(original_releases, downloaded_releas
                     original.volume_number, float
                 ):
                     if (download.volume_number == original.volume_number) and (
-                        download.volume_number != "" and original.volume_number != ""
+                        (download.volume_number != "" and original.volume_number != "")
+                        and (download.volume_part) == (original.volume_part)
                     ):
                         if not is_upgradeable(download, original):
                             send_change_message(
@@ -1255,6 +1243,10 @@ def check_for_missing_volumes():
                                     + ": Volume "
                                     + str(number)
                                 )
+                                if volume.extension == ".cbz":
+                                    message += " [MANGA]"
+                                elif volume.extension == ".epub":
+                                    message += " [NOVEL]"
                                 print(message)
                                 write_to_file("missing_volumes.txt", message)
 
@@ -1373,7 +1365,7 @@ def reorganize_and_rename(files, dir):
 
 # Replaces any pesky double spaces
 def remove_dual_space(s):
-    return re.sub("\s\s", " ", s, re.IGNORECASE)
+    return re.sub("\s+", " ", s, re.IGNORECASE)
 
 
 # Returns a string without punctuation.
@@ -1444,7 +1436,15 @@ def check_for_existing_series_and_move():
                                                 existing_series_folder_from_library,
                                                 downloaded_file_series_name,
                                             )
-                                            print("\tChecking Against: " + dir)
+                                            print(
+                                                "\t\tCHECKING: "
+                                                + downloaded_file_series_name
+                                                + "\n\t\tAGAINST: "
+                                                + existing_series_folder_from_library
+                                                + "\n\t\tSIMILARITY SCORE OF "
+                                                + str(round(similarity_score, 2))
+                                                + "\n"
+                                            )
                                             if (
                                                 similarity_score
                                                 >= required_similarity_score
@@ -2029,12 +2029,12 @@ def rename_files_in_download_folders():
                                     if not (
                                         os.path.isfile(os.path.join(root, replacement))
                                     ):
-                                        print("\n" + file.name)
-                                        print(replacement)
                                         user_input = ""
                                         if not manual_rename:
                                             user_input = "y"
                                         else:
+                                            print("\n" + file.name)
+                                            print(replacement)
                                             user_input = input("\tRename (y or n): ")
                                         if user_input == "y":
                                             os.rename(
@@ -2107,7 +2107,7 @@ def rename_files_in_download_folders():
 # check if volume file name is a chapter
 def contains_chapter_keywords(file_name):
     return re.search(
-        r"(((ch|c|d|chapter|chap)([-_. ]+)?([0-9]+))|\s([0-9]+)(\.[0-9]+)?\s)",
+        r"(((ch|c|d|chapter|chap)([-_. ]+)?([0-9]+))|\s([0-9]+)(\.[0-9]+)?(\s|\.cbz))",
         file_name,
         re.IGNORECASE,
     )
@@ -2218,7 +2218,7 @@ def extract_covers():
 
 
 def print_stats():
-    print("\nFor all " + str(len(paths)) + " paths.")
+    print("\nFor all paths.")
     print("Total Files Found: " + str(file_count))
     print("\t" + str(cbz_count) + " were cbz files")
     print("\t" + str(cbr_count) + " were cbr files")
@@ -2237,6 +2237,7 @@ def print_stats():
 
             
 def main():
+    parse_my_args()
     #delete_chapters_from_downloads()
     #rename_files_in_download_folders()
     #create_folders_for_items_in_download_folder()
