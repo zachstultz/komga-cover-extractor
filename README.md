@@ -14,9 +14,27 @@ Cover-string detection is based on various scene releases, if none are detected,
 ## Finished Result EX:
 ![image](https://user-images.githubusercontent.com/8385256/152403016-90660098-0b04-4178-babd-87e56ff1b390.png)
 
-## Usage
+## Instructions
 1. Run ```git clone https://github.com/zachstultz/komga-cover-extractor.git``` or download the repository up above.
 2. Run ```pip3 install -r requirements.txt```
-3. Add desired paths that you want scanned into the paths string array at the top of komga-cover-extractor.py
-![image](https://user-images.githubusercontent.com/8385256/152403252-8799fe4c-a5b0-4296-9d13-43728a060491.png)
-5. Run ```python3 komga-cover-extractor.py```
+3. Read usage below and enjoy!
+
+## Usage
+```
+usage: komga_cover_extractor.py [-h] [-p [PATHS [PATHS ...]]]
+                                [-df [DOWNLOAD_FOLDERS [DOWNLOAD_FOLDERS ...]]]
+                                [-wh WEBHOOK]
+
+Scans for covers in the cbz and epub files.
+
+optional arguments:
+  -h, --help            show this help message and exit
+  -p [PATHS [PATHS ...]], --paths [PATHS [PATHS ...]]
+                        The path/paths to be scanned for cover extraction.
+  -df [DOWNLOAD_FOLDERS [DOWNLOAD_FOLDERS ...]], --download_folders [DOWNLOAD_FOLDERS [DOWNLOAD_FOLDERS ...]]
+                        The download folder/download folders for processing,
+                        renaming, and moving of downloaded files.
+  -wh WEBHOOK, --webhook WEBHOOK
+                        The discord webhook url for notifications about
+                        changes and errors.
+```
