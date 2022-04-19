@@ -21,9 +21,7 @@ Cover-string detection is based on various scene releases, if none are detected,
 
 ## Usage
 ```
-usage: komga_cover_extractor.py [-h] [-p [PATHS [PATHS ...]]]
-                                [-df [DOWNLOAD_FOLDERS [DOWNLOAD_FOLDERS ...]]] (OPTIONAL, STILL IN TESTING)
-                                [-wh WEBHOOK]
+usage: komga_cover_extractor.py [-h] [-p [PATHS [PATHS ...]]] [-df [DOWNLOAD_FOLDERS [DOWNLOAD_FOLDERS ...]]] [-wh WEBHOOK]
 
 Scans for covers in the cbz and epub files.
 
@@ -32,11 +30,9 @@ optional arguments:
   -p [PATHS [PATHS ...]], --paths [PATHS [PATHS ...]]
                         The path/paths to be scanned for cover extraction.
   -df [DOWNLOAD_FOLDERS [DOWNLOAD_FOLDERS ...]], --download_folders [DOWNLOAD_FOLDERS [DOWNLOAD_FOLDERS ...]]
-                        [OPTIONAL, STILL IN TESTING] The download
-                        folder/download folders for processing, renaming, and
-                        moving of downloaded files.
+                        The download folder/download folders for processing, renaming, and moving of downloaded files. (Optional, still in testing, requires manual uncommenting of optional method calls at the bottom of the script.)
   -wh WEBHOOK, --webhook WEBHOOK
-                        The discord webhook url for notifications about
-                        changes and errors.
+                        The discord webhook url for notifications about changes and errors. (Optional) (Suggsted Usage is on a small amount of files/folders or after you've already taken care of the bulk of your library to avoid rate-
+                        limiting
 ```
 ```EX: python3 komga_cover_extractor.py -p "/path/to/manga" -p "/path/to/novels" -wh "WEBHOOK_URL"```
