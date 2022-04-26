@@ -29,7 +29,9 @@ ignored_folder_names = [""]
 
 # List of file types used throughout the program
 file_extensions = ["epub", "cbz", "cbr"]  # (cbr is only used for the stat printout)
-image_extensions = ["jpg", "jpeg", "png", "tbn"]
+image_extensions = ["jpg", "jpeg", "png", "tbn", "jxl"]
+# file extensions deleted from the download folders in an optional method.
+unaccepted_file_extensions = [".zip", ".cbr", ".pdf"]
 series_cover_file_names = ["cover", "poster"]
 
 # Our global folder_accessor
@@ -198,7 +200,7 @@ def parse_my_args():
     parser.add_argument(
         "-df",
         "--download_folders",
-        help="[OPTIONAL, STILL IN TESTING] The download folder/download folders for processing, renaming, and moving of downloaded files.",
+        help="The download folder/download folders for processing, renaming, and moving of downloaded files. (Optional, still in testing, requires manual uncommenting of optional method calls at the bottom of the script.)",
         action="append",
         nargs="*",
         required=False,
@@ -206,7 +208,7 @@ def parse_my_args():
     parser.add_argument(
         "-wh",
         "--webhook",
-        help="The discord webhook url for notifications about changes and errors.",
+        help="The discord webhook url for notifications about changes and errors. (Optional) (Suggsted Usage is on a small amount of files/folders or after you've already taken care of the bulk of your library to avoid rate-limiting",
         required=False,
     )
     parser = parser.parse_args()
@@ -227,7 +229,7 @@ def parse_my_args():
     if parser.webhook is not None:
         discord_webhook_url = parser.webhook
 
-        
+
 def compress_image(image_path):
     ImageFile.LOAD_TRUNCATED_IMAGES = True
     if image_path.endswith(".png"):
@@ -587,31 +589,6 @@ def individual_volume_cover_file_stuff(file):
                     )
 
 
-# Checks for a duplicate cover/poster, if cover and poster both exist, it deletes poster.
-def check_for_duplicate_cover(file):
-    duplicate_found1 = 0
-    duplicate_found2 = 0
-    dup = ""
-    for image_type in image_extensions:
-        if os.path.isfile(os.path.join(file.root, "poster." + image_type)):
-            duplicate_found1 = 1
-            dup = os.path.join(file.root, "poster." + image_type)
-        if os.path.isfile(os.path.join(file.root, "cover." + image_type)):
-            duplicate_found2 = 1
-        if duplicate_found1 + duplicate_found2 == 2 and os.path.isfile(dup):
-            try:
-                send_change_message("Removing duplicate poster: " + dup)
-                os.remove(dup)
-                if not os.path.isfile(dup):
-                    send_change_message("Duplicate successfully removed.")
-                else:
-                    send_error_message(
-                        "Failed to remove duplicate poster in " + file.root
-                    )
-            except FileNotFoundError:
-                send_error_message("File not found: " + file)
-
-
 # Checks if the passed string is a volume one.
 def is_volume_one(volume_name):
     for vk in volume_keywords:
@@ -699,13 +676,6 @@ def cover_file_stuff(file, files):
 
 # Checks similarity between two strings.
 def similar(a, b):
-    # Common words that are removed when doing a similarity check.
-    # These are words that are sometimes included and sometimes not included in titles.
-    # Removing them helps with our similarity comparisions.
-    common_words_to_remove = ["the", "a", "and", "&", "I", "Complete", "Series"]
-    for word in common_words_to_remove:
-        a = re.sub(word, "", a, flags=re.IGNORECASE)
-        b = re.sub(word, "", b, flags=re.IGNORECASE)
     if a == "" or b == "":
         return 0.0
     else:
@@ -1369,12 +1339,28 @@ def reorganize_and_rename(files, dir):
 
 # Replaces any pesky double spaces
 def remove_dual_space(s):
-    return re.sub("\s+", " ", s, re.IGNORECASE)
+    return re.sub("(\s{2,})", " ", s, re.IGNORECASE)
+
+
+# Removes common words that to improve matching accuracy for titles that sometimes
+# include them, and sometimes don't.
+def remove_common_words(s):
+    common_words_to_remove = ["the", "a", "and", "&", "I", "Complete", "Series"]
+    for word in common_words_to_remove:
+        s = re.sub(rf"\b{word}\b", "", s, flags=re.IGNORECASE)
+    return s.strip()
+
+
+# Replaces all numbers
+def remove_numbers(s):
+    return re.sub("([0-9]+)", "", s, re.IGNORECASE)
 
 
 # Returns a string without punctuation.
 def remove_punctuation(s):
-    return remove_dual_space(re.sub(r"[^\w\s]", " ", s)).strip()
+    return remove_dual_space(
+        remove_common_words(remove_numbers(re.sub(r"[^\w\s]", " ", s)))
+    )
 
 
 # Checks for an existing series by pulling the series name from each elidable file in the downloads_folder
@@ -1430,12 +1416,10 @@ def check_for_existing_series_and_move():
                                                 remove_punctuation(
                                                     downloaded_file_series_name
                                                 )
-                                            )
+                                            ).lower()
                                             existing_series_folder_from_library = (
-                                                remove_punctuation(
-                                                    ((str(dir)).lower()).strip()
-                                                )
-                                            )
+                                                remove_punctuation(dir)
+                                            ).lower()
                                             similarity_score = similar(
                                                 existing_series_folder_from_library,
                                                 downloaded_file_series_name,
@@ -1445,7 +1429,7 @@ def check_for_existing_series_and_move():
                                                 + downloaded_file_series_name
                                                 + "\n\t\tAGAINST: "
                                                 + existing_series_folder_from_library
-                                                + "\n\t\tSIMILARITY SCORE OF "
+                                                + "\n\t\tSIMILARITY SCORE: "
                                                 + str(round(similarity_score, 2))
                                                 + "\n"
                                             )
@@ -2028,6 +2012,9 @@ def rename_files_in_download_folders():
                                 for extra in extras:
                                     replacement += " " + extra
                                 replacement += file.extension
+                            replacement = remove_dual_space(
+                                re.sub(r"_", " ", replacement)
+                            ).strip()
                             if file.name != replacement:
                                 try:
                                     if not (
@@ -2200,9 +2187,7 @@ def extract_covers():
                     )
                     for file in folder_accessor.files:
                         individual_volume_cover_file_stuff(file)
-                        if has_cover:
-                            check_for_duplicate_cover(file)
-                        else:
+                        if not has_cover:
                             try:
                                 has_cover = has_cover + cover_file_stuff(
                                     file, folder_accessor.files
@@ -2238,10 +2223,48 @@ def print_stats():
         print("\nErrors (" + str(len(errors)) + "):")
         for error in errors:
             print("\t" + str(error))
-            
-            
+
+
+def delete_unacceptable_files():
+    try:
+        for path in download_folders:
+            if os.path.exists(path):
+                os.chdir(path)
+                for root, dirs, files in os.walk(path):
+                    # clean_and_sort(root, files, dirs)
+                    remove_ignored_folders(dirs)
+                    dirs.sort()
+                    files.sort()
+                    remove_hidden_files(files, root)
+                    for file in files:
+                        extension = get_file_extension(file)
+                        if extension in unaccepted_file_extensions:
+                            remove_file(os.path.join(root, file))
+                for root, dirs, files in os.walk(path):
+                    clean_and_sort(root, files, dirs)
+                    for dir in dirs:
+                        check_and_delete_empty_folder(os.path.join(root, dir))
+            else:
+                if path == "":
+                    print("\nERROR: Path cannot be empty.")
+                else:
+                    print("\nERROR: " + path + " is an invalid path.\n")
+    except Exception as e:
+        print(e)
+
+
+# execute terminal command
+def execute_command(command):
+    if command != "":
+        try:
+            subprocess.call(command, shell=True)
+        except Exception as e:
+            print(e)
+
+
 def main():
     parse_my_args()
+    #delete_unacceptable_files()
     #delete_chapters_from_downloads()
     #rename_files_in_download_folders()
     #create_folders_for_items_in_download_folder()
