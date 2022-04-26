@@ -231,7 +231,7 @@ def parse_my_args():
 
 
 def compress_image(image_path):
-    ImageFile.LOAD_TRUNCATED_IMAGES = True
+    #ImageFile.LOAD_TRUNCATED_IMAGES = True
     if image_path.endswith(".png"):
         im = Image.open(image_path)
         image_path = image_path.replace(".png", ".jpg")
