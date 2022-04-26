@@ -31,7 +31,7 @@ ignored_folder_names = [""]
 file_extensions = ["epub", "cbz", "cbr"]  # (cbr is only used for the stat printout)
 image_extensions = ["jpg", "jpeg", "png", "tbn", "jxl"]
 # file extensions deleted from the download folders in an optional method.
-unaccepted_file_extensions = [".zip", ".cbr", ".pdf"]
+unaccepted_file_extensions = [".example"]
 series_cover_file_names = ["cover", "poster"]
 
 # Our global folder_accessor
