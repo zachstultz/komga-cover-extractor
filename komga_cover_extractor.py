@@ -8,6 +8,12 @@ import regex as re
 import sys
 import argparse
 import subprocess
+import urllib.request
+import calendar
+import lxml
+import cchardet
+import requests
+import time
 from PIL import Image
 from PIL import ImageFile
 from lxml import etree
@@ -16,6 +22,7 @@ from posixpath import join
 from difflib import SequenceMatcher
 from datetime import datetime
 from discord_webhook import DiscordWebhook
+from bs4 import BeautifulSoup, SoupStrainer
 
 
 # ************************************
@@ -78,11 +85,16 @@ discord_webhook_url = ""
 # FALSE: manga v01 (2001).cbz
 add_issue_number_to_cbz_file_name = False
 
-# Whether or not to add a volume number one to one-shot volumes for
+# Whether or not to add a volume number one to one-shot volumes
 # Useful for Comictagger matching, and enabling upgrading of
 # one-shot volumes.
 add_volume_one_number_to_one_shots = False
 
+# Newly released volumes that aren't currently in the library.
+new_releases_on_bookwalker = []
+
+# Whether or not to check library against bookwalker for new releases.
+bookwalker_check = False
 
 # Folder Class
 class Folder:
@@ -211,6 +223,12 @@ def parse_my_args():
         help="The discord webhook url for notifications about changes and errors. (Optional) (Suggsted Usage is on a small amount of files/folders or after you've already taken care of the bulk of your library to avoid rate-limiting",
         required=False,
     )
+    parser.add_argument(
+        "-bwc",
+        "--bookwalker_check",
+        help="Checks for new releases on bookwalker.",
+        required=False,
+    )
     parser = parser.parse_args()
     if not parser.paths and not parser.download_folders:
         print("No paths or download folders were passed to the script.")
@@ -228,10 +246,18 @@ def parse_my_args():
                 download_folders.append(folder)
     if parser.webhook is not None:
         discord_webhook_url = parser.webhook
+    if parser.bookwalker_check is not None:
+        if (
+            parser.bookwalker_check == 1
+            or parser.bookwalker_check.lower() == "true"
+            or parser.bookwalker_check.lower() == "yes"
+        ):
+            global bookwalker_check
+            bookwalker_check = True
 
 
 def compress_image(image_path):
-    #ImageFile.LOAD_TRUNCATED_IMAGES = True
+    # ImageFile.LOAD_TRUNCATED_IMAGES = True
     if image_path.endswith(".png"):
         im = Image.open(image_path)
         image_path = image_path.replace(".png", ".jpg")
@@ -438,7 +464,7 @@ def extract_cover(
                     "wb",
                 ) as f:
                     shutil.copyfileobj(zf, f)
-                    send_change_message("\tCopied file and renamed.\n")
+                    send_change_message("\t\tCopied file and renamed.\n")
                     try:
                         if compress_image_option:
                             compress_image(f.name)
@@ -510,7 +536,7 @@ def check_internal_zip_for_cover(file):
     try:
         if zipfile.is_zipfile(file.path):
             zip_file = zipfile.ZipFile(file.path)
-            send_change_message("\tZip found" + "\nEntering zip: " + file.name)
+            send_change_message("\tZip found" + "\n\t\tEntering zip: " + file.name)
             internal_zip_images = zip_images_only(zip_file)
             remove_hidden_files_with_basename(internal_zip_images)
             if image_cover_name != "":
@@ -555,7 +581,7 @@ def check_internal_zip_for_cover(file):
                 image_file_path = head_tail[0]
                 image_file = head_tail[1]
                 send_change_message(
-                    "Defaulting to first image file found: "
+                    "\t\tDefaulting to first image file found: "
                     + internal_zip_images[0]
                     + " in "
                     + file.path
@@ -608,6 +634,19 @@ def contains_volume_keywords(file):
         file,
         re.IGNORECASE,
     )
+
+
+# Checks for volume keywords and chapter keywords.
+# If neither are present, the volume is assumed to be a one-shot volume.
+def is_one_shot_bk(file_name):
+    volume_file_status = contains_volume_keywords(file_name)
+    chapter_file_status = contains_chapter_keywords(file_name)
+    exception_keyword_status = check_for_exception_keywords(file_name)
+    if (not volume_file_status and not chapter_file_status) and (
+        not exception_keyword_status
+    ):
+        return True
+    return False
 
 
 # Checks for volume keywords and chapter keywords.
@@ -1134,13 +1173,16 @@ def check_and_delete_empty_folder(folder):
 
 
 # Writes a log file
-def write_to_file(file, message):
+def write_to_file(file, message, without_date=False, overwrite=False):
     message = re.sub("\t|\n", "", message, flags=re.IGNORECASE)
     ROOT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
     file_path = os.path.join(ROOT_DIR, file)
     append_write = ""
     if os.path.exists(file_path):
-        append_write = "a"  # append if already exists
+        if not overwrite:
+            append_write = "a"  # append if already exists
+        else:
+            append_write = "w"
     else:
         append_write = "w"  # make a new file if not
     try:
@@ -1148,7 +1190,10 @@ def write_to_file(file, message):
             now = datetime.now()
             dt_string = now.strftime("%d/%m/%Y %H:%M:%S")
             file = open(file_path, append_write)
-            file.write("\n" + dt_string + " " + message)
+            if without_date:
+                file.write("\n " + message)
+            else:
+                file.write("\n" + dt_string + " " + message)
             file.close()
     except Exception as e:
         print(e)
@@ -1230,7 +1275,7 @@ def rename_file(
     src, dest, root, extensionless_filename_src, extenionless_filename_dest
 ):
     if os.path.isfile(src):
-        print("\tRenaming " + src)
+        print("\t\tRenaming " + src)
         os.rename(src, dest)
         if os.path.isfile(dest):
             send_change_message(
@@ -1312,8 +1357,8 @@ def reorganize_and_rename(files, dir):
             rename += file.extension
             if file.name != rename:
                 try:
-                    print("\tOriginal: " + file.name)
-                    print("\tRename: " + rename)
+                    print("\t\tOriginal: " + file.name)
+                    print("\t\tRename: " + rename)
                     rename_file(
                         file.path,
                         os.path.join(file.root, rename),
@@ -1345,7 +1390,7 @@ def remove_dual_space(s):
 # Removes common words that to improve matching accuracy for titles that sometimes
 # include them, and sometimes don't.
 def remove_common_words(s):
-    common_words_to_remove = ["the", "a", "and", "&", "I", "Complete", "Series"]
+    common_words_to_remove = ["the", "a", "and", "&", "I", "Complete", "Series", "of"]
     for word in common_words_to_remove:
         s = re.sub(rf"\b{word}\b", "", s, flags=re.IGNORECASE)
     return s.strip()
@@ -1440,7 +1485,7 @@ def check_for_existing_series_and_move():
                                                 write_to_file(
                                                     "changes.txt",
                                                     (
-                                                        '\tSimilarity between: "'
+                                                        '\t\tSimilarity between: "'
                                                         + existing_series_folder_from_library
                                                         + '" and "'
                                                         + downloaded_file_series_name
@@ -1892,7 +1937,7 @@ def rename_files_in_download_folders():
                 for file in volumes:
                     multi_volume = False
                     result = re.search(
-                        r"\s(LN|Light Novel|Novel|Book|Volume|Vol|V|第|Disc)(\.\s?|\s?|)(([0-9]+)((([-_.]|)([0-9]+))+|))(\]|\)|\})?(\s|\.epub|\.cbz)",
+                        r"\-?\s+(LN|Light Novel|Novel|Book|Volume|Vol|V|第|Disc)(\.\s?|\s?|)(([0-9]+)((([-_.]|)([0-9]+))+|))(\]|\)|\})?(\s|\.epub|\.cbz)",
                         file.name,
                         re.IGNORECASE,
                     )
@@ -1903,7 +1948,7 @@ def rename_files_in_download_folders():
                             result = preferred_volume_renaming_format + "01"
                         else:
                             result = result.group().strip()
-                        result = re.sub(r"[\[\(\{\]\)\}]", "", result)
+                        result = re.sub(r"[\[\(\{\]\)\}\-_]", "", result).strip()
                         results = re.split(
                             r"(LN|Light Novel|Novel|Book|Volume|Vol|V|第|Disc)(\.|)",
                             result,
@@ -1992,7 +2037,7 @@ def rename_files_in_download_folders():
                                 combined += " " + issue_number
                             if not file.is_one_shot:
                                 replacement = re.sub(
-                                    r"((?<![A-Za-z]+)[-_. ]\s|)(\[|\(|\{)?(LN|Light Novel|Novel|Book|Volume|Vol|v|第|Disc)(\.|)([-_. ]|)(([0-9]+)(([-_. ]|)([0-9]+)|))(\s#([0-9]+)(([-_. ]|)([0-9]+)|))?(\]|\)|\})?",
+                                    r"((?<![A-Za-z]+)[-_. ]\s+|)(\[|\(|\{)?(LN|Light Novel|Novel|Book|Volume|Vol|v|第|Disc)(\.|)([-_. ]|)(([0-9]+)(([-_. ]|)([0-9]+)|))(\s#([0-9]+)(([-_. ]|)([0-9]+)|))?(\]|\)|\})?",
                                     combined,
                                     file.name,
                                     flags=re.IGNORECASE,
@@ -2262,16 +2307,557 @@ def execute_command(command):
             print(e)
 
 
+class BookwalkerBook:
+    def __init__(
+        self, title, volume_number, date, is_released, price, url, thumbnail, book_type
+    ):
+        self.title = title
+        self.volume_number = volume_number
+        self.date = date
+        self.is_released = is_released
+        self.price = price
+        self.url = url
+        self.thumbnail = thumbnail
+        self.book_type = book_type
+
+
+class BookwalkerSeries:
+    def __init__(self, title, books, book_count, book_type):
+        self.title = title
+        self.books = books
+        self.book_count = book_count
+        self.book_type = book_type
+
+
+# our session object, helps speed things up
+# when scraping
+session_object = None
+
+
+def scrape_url(url, strainer=None):
+    try:
+        global session_object
+        if not session_object:
+            session_object = requests.Session()
+        page_obj = session_object.get(url)
+        if page_obj.status_code == 403:
+            print("\nTOO MANY REQUESTS TO BOOKWALKER, WERE BEING RATE-LIMTIED!")
+        soup = None
+        if strainer:
+            soup = BeautifulSoup(page_obj.text, "lxml", parse_only=strainer)
+        else:
+            soup = BeautifulSoup(page_obj.text, "lxml")
+        return soup
+    except Exception as e:
+        print("Error: " + str(e))
+        return ""
+
+
+def get_all_matching_books(books, book_type, title):
+    matching_books = []
+    for book in books:
+        if book.book_type == book_type and book.title == title:
+            matching_books.append(book)
+    # remove them from books
+    for book in matching_books:
+        books.remove(book)
+    return matching_books
+
+
+# combine series in series_list that have the same title and book_type
+def combine_series(series_list):
+    combined_series = []
+    for series in series_list:
+        if len(combined_series) == 0:
+            combined_series.append(series)
+        else:
+            for combined_series_item in combined_series:
+                if (
+                    similar(
+                        remove_punctuation(series.title).lower().strip(),
+                        remove_punctuation(combined_series_item.title).lower().strip(),
+                    )
+                    >= required_similarity_score
+                    and series.book_type == combined_series_item.book_type
+                ):
+                    combined_series_item.books.extend(series.books)
+                    combined_series_item.book_count = len(combined_series_item.books)
+                    combined_series_item.books = sorted(
+                        combined_series_item.books, key=lambda x: x.volume_number
+                    )
+                    break
+            if series not in combined_series and not (
+                similar(
+                    remove_punctuation(series.title).lower().strip(),
+                    remove_punctuation(combined_series[0].title).lower().strip(),
+                )
+                >= required_similarity_score
+            ):
+                combined_series.append(series)
+    return combined_series
+
+
+def search_bookwalker(query, type, print_info=False):
+    avoid_rate_limit = True
+    sleep_timer = 5
+    manual_input = True
+    # The total amount of pages to scrape
+    total_pages_to_scrape = 5
+    # The books returned from the search
+    books = []
+    # The searches that  results in no book results
+    no_book_result_searches = []
+    # The series compiled from all the books
+    series_list = []
+    # The books without a volume number (probably one-shots)
+    no_volume_number = []
+    # Releases that were identified as chapters
+    chapter_releases = []
+    # Similarity matches that did not meet the required similarity score
+    similarity_match_failures = []
+    # Errors encountered while scraping
+    errors = []
+    bookwalker_manga_category = "&qcat=2"
+    bookwalker_light_novel_category = "&qcat=3"
+    startTime = datetime.now()
+    done = False
+    search_type = type
+    count = 0
+    page_count = 1
+    page_count_url = "&page=" + str(page_count)
+    search = urllib.parse.quote(query)
+    base_url = "https://global.bookwalker.jp/search/?word="
+    if search_type.lower() == "m":
+        print("\tChecking: " + query + " [MANGA]")
+    elif search_type.lower() == "l":
+        print("\tChecking: " + query + " [NOVEL]")
+    while page_count < total_pages_to_scrape + 1:
+        page_count_url = "&page=" + str(page_count)
+        url = base_url + search + page_count_url
+        if search_type.lower() == "m":
+            url += bookwalker_manga_category
+        elif search_type.lower() == "l":
+            url += bookwalker_light_novel_category
+        page_count += 1
+        # scrape url page
+        page = scrape_url(url)
+        if page == "":
+            print("\t\tError: Empty page")
+            errors.append("Empty page")
+            continue
+        # parse page
+        soup = page
+        # get total pages
+        pager_area = soup.find("div", class_="pager-area")
+        if pager_area:
+            # find <ul class="clearfix"> in pager-area
+            ul_list = pager_area.find("ul", class_="clearfix")
+            # find all the <li> in ul_list
+            li_list = ul_list.find_all("li")
+            # find the highest number in li_list values
+            highest_num = 0
+            for li in li_list:
+                text = li.text
+                # if text is a number
+                if text.isdigit():
+                    if int(text) > highest_num:
+                        highest_num = int(text)
+            if highest_num == 0:
+                print("\t\tNo pages found.")
+                errors.append("No pages found.")
+                continue
+            elif highest_num < total_pages_to_scrape:
+                total_pages_to_scrape = highest_num
+        else:
+            total_pages_to_scrape = 1
+        list_area = soup.find(
+            "div", class_="book-list-area book-result-area book-result-area-1"
+        )
+        list_area_ul = soup.find("ul", class_="o-tile-list")
+        if list_area_ul is None:
+            print("\t\t! NO BOOKS FOUND ON BOOKWALKER !")
+            no_book_result_searches.append(query)
+            continue
+        o_tile_list = list_area_ul.find_all("li", class_="o-tile")
+        for item in o_tile_list:
+            try:
+                o_tile_book_info = item.find("div", class_="o-tile-book-info")
+                o_tile_thumb_box = o_tile_book_info.find(
+                    "div", class_="m-tile-thumb-box"
+                )
+                # get href from o_tile_thumb_box
+                a_title_thumb = o_tile_thumb_box.find("a", class_="a-tile-thumb-img")
+                url = a_title_thumb.get("href")
+                img_clas = a_title_thumb.find("img")
+                # get data-srcset 2x from img_clas
+                img_srcset = img_clas.get("data-srcset")
+                img_srcset = re.sub(r"\s\d+x", "", img_srcset)
+                img_srcset_split = img_srcset.split(",")
+                img_srcset_split = [x.strip() for x in img_srcset_split]
+                thumbnail = img_srcset_split[1]
+                ul_tag_box = o_tile_book_info.find("ul", class_="m-tile-tag-box")
+                li_tag_item = ul_tag_box.find_all("li", class_="m-tile-tag")
+                a_tag_chapter = None
+                a_tag_simulpub = None
+                a_tag_manga = None
+                a_tag_light_novel = None
+                a_tag_other = None
+                for i in li_tag_item:
+                    if i.find("div", class_="a-tag-manga"):
+                        a_tag_manga = i.find("div", class_="a-tag-manga")
+                    elif i.find("div", class_="a-tag-light-novel"):
+                        a_tag_light_novel = i.find("div", class_="a-tag-light-novel")
+                    elif i.find("div", class_="a-tag-other"):
+                        a_tag_other = i.find("div", class_="a-tag-other")
+                    elif i.find("div", class_="a-tag-chapter"):
+                        a_tag_chapter = i.find("div", class_="a-tag-chapter")
+                    elif i.find("div", class_="a-tag-simulpub"):
+                        a_tag_simulpub = i.find("div", class_="a-tag-simulpub")
+                if a_tag_manga:
+                    book_type = a_tag_manga.get_text()
+                elif a_tag_light_novel:
+                    book_type = a_tag_light_novel.get_text()
+                elif a_tag_other:
+                    book_type = a_tag_other.get_text()
+                else:
+                    book_type = "Unknown"
+                book_type = re.sub(r"\n|\t|\r", "", book_type).strip()
+                title = o_tile_book_info.find("h2", class_="a-tile-ttl").text
+                title = re.sub(r"[\n\t\r]", "", title)
+                if a_tag_chapter or a_tag_simulpub:
+                    chapter_releases.append(title)
+                    continue
+                volume_number = re.search(
+                    r"([0-9]+(\.?[0-9]+)?([-_][0-9]+\.?[0-9]+)?)$", title
+                )
+                if volume_number:
+                    if hasattr(volume_number, "group"):
+                        volume_number = volume_number.group(1)
+                        volume_number = float(volume_number)
+                        if volume_number == int(volume_number):
+                            volume_number = int(volume_number)
+                    else:
+                        if title not in no_volume_number:
+                            no_volume_number.append(title)
+                        continue
+                elif title and is_one_shot_bk(title):
+                    volume_number = 1
+                else:
+                    if title not in no_volume_number:
+                        no_volume_number.append(title)
+                    continue
+                if re.search(
+                    r"(LN|Light Novel|Novel|Book|Volume|Vol|V|第|Disc)",
+                    title,
+                    re.IGNORECASE,
+                ):
+                    title = re.sub(
+                        r"(\b|\s)((\s|)-(\s|)|)(Part|)(\[|\(|\{)?(LN|Light Novel|Novel|Book|Volume|Vol|V|第|Disc)(\.|)([-_. ]|)([0-9]+)(\b|\s).*",
+                        "",
+                        title,
+                        flags=re.IGNORECASE,
+                    ).strip()
+                    if re.search(r",$", title):
+                        title = re.sub(r",$", "", title).strip()
+                title = title.replace("\n", "").replace("\t", "")
+                title = re.sub(rf"\b{volume_number}\b", "", title)
+                title = re.sub(r"(\s{2,})", " ", title).strip()
+                title = re.sub(r"(\((.*)\)$)", "", title).strip()
+                clean_title = remove_punctuation(title).lower().strip()
+                clean_query = remove_punctuation(query).lower().strip()
+                score = similar(clean_title, clean_query)
+                if not (score >= required_similarity_score):
+                    message = (
+                        '"'
+                        + clean_title
+                        + '"'
+                        + ": "
+                        + str(score)
+                        + " ["
+                        + book_type
+                        + "]"
+                    )
+                    if message not in similarity_match_failures:
+                        similarity_match_failures.append(message)
+                    continue
+                # html from url
+                page_two = scrape_url(
+                    url, SoupStrainer("div", class_="product-detail-inner")
+                )
+                # print(str((datetime.now() - startTime)))
+                # parse html
+                soup_two = page_two
+                # find table class="product-detail"
+                product_detail = soup_two.find("table", class_="product-detail")
+                # print(str((datetime.now() - startTime)))
+                # find all <td> inside of product-detail
+                product_detail_td = product_detail.find_all("td")
+                date = ""
+                for detail in product_detail_td:
+                    date = re.search(
+                        r"(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)(\s+)?\d{2}([,]+)?\s+\d{4}",
+                        detail.text,
+                        re.IGNORECASE,
+                    )
+                    if date:
+                        date = date.group(0)
+                        date = re.sub(r"[^\s\w]", "", date)
+                        month = date.split()[0]
+                        if len(month) != 3:
+                            month = month[:3]
+                        abbr_to_num = {
+                            name: num
+                            for num, name in enumerate(calendar.month_abbr)
+                            if num
+                        }
+                        month = abbr_to_num[month]
+                        day = date.split()[1]
+                        year = date.split()[2]
+                        date = datetime(int(year), month, int(day))
+                        if date < datetime.now():
+                            is_released = True
+                        else:
+                            is_released = False
+                        date = date.strftime("%Y-%m-%d")
+                        break
+                book = BookwalkerBook(
+                    title,
+                    volume_number,
+                    date,
+                    is_released,
+                    0.00,
+                    url,
+                    thumbnail,
+                    book_type,
+                )
+                books.append(book)
+            except Exception as e:
+                print(e)
+                errors.append(url)
+                continue
+        if books is not None and len(books) > 1:
+            books = sorted(books, key=lambda x: x.volume_number)
+        for book in books:
+            matching_books = get_all_matching_books(books, book.book_type, book.title)
+            if len(matching_books) > 0:
+                series_list.append(
+                    BookwalkerSeries(
+                        book.title,
+                        matching_books,
+                        len(matching_books),
+                        book.book_type,
+                    )
+                )
+        if len(series_list) > 0 and print_info:
+            print("Total Series: " + str(len(series_list)) + "\n")
+            for series in series_list:
+                if series_list.index(series) != 0:
+                    print("\n")
+                print(
+                    "["
+                    + str(series_list.index(series) + 1)
+                    + "] "
+                    + series.title
+                    + " ["
+                    + str(series.book_type)
+                    + "]"
+                    + " ("
+                    + str(series.book_count)
+                    + ")"
+                )
+                print("\tBooks:")
+                for book in series.books:
+                    # print the current books index
+                    if not book.is_released:
+                        print(
+                            "\t\t("
+                            + str(series.books.index(book) + 1)
+                            + ")------------------------------ [PRE-ORDER]"
+                        )
+                    else:
+                        print(
+                            "\t\t("
+                            + str(series.books.index(book) + 1)
+                            + ")------------------------------"
+                        )
+                    print("\t\t\tNumber: " + str(book.volume_number))
+                    # print("\t\t\tTitle: " + book.title)
+                    print("\t\t\tDate: " + book.date)
+                    print("\t\t\tReleased: " + str(book.is_released))
+                    # print("\t\t\tPrice: " + str(book.price))
+                    print("\t\t\tURL: " + book.url)
+                    print("\t\t\tThumbnail: " + book.thumbnail)
+                    # print("\t\t\tBook Type: " + book.book_type)
+            else:
+                print("\n\tNo results found.")
+
+            if len(no_volume_number) > 0:
+                print("\nNo Volume Results (" + str(len(no_volume_number)) + "):")
+                for title in no_volume_number:
+                    print("\t" + title)
+                no_volume_number = []
+            if len(chapter_releases) > 0:
+                print("\nChapter Releases: (" + str(len(chapter_releases)) + ")")
+                for title in chapter_releases:
+                    print("\t" + title)
+                chapter_releases = []
+            if len(similarity_match_failures) > 0:
+                print(
+                    "\nSimilarity Match Failures "
+                    + "("
+                    + str(len(similarity_match_failures))
+                    + "):"
+                )
+                for title in similarity_match_failures:
+                    print(
+                        "\t["
+                        + str(similarity_match_failures.index(title) + 1)
+                        + "] "
+                        + title
+                    )
+                similarity_match_failures = []
+            if len(no_book_result_searches) > 0:
+                print(
+                    "\nNo Book Result Searches ("
+                    + str(len(no_book_result_searches))
+                    + "):"
+                )
+                for url in no_book_result_searches:
+                    print("\t" + url)
+                no_book_result_searches = []
+    series_list = combine_series(series_list)
+    # print("\tSleeping for " + str(sleep_timer) + " to avoid being rate-limited...")
+    time.sleep(sleep_timer)
+    if len(series_list) == 1:
+        if len(series_list[0].books) > 0:
+            return series_list[0].books
+    elif len(series_list) > 1:
+        print("\t\tNumber of series from bookwalker search is greater than one.")
+        print("\t\tNum: " + str(len(series_list)))
+        return None
+    else:
+        print("\t\tNo matching books found.")
+        return None
+
+
+def check_for_new_volumes_on_bookwalker():
+    print("\nChecking for new volumes on bookwalker...")
+    paths_clean = [p for p in paths if p not in download_folders]
+    for path in paths_clean:
+        if os.path.exists(path):
+            os.chdir(path)
+            # get list of folders from path directory
+            path_dirs = [f for f in os.listdir(path) if os.path.isdir(f)]
+            clean_and_sort(path, dirs=path_dirs)
+            global folder_accessor
+            folder_accessor = Folder(
+                path,
+                path_dirs,
+                os.path.basename(os.path.dirname(path)),
+                os.path.basename(path),
+                [""],
+            )
+            for dir in folder_accessor.dirs:
+                current_folder_path = os.path.join(folder_accessor.root, dir)
+                existing_dir_full_file_path = os.path.dirname(
+                    os.path.join(folder_accessor.root, dir)
+                )
+                existing_dir = os.path.join(existing_dir_full_file_path, dir)
+                clean_existing = os.listdir(existing_dir)
+                clean_and_sort(existing_dir, clean_existing)
+                existing_dir_volumes = upgrade_to_volume_class(
+                    upgrade_to_file_class(
+                        [
+                            f
+                            for f in clean_existing
+                            if os.path.isfile(os.path.join(existing_dir, f))
+                        ],
+                        existing_dir,
+                    )
+                )
+                type = None
+                bookwalker_volumes = None
+                if get_cbz_percent_for_folder(existing_dir_volumes) >= 70:
+                    type = "m"
+                elif get_epub_percent_for_folder(existing_dir_volumes) >= 70:
+                    type = "l"
+                if type and dir:
+                    bookwalker_volumes = search_bookwalker(dir, type, False)
+                if existing_dir_volumes and bookwalker_volumes:
+                    bk_volume_numbers = []
+                    ex_volume_numbers = []
+                    for bk_volume in bookwalker_volumes:
+                        bk_volume_numbers.append(bk_volume.volume_number)
+                    for ex_volume in existing_dir_volumes:
+                        ex_volume_numbers.append(ex_volume.volume_number)
+                    for num in ex_volume_numbers:
+                        if num in bk_volume_numbers:
+                            for v in bookwalker_volumes:
+                                if v.volume_number == num:
+                                    bookwalker_volumes.remove(v)
+                                    break
+                    if len(bookwalker_volumes) > 0:
+                        new_releases_on_bookwalker.extend(bookwalker_volumes)
+                        for vol in bookwalker_volumes:
+                            if vol.is_released:
+                                print("\n\t\t[RELEASED]")
+                            else:
+                                print("\n\t\t[PRE-ORDER]")
+                            print("\t\tVolume Number: " + str(vol.volume_number))
+                            print("\t\tDate: " + vol.date)
+                            if vol == bookwalker_volumes[-1]:
+                                print("\t\tURL: " + vol.url + "\n")
+                            else:
+                                print("\t\tURL: " + vol.url)
+    pre_orders = []
+    released = []
+    if len(new_releases_on_bookwalker) > 0:
+        for release in new_releases_on_bookwalker:
+            if release.is_released:
+                released.append(release)
+            else:
+                pre_orders.append(release)
+    pre_orders.sort(key=lambda x: x.date, reverse=False)
+    released.sort(key=lambda x: x.date, reverse=False)
+    if len(released) > 0:
+        print("\nNew Releases:")
+        for r in released:
+            print("\t" + r.title)
+            print("\tVolume " + str(r.volume_number))
+            print("\tDate: " + r.date)
+            print("\tURL: " + r.url)
+            print("\n")
+            message = (
+                r.date + " " + r.title + " Volume " + str(r.volume_number) + " " + r.url
+            )
+            write_to_file("released.txt", message, without_date=True, overwrite=False)
+    if len(pre_orders) > 0:
+        print("\nPre-orders:")
+        for p in pre_orders:
+            print("\t" + p.title)
+            print("\tVolume: " + str(p.volume_number))
+            print("\tDate: " + p.date)
+            print("\tURL: " + p.url)
+            print("\n")
+            message = (
+                p.date + " " + p.title + " Volume " + str(p.volume_number) + " " + p.url
+            )
+            write_to_file("pre-orders.txt", message, without_date=True, overwrite=False)
+
+
 def main():
-    parse_my_args()
-    #delete_unacceptable_files()
-    #delete_chapters_from_downloads()
-    #rename_files_in_download_folders()
-    #create_folders_for_items_in_download_folder()
-    #rename_dirs_in_download_folder()
-    extract_covers()
-    #check_for_existing_series_and_move()
-    #check_for_missing_volumes()
+    global bookwalker_check
+    parse_my_args()  # parses the user's arguments
+    #delete_unacceptable_files()  # deletes any file with an extension in unaccepted_file_extensions from the download_folers
+    #delete_chapters_from_downloads()  # deletes chapter releases from the download_folers
+    #rename_files_in_download_folders()  # replaces any detected volume keyword that isn't what the user specified up top
+    #create_folders_for_items_in_download_folder()  # creates folders for any lone files in the root of the download_folders
+    #rename_dirs_in_download_folder()  # cleans up any unnessary information in the series folder names within the download_folders
+    extract_covers()  # extracts the covers from our cbz and epub files
+    # check_for_existing_series_and_move()
+    #check_for_missing_volumes()  # checks for any missing volumes bewteen the highest detected volume number and the lowest
+    #if bookwalker_check:
+    #    check_for_new_volumes_on_bookwalker()  # checks the library against bookwalker for any missing volumes that are released or on pre-order
     print_stats()
 
 
