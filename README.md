@@ -35,10 +35,6 @@ optional arguments:
   -h, --help            show this help message and exit
   -p [PATHS [PATHS ...]], --paths [PATHS [PATHS ...]]
                         The path/paths to be scanned for cover extraction.
-  -df [DOWNLOAD_FOLDERS [DOWNLOAD_FOLDERS ...]], --download_folders [DOWNLOAD_FOLDERS [DOWNLOAD_FOLDERS ...]]
-                        The download folder/download folders for processing, renaming, and moving of downloaded files. 
-                        (Optional, still in testing, requires manual uncommenting of optional method calls at the bottom 
-                        of the script.)
   -wh WEBHOOK, --webhook WEBHOOK
                         The discord webhook url for notifications about changes and errors. 
                         (Optional) (Suggsted Usage is on a small amount of files/folders or after you've already 
