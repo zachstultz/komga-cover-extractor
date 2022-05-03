@@ -44,9 +44,6 @@ series_cover_file_names = ["cover", "poster"]
 # Our global folder_accessor
 folder_accessor = None
 
-# The remaining files without covers
-files_with_no_cover = []
-
 # whether or not to compress the extractred images
 compress_image_option = False
 
@@ -63,6 +60,8 @@ cbz_internal_covers_found = 0
 poster_found = 0
 errors = []
 items_changed = []
+# The remaining files without covers
+files_with_no_cover = []
 
 # The required file type matching percentage between
 # the download folder and the existing folder
@@ -1011,7 +1010,7 @@ def upgrade_to_volume_class(files):
 
 
 # Retrieves the release_group score from the list, using a high similarity
-def get_keyword_score(name):
+def get_keyword_score(name, download_folder=False):
     score = 0.0
     for keyword in ranked_keywords:
         if re.search(keyword.name, name, re.IGNORECASE):
@@ -1062,11 +1061,11 @@ def remove_file(full_file_path):
     try:
         os.remove(full_file_path)
         if not os.path.isfile(full_file_path):
-            send_change_message("\tFile removed: " + full_file_path)
+            send_change_message("\t\tFile Removed: " + full_file_path)
             remove_images(full_file_path)
             return True
         else:
-            send_error_message("\n\tFailed to remove file: " + full_file_path)
+            send_error_message("\n\t\tFailed to remove file: " + full_file_path)
             return False
     except OSError as e:
         print(e)
@@ -1079,7 +1078,7 @@ def move_file(file, new_location):
             shutil.move(file.path, new_location)
             if os.path.isfile(os.path.join(new_location, file.name)):
                 send_change_message(
-                    "\tFile: "
+                    "\t\tFile: "
                     + file.name
                     + " was successfully moved to: "
                     + new_location
@@ -1087,7 +1086,7 @@ def move_file(file, new_location):
                 move_images(file, new_location)
             else:
                 send_error_message(
-                    "Failed to move: "
+                    "\t\tFailed to move: "
                     + os.path.join(file.root, file.name)
                     + " to: "
                     + new_location
@@ -1104,7 +1103,7 @@ def replace_file(old_file, new_file):
             move_file(new_file, old_file.root)
             if os.path.isfile(os.path.join(old_file.root, new_file.name)):
                 send_change_message(
-                    "\tFile: " + old_file.name + " moved to: " + new_file.root
+                    "\t\tFile: " + old_file.name + " moved to: " + new_file.root
                 )
             else:
                 send_error_message(
@@ -1122,8 +1121,8 @@ def remove_duplicate_releases_from_download(original_releases, downloaded_releas
         if not isinstance(download.volume_number, int) and not isinstance(
             download.volume_number, float
         ):
-            send_error_message("\n\tThe volume number is empty on: " + download.name)
-            send_error_message("\tAvoiding file, might be a chapter.")
+            send_error_message("\n\t\tThe volume number is empty on: " + download.name)
+            send_error_message("\t\tAvoiding file, might be a chapter.")
             downloaded_releases.remove(download)
         if len(downloaded_releases) != 0:
             for original in original_releases:
@@ -1136,37 +1135,39 @@ def remove_duplicate_releases_from_download(original_releases, downloaded_releas
                     ):
                         if not is_upgradeable(download, original):
                             send_change_message(
-                                "\tVolume: "
+                                "\t\tVolume: "
                                 + download.name
                                 + " is not an upgrade to: "
                                 + original.name
                             )
                             send_change_message(
-                                "\tDeleting " + download.name + " from download folder."
+                                "\t\tDeleting "
+                                + download.name
+                                + " from download folder."
                             )
                             if download in downloaded_releases:
                                 downloaded_releases.remove(download)
                             remove_file(download.path)
                         else:
                             send_change_message(
-                                "\tVolume: "
+                                "\t\tVolume: "
                                 + download.name
                                 + " is an upgrade to: "
                                 + original.name
                             )
-                            send_change_message("\tUpgrading " + original.name)
+                            send_change_message("\t\tUpgrading " + original.name)
                             replace_file(original, download)
 
 
 # Checks if the folder is empty, then deletes if it is
 def check_and_delete_empty_folder(folder):
-    print("\tChecking for empty folder: " + folder)
+    print("\t\tChecking for empty folder: " + folder)
     delete_hidden_files(os.listdir(folder), folder)
     folder_contents = os.listdir(folder)
     remove_hidden_files(folder_contents, folder)
     if len(folder_contents) == 0:
         try:
-            print("\tRemoving empty folder: " + folder)
+            print("\t\tRemoving empty folder: " + folder)
             os.rmdir(folder)
         except OSError as e:
             send_error_message(e)
@@ -1279,7 +1280,7 @@ def rename_file(
         os.rename(src, dest)
         if os.path.isfile(dest):
             send_change_message(
-                "\t"
+                "\t\t"
                 + extensionless_filename_src
                 + " was renamed to "
                 + extenionless_filename_dest
@@ -1366,7 +1367,9 @@ def reorganize_and_rename(files, dir):
                         file.extensionless_name,
                         get_extensionless_name(rename),
                     )
-                    send_change_message("\tRenamed: " + file.name + " to \n" + rename)
+                    send_change_message(
+                        "\t\tRenamed: " + file.name + " to \n\t\t" + rename
+                    )
                     file.series_name = get_series_name_from_file_name(rename, file.root)
                     file.volume_year = get_volume_year(rename)
                     file.volume_number = remove_everything_but_volume_num(
@@ -1390,7 +1393,18 @@ def remove_dual_space(s):
 # Removes common words that to improve matching accuracy for titles that sometimes
 # include them, and sometimes don't.
 def remove_common_words(s):
-    common_words_to_remove = ["the", "a", "and", "&", "I", "Complete", "Series", "of"]
+    common_words_to_remove = [
+        "the",
+        "a",
+        "and",
+        "&",
+        "I",
+        "Complete",
+        "Series",
+        "of",
+        "Novel",
+        "Collection",
+    ]
     for word in common_words_to_remove:
         s = re.sub(rf"\b{word}\b", "", s, flags=re.IGNORECASE)
     return s.strip()
@@ -1404,7 +1418,7 @@ def remove_numbers(s):
 # Returns a string without punctuation.
 def remove_punctuation(s):
     return remove_dual_space(
-        remove_common_words(remove_numbers(re.sub(r"[^\w\s]", " ", s)))
+        remove_common_words(remove_numbers(re.sub(r"[^\w\s+]", " ", s)))
     )
 
 
@@ -1501,13 +1515,13 @@ def check_for_existing_series_and_move():
                                                     ),
                                                 )
                                                 print(
-                                                    '\tSimilarity between: "'
+                                                    '\t\tSimilarity between: "'
                                                     + existing_series_folder_from_library
                                                     + '" and "'
                                                     + downloaded_file_series_name
                                                     + '" Score: '
                                                     + str(similarity_score)
-                                                    + " out of 1.0"
+                                                    + " out of 1.0\n"
                                                 )
                                                 existing_dir = os.path.join(
                                                     folder_accessor.root, dir
@@ -1579,7 +1593,7 @@ def check_for_existing_series_and_move():
                                                     > required_matching_percentage
                                                 ):
                                                     send_change_message(
-                                                        "\tFound existing series: "
+                                                        "\t\tFound existing series: "
                                                         + existing_dir
                                                     )
                                                     remove_duplicate_releases_from_download(
@@ -1593,13 +1607,13 @@ def check_for_existing_series_and_move():
                                                             float,
                                                         ):
                                                             send_change_message(
-                                                                "\tVolume: "
+                                                                "\t\tVolume: "
                                                                 + volume.name
                                                                 + " does not exist in: "
                                                                 + existing_dir
                                                             )
                                                             send_change_message(
-                                                                "\tMoving: "
+                                                                "\t\tMoving: "
                                                                 + volume.name
                                                                 + " to "
                                                                 + existing_dir
@@ -2399,7 +2413,7 @@ def combine_series(series_list):
 
 def search_bookwalker(query, type, print_info=False):
     avoid_rate_limit = True
-    sleep_timer = 5
+    sleep_timer = 3
     manual_input = True
     # The total amount of pages to scrape
     total_pages_to_scrape = 5
@@ -2854,10 +2868,11 @@ def main():
     #create_folders_for_items_in_download_folder()  # creates folders for any lone files in the root of the download_folders
     #rename_dirs_in_download_folder()  # cleans up any unnessary information in the series folder names within the download_folders
     extract_covers()  # extracts the covers from our cbz and epub files
-    # check_for_existing_series_and_move()
+    #check_for_existing_series_and_move()  # finds the corresponding folder in our existing library for the files in download_folders and handles moving, upgrading, and deletion
     #check_for_missing_volumes()  # checks for any missing volumes bewteen the highest detected volume number and the lowest
     #if bookwalker_check:
-    #    check_for_new_volumes_on_bookwalker()  # checks the library against bookwalker for any missing volumes that are released or on pre-order
+        # currently slowed down to avoid rate-limiting, advised not to run on each use, but rather once a week
+        #check_for_new_volumes_on_bookwalker()  # checks the library against bookwalker for any missing volumes that are released or on pre-order
     print_stats()
 
 
