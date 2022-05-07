@@ -564,6 +564,11 @@ def check_internal_zip_for_cover(file):
                             or re.search(
                                 r"(\bindex[-_. ]1[-_. ]1\b)", image_file, re.IGNORECASE
                             )
+                            or re.search(
+                                r"(9([-_. :]+)?7([-_. :]+)?8(([-_. :]+)?[0-9]){10})",
+                                image_file,
+                                re.IGNORECASE,
+                            )
                         ):
                             send_change_message(
                                 "Found cover: "
@@ -1403,6 +1408,8 @@ def remove_common_words(s):
         "Series",
         "of",
         "Novel",
+        "Light Novel",
+        "Manga",
         "Collection",
     ]
     for word in common_words_to_remove:
@@ -1417,9 +1424,13 @@ def remove_numbers(s):
 
 # Returns a string without punctuation.
 def remove_punctuation(s):
-    return remove_dual_space(
-        remove_common_words(remove_numbers(re.sub(r"[^\w\s+]", " ", s)))
-    )
+    return remove_dual_space(remove_common_words(re.sub(r"[^\w\s+]", " ", s)))
+
+
+class Result:
+    def __init__(self, dir, score):
+        self.dir = dir
+        self.score = score
 
 
 # Checks for an existing series by pulling the series name from each elidable file in the downloads_folder
@@ -1467,6 +1478,7 @@ def check_for_existing_series_and_move():
                                         print("\nFile: " + file.name)
                                         print("Looking for: " + dir_clean)
                                         print("\tInside of: " + folder_accessor.root)
+                                        scores = []
                                         for dir in folder_accessor.dirs:
                                             downloaded_file_series_name = (
                                                 (str(dir_clean)).lower()
@@ -1492,6 +1504,7 @@ def check_for_existing_series_and_move():
                                                 + str(round(similarity_score, 2))
                                                 + "\n"
                                             )
+                                            scores.append(Result(dir, similarity_score))
                                             if (
                                                 similarity_score
                                                 >= required_similarity_score
