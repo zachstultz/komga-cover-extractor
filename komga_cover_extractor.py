@@ -37,8 +37,8 @@ ignored_folder_names = [""]
 # List of file types used throughout the program
 file_extensions = ["epub", "cbz", "cbr"]  # (cbr is only used for the stat printout)
 image_extensions = ["jpg", "jpeg", "png", "tbn", "jxl"]
-# file extensions deleted from the download folders in an optional method.
-unaccepted_file_extensions = [".example"]
+# file extensions deleted from the download folders in an optional method. [".example"]
+unaccepted_file_extensions = [""]
 series_cover_file_names = ["cover", "poster"]
 
 # Our global folder_accessor
@@ -174,8 +174,9 @@ class Keyword:
         self.score = score
 
 
-# Keywords ranked by point values
-# EX: Keyword("Exmaple_Keyword", 100)
+# Keywords ranked by point values, used when determining if a downloaded volume
+# is an upgrade to the existing volume in the library
+# EX: Keyword("Keyword or Regex", 10)
 ranked_keywords = []
 
 volume_keywords = [
@@ -1433,6 +1434,85 @@ class Result:
         self.score = score
 
 
+# get isbn from epub file
+def get_isbn(file):
+    isbn = None
+    with zipfile.ZipFile(file, "r") as zf:
+        for name in zf.namelist():
+            if name.endswith(".opf"):
+                opf_file = zf.open(name)
+                opf_file_contents = opf_file.read()
+                lines = opf_file_contents.decode("utf-8")
+                search = re.search(
+                    r"(9([-_. :]+)?7([-_. :]+)?8(([-_. :]+)?[0-9]){10})", lines
+                )
+                if search:
+                    isbn = search.group(0)
+                    break
+    return isbn
+
+
+def check_upgrade(existing_root, dir, file):
+    existing_dir = os.path.join(existing_root, dir)
+    clean_existing = os.listdir(existing_dir)
+    clean_and_sort(existing_dir, clean_existing)
+    download_dir_volumes = []
+    download_dir_volumes.append(file)
+    reorganize_and_rename(download_dir_volumes, existing_dir)
+    existing_dir_volumes = upgrade_to_volume_class(
+        upgrade_to_file_class(
+            [
+                f
+                for f in clean_existing
+                if os.path.isfile(os.path.join(existing_dir, f))
+            ],
+            existing_dir,
+        )
+    )
+    cbz_percent_download_folder = 0
+    cbz_percent_existing_folder = 0
+    epub_percent_download_folder = 0
+    epub_percent_existing_folder = 0
+    cbz_percent_download_folder = get_cbz_percent_for_folder(download_dir_volumes)
+    cbz_percent_existing_folder = get_cbz_percent_for_folder(existing_dir_volumes)
+    epub_percent_download_folder = get_epub_percent_for_folder(download_dir_volumes)
+    epub_percent_existing_folder = get_epub_percent_for_folder(existing_dir_volumes)
+    lower_range_score = 1 * 0.089
+    higher_range_score = 1 * 0.0970
+    if (
+        (cbz_percent_download_folder and cbz_percent_existing_folder)
+        >= required_matching_percentage
+    ) or (
+        (epub_percent_download_folder and epub_percent_existing_folder)
+        >= required_matching_percentage
+    ):
+        send_change_message("\t\tFound existing series: " + existing_dir)
+        remove_duplicate_releases_from_download(
+            existing_dir_volumes,
+            download_dir_volumes,
+        )
+        if len(download_dir_volumes) != 0:
+            volume = download_dir_volumes[0]
+            if isinstance(
+                volume.volume_number,
+                float,
+            ):
+                send_change_message(
+                    "\t\tVolume: " + volume.name + " does not exist in: " + existing_dir
+                )
+                send_change_message(
+                    "\t\tMoving: " + volume.name + " to " + existing_dir
+                )
+                move_file(volume, existing_dir)
+                check_and_delete_empty_folder(volume.root)
+                return True
+        else:
+            check_and_delete_empty_folder(file.root)
+            return True
+    else:
+        return False
+
+
 # Checks for an existing series by pulling the series name from each elidable file in the downloads_folder
 # and comparing it to an existin folder within the user's library.
 def check_for_existing_series_and_move():
@@ -1500,7 +1580,7 @@ def check_for_existing_series_and_move():
                                                 + downloaded_file_series_name
                                                 + "\n\t\tAGAINST: "
                                                 + existing_series_folder_from_library
-                                                + "\n\t\tSIMILARITY SCORE: "
+                                                + "\n\t\tSCORE: "
                                                 + str(round(similarity_score, 2))
                                                 + "\n"
                                             )
@@ -1536,138 +1616,66 @@ def check_for_existing_series_and_move():
                                                     + str(similarity_score)
                                                     + " out of 1.0\n"
                                                 )
-                                                existing_dir = os.path.join(
-                                                    folder_accessor.root, dir
+                                                done = check_upgrade(
+                                                    folder_accessor.root,
+                                                    dir,
+                                                    file,
                                                 )
-                                                clean_existing = os.listdir(
-                                                    existing_dir
+                                                if done:
+                                                    break
+                                                else:
+                                                    continue
+                                        if file.extension == ".epub" and not done:
+                                            download_file_isbn = get_isbn(file.path)
+                                            if download_file_isbn:
+                                                print(
+                                                    "\t\tChecking existing library for a matching ISBN number... ("
+                                                    + str(download_file_isbn)
+                                                    + " - "
+                                                    + file.name
+                                                    + ")"
                                                 )
-                                                clean_and_sort(
-                                                    existing_dir, clean_existing
-                                                )
-                                                download_dir_volumes = []
-                                                download_dir_volumes.append(file)
-                                                reorganize_and_rename(
-                                                    download_dir_volumes, existing_dir
-                                                )
-                                                existing_dir_volumes = (
-                                                    upgrade_to_volume_class(
-                                                        upgrade_to_file_class(
-                                                            [
-                                                                f
-                                                                for f in clean_existing
-                                                                if os.path.isfile(
-                                                                    os.path.join(
-                                                                        existing_dir, f
-                                                                    )
-                                                                )
-                                                            ],
-                                                            existing_dir,
-                                                        )
-                                                    )
-                                                )
-                                                cbz_percent_download_folder = 0
-                                                cbz_percent_existing_folder = 0
-                                                epub_percent_download_folder = 0
-                                                epub_percent_existing_folder = 0
-                                                cbz_percent_download_folder = (
-                                                    get_cbz_percent_for_folder(
-                                                        download_dir_volumes
-                                                    )
-                                                )
-                                                cbz_percent_existing_folder = (
-                                                    get_cbz_percent_for_folder(
-                                                        existing_dir_volumes
-                                                    )
-                                                )
-                                                epub_percent_download_folder = (
-                                                    get_epub_percent_for_folder(
-                                                        download_dir_volumes
-                                                    )
-                                                )
-                                                epub_percent_existing_folder = (
-                                                    get_epub_percent_for_folder(
-                                                        existing_dir_volumes
-                                                    )
-                                                )
-                                                lower_range_score = 1 * 0.089
-                                                higher_range_score = 1 * 0.0970
-                                                if (
-                                                    (
-                                                        cbz_percent_download_folder
-                                                        and cbz_percent_existing_folder
-                                                    )
-                                                    > required_matching_percentage
-                                                ) or (
-                                                    (
-                                                        epub_percent_download_folder
-                                                        and epub_percent_existing_folder
-                                                    )
-                                                    > required_matching_percentage
-                                                ):
-                                                    send_change_message(
-                                                        "\t\tFound existing series: "
-                                                        + existing_dir
-                                                    )
-                                                    remove_duplicate_releases_from_download(
-                                                        existing_dir_volumes,
-                                                        download_dir_volumes,
-                                                    )
-                                                    if len(download_dir_volumes) != 0:
-                                                        volume = download_dir_volumes[0]
-                                                        if isinstance(
-                                                            volume.volume_number,
-                                                            float,
-                                                        ):
-                                                            send_change_message(
-                                                                "\t\tVolume: "
-                                                                + volume.name
-                                                                + " does not exist in: "
-                                                                + existing_dir
-                                                            )
-                                                            send_change_message(
-                                                                "\t\tMoving: "
-                                                                + volume.name
-                                                                + " to "
-                                                                + existing_dir
-                                                            )
-                                                            move_file(
-                                                                volume, existing_dir
-                                                            )
-                                                            check_and_delete_empty_folder(
-                                                                volume.root
-                                                            )
-                                                            done = True
-                                                            break
-                                                    else:
-                                                        check_and_delete_empty_folder(
-                                                            file.root
-                                                        )
-                                                        done = True
+                                                for dir, subdir, files in os.walk(path):
+                                                    if done:
                                                         break
-                                                elif (
-                                                    similarity_score
-                                                    >= lower_range_score
-                                                ) and (
-                                                    similarity_score
-                                                    <= higher_range_score
-                                                ):
-                                                    print(
-                                                        "\tScore between "
-                                                        + lower_range_score
-                                                        + " and "
-                                                        + higher_range_score
-                                                        + "\tScore: "
-                                                        + str(similarity_score)
-                                                    )
-                                                    print(
-                                                        '\tScore for: "'
-                                                        + existing_series_folder_from_library
-                                                        + '" and "'
-                                                        + downloaded_file_series_name
-                                                        + '"'
-                                                    )
-                                                    print("")
+                                                    clean_and_sort(dir, files, subdir)
+                                                    for f in files:
+                                                        extension = os.path.splitext(f)[
+                                                            1
+                                                        ]
+                                                        if extension == ".epub":
+                                                            existing_file_isbn = (
+                                                                get_isbn(
+                                                                    os.path.join(dir, f)
+                                                                )
+                                                            )
+                                                            if existing_file_isbn:
+                                                                if (
+                                                                    download_file_isbn
+                                                                    == existing_file_isbn
+                                                                ):
+                                                                    send_change_message(
+                                                                        "\t\tFound existing file with the same isbn: "
+                                                                        + f
+                                                                    )
+                                                                    dir_name = (
+                                                                        os.path.dirname(
+                                                                            dir
+                                                                        )
+                                                                    )
+                                                                    base = os.path.basename(
+                                                                        dir
+                                                                    )
+                                                                    done = check_upgrade(
+                                                                        folder_accessor.root,
+                                                                        base,
+                                                                        file,
+                                                                    )
+                                                                    if done:
+                                                                        break
+                                                print(
+                                                    "\t\t\tNo matches found in: " + path
+                                                )
                                 except FileNotFoundError:
                                     send_error_message(
                                         "\nERROR: " + path + " is not a valid path.\n"
