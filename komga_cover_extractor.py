@@ -92,7 +92,7 @@ add_volume_one_number_to_one_shots = False
 # Newly released volumes that aren't currently in the library.
 new_releases_on_bookwalker = []
 
-# Whether or not to check library against bookwalker for new releases.
+# Whether or not to check the library against bookwalker for new releases.
 bookwalker_check = False
 
 # Folder Class
@@ -1181,7 +1181,7 @@ def check_and_delete_empty_folder(folder):
 
 # Writes a log file
 def write_to_file(file, message, without_date=False, overwrite=False):
-    message = re.sub("\t|\n", "", message, flags=re.IGNORECASE)
+    message = re.sub("\t|\n", "", str(message), flags=re.IGNORECASE)
     ROOT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
     file_path = os.path.join(ROOT_DIR, file)
     append_write = ""
@@ -1425,7 +1425,14 @@ def remove_numbers(s):
 
 # Returns a string without punctuation.
 def remove_punctuation(s):
-    return remove_dual_space(remove_common_words(re.sub(r"[^\w\s+]", " ", s)))
+    return convert_to_ascii(
+        remove_dual_space(remove_common_words(re.sub(r"[^\w\s+]", " ", s)))
+    )
+
+
+# convert string to acsii
+def convert_to_ascii(s):
+    return "".join(i for i in s if ord(i) < 128)
 
 
 class Result:
@@ -1581,9 +1588,15 @@ def check_for_existing_series_and_move():
                                                 + "\n\t\tAGAINST: "
                                                 + existing_series_folder_from_library
                                                 + "\n\t\tSCORE: "
-                                                + str(round(similarity_score, 2))
+                                                + str(similarity_score)
                                                 + "\n"
                                             )
+                                            if re.search(
+                                                r"savior",
+                                                existing_series_folder_from_library,
+                                                re.IGNORECASE,
+                                            ):
+                                                print("")
                                             scores.append(Result(dir, similarity_score))
                                             if (
                                                 similarity_score
@@ -1629,11 +1642,14 @@ def check_for_existing_series_and_move():
                                             download_file_isbn = get_isbn(file.path)
                                             if download_file_isbn:
                                                 print(
-                                                    "\t\tChecking existing library for a matching ISBN number... ("
+                                                    "\t\t("
                                                     + str(download_file_isbn)
                                                     + " - "
                                                     + file.name
                                                     + ")"
+                                                )
+                                                print(
+                                                    "\t\tChecking existing library for a matching ISBN number..."
                                                 )
                                                 for dir, subdir, files in os.walk(path):
                                                     if done:
