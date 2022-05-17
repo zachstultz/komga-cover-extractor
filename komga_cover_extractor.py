@@ -1999,7 +1999,7 @@ def rename_files_in_download_folders():
                             result = preferred_volume_renaming_format + "01"
                         else:
                             result = result.group().strip()
-                        result = re.sub(r"[\[\(\{\]\)\}\-_]", "", result).strip()
+                        result = re.sub(r"[\[\(\{\]\)\}\_]", "", result).strip()
                         results = re.split(
                             r"(LN|Light Novel|Novel|Book|Volume|Vol|V|第|Disc)(\.|)",
                             result,
@@ -2086,6 +2086,14 @@ def rename_files_in_download_folders():
                                 and file.extension == ".cbz"
                             ):
                                 combined += " " + issue_number
+                            if file.extension == ".epub":
+                                if check_for_bonus_xhtml(file.path) and not re.search(
+                                    r"\bPremium\b", file.name, re.IGNORECASE
+                                ):
+                                    print(
+                                        "\nBonus content detected inside epub, adding [Premium] to file name."
+                                    )
+                                    combined += " [Premium]"
                             if not file.is_one_shot:
                                 replacement = re.sub(
                                     r"((?<![A-Za-z]+)[-_. ]\s+|)(\[|\(|\{)?(LN|Light Novel|Novel|Book|Volume|Vol|v|第|Disc)(\.|)([-_. ]|)(([0-9]+)(([-_. ]|)([0-9]+)|))(\s#([0-9]+)(([-_. ]|)([0-9]+)|))?(\]|\)|\})?",
@@ -2108,6 +2116,7 @@ def rename_files_in_download_folders():
                                 for extra in extras:
                                     replacement += " " + extra
                                 replacement += file.extension
+                            replacement = re.sub(r"\?", " ", replacement).strip()
                             replacement = remove_dual_space(
                                 re.sub(r"_", " ", replacement)
                             ).strip()
@@ -2894,6 +2903,18 @@ def check_for_new_volumes_on_bookwalker():
                 p.date + " " + p.title + " Volume " + str(p.volume_number) + " " + p.url
             )
             write_to_file("pre-orders.txt", message, without_date=True, overwrite=False)
+
+
+# Checks the epub for bonus.xhtml or bonus[0-9].xhtml
+# then returns whether or not it was found.
+def check_for_bonus_xhtml(zip):
+    zip = zipfile.ZipFile(zip)
+    list = zip.namelist()
+    for item in list:
+        base = os.path.basename(item)
+        if re.search(r"(bonus([0-9]+)?\.xhtml)", base, re.IGNORECASE):
+            return True
+    return False
 
 
 def main():
