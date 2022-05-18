@@ -65,6 +65,10 @@ files_with_no_cover = []
 
 # The required file type matching percentage between
 # the download folder and the existing folder
+#
+# For exmpale, 90% of the folder's files must be CBZ or EPUB
+# Used to avoid accdientally matching a epub volume to a manga library
+# or vice versa because they can have the same exact series name.
 required_matching_percentage = 90
 
 # The required score when comparing two strings likeness
@@ -193,7 +197,7 @@ volume_keywords = [
 
 volume_one_number_keywords = ["One", "1", "01", "001", "0001"]
 
-# parses the passed command line arguments
+# Parses the passed command-line arguments
 def parse_my_args():
     global paths
     global download_folders
@@ -256,22 +260,30 @@ def parse_my_args():
             bookwalker_check = True
 
 
-def compress_image(image_path):
-    # ImageFile.LOAD_TRUNCATED_IMAGES = True
-    if image_path.endswith(".png"):
-        im = Image.open(image_path)
-        image_path = image_path.replace(".png", ".jpg")
-        rgb_im = im.convert("RGB")
-        rgb_im.save(image_path, optimize=True, quality=image_quality)
-        rgb_im.close()
-        im.close()
-        if os.path.exists(image_path.replace(".jpg", ".png")):
-            os.remove(image_path.replace(".jpg", ".png"))
+def compress_image(image_path, quality, to_jpg=False):
+    img = Image.open(image_path)
+    filename, ext = os.path.splitext(image_path)
+    extension = get_file_extension(image_path)
+    if to_jpg:
+        new_filename = f"{filename}.jpg"
     else:
-        im = Image.open(image_path)
-        im.save(image_path, optimize=True, quality=image_quality)
-        im.close()
-    return image_path
+        new_filename = f"{filename}" + extension
+    try:
+        img.save(new_filename, quality=quality, optimize=True)
+        if extension == ".png" and (
+            os.path.isfile(new_filename) and os.path.isfile(image_path)
+        ):
+            os.remove(image_path)
+            return image_path
+    except OSError as ose:
+        ImageFile.LOAD_TRUNCATED_IMAGES = True
+        img = img.convert("RGB")
+        img.save(new_filename, quality=quality, optimize=True)
+        if extension == ".png" and (
+            os.path.isfile(new_filename) and os.path.isfile(image_path)
+        ):
+            os.remove(image_path)
+            return image_path
 
 
 # Appends, sends, and prints our error message
@@ -291,7 +303,7 @@ def send_change_message(message):
     write_to_file("changes.txt", message)
 
 
-# Sends a discord message
+# Sends a discord message using the users webhook url
 def send_discord_message(message):
     try:
         if discord_webhook_url != "":
@@ -464,10 +476,13 @@ def extract_cover(
                     "wb",
                 ) as f:
                     shutil.copyfileobj(zf, f)
-                    send_change_message("\t\tCopied file and renamed.\n")
+                    send_change_message("\t\tExtracted file.\n")
                     try:
                         if compress_image_option:
-                            compress_image(f.name)
+                            if get_file_extension(f.name) == ".png":
+                                compress_image(f.name, image_quality, True)
+                            else:
+                                compress_image(f.name, image_quality)
                     except Exception as e:
                         send_error_message(str(e) + "\nFile: " + f.name)
                     return
@@ -536,7 +551,7 @@ def check_internal_zip_for_cover(file):
     try:
         if zipfile.is_zipfile(file.path):
             zip_file = zipfile.ZipFile(file.path)
-            send_change_message("\tZip found" + "\n\t\tEntering zip: " + file.name)
+            send_change_message("\n\t\tEntering zip: " + file.name)
             internal_zip_images = zip_images_only(zip_file)
             remove_hidden_files_with_basename(internal_zip_images)
             if image_cover_name != "":
@@ -572,7 +587,7 @@ def check_internal_zip_for_cover(file):
                             )
                         ):
                             send_change_message(
-                                "Found cover: "
+                                "\t\tFound cover: "
                                 + get_base_name(image_file)
                                 + " in "
                                 + file.name
@@ -679,7 +694,7 @@ def check_for_volume_one_cover(file, zip_file, files):
     zip_basename = os.path.basename(zip_file.filename)
     if is_volume_one(zip_basename):
         send_change_message(
-            "Volume 1 Cover Found: " + zip_basename + " in " + file.root
+            "\t\tVolume One Cover Found: " + zip_basename + " in " + file.root
         )
         for extension in image_extensions:
             if os.path.isfile(extensionless_path + "." + extension):
@@ -692,7 +707,7 @@ def check_for_volume_one_cover(file, zip_file, files):
         for item in files:
             if not contains_volume_keywords(item.name):
                 send_change_message(
-                    "No volume keyword detected, assuming file is a one-shot volume: "
+                    "\t\tNo volume keyword detected, assuming file is a one-shot volume: "
                     + zip_basename
                     + " in "
                     + file.root
@@ -1649,7 +1664,7 @@ def check_for_existing_series_and_move():
                                                     + ")"
                                                 )
                                                 print(
-                                                    "\t\tChecking existing library for a matching ISBN number..."
+                                                    "\t\tChecking existing library for a matching ISBN number... (may take a minute or so, depending on library size)"
                                                 )
                                                 for dir, subdir, files in os.walk(path):
                                                     if done:
@@ -2091,7 +2106,7 @@ def rename_files_in_download_folders():
                                     r"\bPremium\b", file.name, re.IGNORECASE
                                 ):
                                     print(
-                                        "\nBonus content detected inside epub, adding [Premium] to file name."
+                                        "\nBonus content found inside epub, adding [Premium] to file name."
                                     )
                                     combined += " [Premium]"
                             if not file.is_one_shot:
@@ -2917,6 +2932,9 @@ def check_for_bonus_xhtml(zip):
     return False
 
 
+# Optional features below have been commented, use at your own risk.
+# I don't intend to advertise these on the git page until I consider them
+# close to perfect.
 def main():
     global bookwalker_check
     parse_my_args()  # parses the user's arguments
@@ -2925,8 +2943,8 @@ def main():
     #rename_files_in_download_folders()  # replaces any detected volume keyword that isn't what the user specified up top
     #create_folders_for_items_in_download_folder()  # creates folders for any lone files in the root of the download_folders
     #rename_dirs_in_download_folder()  # cleans up any unnessary information in the series folder names within the download_folders
-    extract_covers()  # extracts the covers from our cbz and epub files
-    #check_for_existing_series_and_move()  # finds the corresponding folder in our existing library for the files in download_folders and handles moving, upgrading, and deletion
+    extract_covers()  # extracts covers from cbz and epub files recursively from the paths passed in
+    #check_for_existing_series_and_move()  # finds the corresponding series name in our existing library for the files in download_folders and handles moving, upgrading, and deletion
     #check_for_missing_volumes()  # checks for any missing volumes bewteen the highest detected volume number and the lowest
     #if bookwalker_check:
         # currently slowed down to avoid rate-limiting, advised not to run on each use, but rather once a week
