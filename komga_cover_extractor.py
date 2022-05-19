@@ -476,7 +476,7 @@ def extract_cover(
                     "wb",
                 ) as f:
                     shutil.copyfileobj(zf, f)
-                    send_change_message("\t\tExtracted file.\n")
+                    send_change_message("\t\tExtracted cover file.\n")
                     try:
                         if compress_image_option:
                             if get_file_extension(f.name) == ".png":
@@ -694,7 +694,7 @@ def check_for_volume_one_cover(file, zip_file, files):
     zip_basename = os.path.basename(zip_file.filename)
     if is_volume_one(zip_basename):
         send_change_message(
-            "\t\tVolume One Cover Found: " + zip_basename + " in " + file.root
+            "\t\tVolume One Cover Found" + zip_basename + " in " + file.root
         )
         for extension in image_extensions:
             if os.path.isfile(extensionless_path + "." + extension):
@@ -1474,6 +1474,25 @@ def get_isbn(file):
     return isbn
 
 
+# gets the toc.xhtml file from the epub file and checks the toc for premium content
+def get_toc(file):
+    bonus_illistration_found = False
+    with zipfile.ZipFile(file, "r") as zf:
+        for name in zf.namelist():
+            if os.path.basename(name) == "toc.xhtml":
+                toc_file = zf.open(name)
+                toc_file_contents = toc_file.read()
+                lines = toc_file_contents.decode("utf-8")
+                search = re.search(
+                    r"(Bonus\s+((Color\s+)?Illustrations?|(Short\s+)?Stories))",
+                    lines,
+                )
+                if search:
+                    bonus_illistration_found = search.group(0)
+                    break
+    return bonus_illistration_found
+
+
 def check_upgrade(existing_root, dir, file):
     existing_dir = os.path.join(existing_root, dir)
     clean_existing = os.listdir(existing_dir)
@@ -1884,7 +1903,7 @@ def get_extras(file_name, root):
         "Short Story",
         "Omnibus",
     ]
-    keywords_two = ["Extra", "Arc ", "Episode"]
+    keywords_two = ["Extra", "Arc"]
     for result in results:
         combined = ""
         for r in result:
@@ -1952,6 +1971,11 @@ def get_extras(file_name, root):
             re.IGNORECASE,
         ).group()
         add_to_list("[" + result.strip() + "]", modified)
+    # Move Premium to the beginning
+    for item in modified:
+        if re.search(r"Premium", item, re.IGNORECASE):
+            modified.remove(item)
+            modified.insert(0, item)
     return modified
 
 
@@ -2102,7 +2126,10 @@ def rename_files_in_download_folders():
                             ):
                                 combined += " " + issue_number
                             if file.extension == ".epub":
-                                if check_for_bonus_xhtml(file.path) and not re.search(
+                                if (
+                                    check_for_bonus_xhtml(file.path)
+                                    or get_toc(file.path)
+                                ) and not re.search(
                                     r"\bPremium\b", file.name, re.IGNORECASE
                                 ):
                                     print(
@@ -2932,7 +2959,7 @@ def check_for_bonus_xhtml(zip):
     return False
 
 
-# Optional features below have been commented, use at your own risk.
+# Optional features below have been commented out, use at your own risk.
 # I don't intend to advertise these on the git page until I consider them
 # close to perfect.
 def main():
