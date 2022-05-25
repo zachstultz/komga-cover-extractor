@@ -180,7 +180,7 @@ class Keyword:
 
 # Keywords ranked by point values, used when determining if a downloaded volume
 # is an upgrade to the existing volume in the library
-# EX: Keyword("Keyword or Regex", 10)
+# EX: Keyword("Keyword or Regex", point_value)
 ranked_keywords = []
 
 volume_keywords = [
@@ -762,7 +762,7 @@ def move_images(file, folder_name):
 def get_series_name_from_file_name(name, root):
     if is_one_shot(name, root):
         name = re.sub(
-            r"([-_ ]+|)(((\[|\(|\{).*(\]|\)|\}))|LN)([-_. ]+|)(epub|cbz|)",
+            r"([-_ ]+|)(((\[|\(|\{).*(\]|\)|\}))|LN)([-_. ]+|)(epub|cbz|).*",
             "",
             name,
             flags=re.IGNORECASE,
@@ -1476,7 +1476,7 @@ def get_isbn(file):
 
 # gets the toc.xhtml file from the epub file and checks the toc for premium content
 def get_toc(file):
-    bonus_illistration_found = False
+    bonus_content_found = False
     with zipfile.ZipFile(file, "r") as zf:
         for name in zf.namelist():
             if os.path.basename(name) == "toc.xhtml":
@@ -1488,9 +1488,9 @@ def get_toc(file):
                     lines,
                 )
                 if search:
-                    bonus_illistration_found = search.group(0)
+                    bonus_content_found = search.group(0)
                     break
-    return bonus_illistration_found
+    return bonus_content_found
 
 
 def check_upgrade(existing_root, dir, file):
@@ -1510,16 +1510,10 @@ def check_upgrade(existing_root, dir, file):
             existing_dir,
         )
     )
-    cbz_percent_download_folder = 0
-    cbz_percent_existing_folder = 0
-    epub_percent_download_folder = 0
-    epub_percent_existing_folder = 0
     cbz_percent_download_folder = get_cbz_percent_for_folder(download_dir_volumes)
     cbz_percent_existing_folder = get_cbz_percent_for_folder(existing_dir_volumes)
     epub_percent_download_folder = get_epub_percent_for_folder(download_dir_volumes)
     epub_percent_existing_folder = get_epub_percent_for_folder(existing_dir_volumes)
-    lower_range_score = 1 * 0.089
-    higher_range_score = 1 * 0.0970
     if (
         (cbz_percent_download_folder and cbz_percent_existing_folder)
         >= required_matching_percentage
@@ -2027,7 +2021,7 @@ def rename_files_in_download_folders():
                 for file in volumes:
                     multi_volume = False
                     result = re.search(
-                        r"\-?\s+(LN|Light Novel|Novel|Book|Volume|Vol|V|第|Disc)(\.\s?|\s?|)(([0-9]+)((([-_.]|)([0-9]+))+|))(\]|\)|\})?(\s|\.epub|\.cbz)",
+                        r"(\s+)?\-?(\s+)?(LN|Light Novel|Novel|Book|Volume|Vol|V|第|Disc)(\.\s?|\s?|)(([0-9]+)((([-_.]|)([0-9]+))+|))(\]|\)|\})?(\s|\.epub|\.cbz)",
                         file.name,
                         re.IGNORECASE,
                     )
@@ -2039,6 +2033,11 @@ def rename_files_in_download_folders():
                         else:
                             result = result.group().strip()
                         result = re.sub(r"[\[\(\{\]\)\}\_]", "", result).strip()
+                        result = re.sub(
+                            r"(-)(\s+)?(v)", preferred_volume_renaming_format, result
+                        ).strip()
+                        for ext in file_extensions:
+                            result = re.sub("\." + ext, "", result).strip()
                         results = re.split(
                             r"(LN|Light Novel|Novel|Book|Volume|Vol|V|第|Disc)(\.|)",
                             result,
@@ -2842,6 +2841,8 @@ def search_bookwalker(query, type, print_info=False):
         return None
 
 
+# Checks the library against bookwalker for any missing volumes that are released or on pre-order
+# Doesn't work with NSFW results atm.
 def check_for_new_volumes_on_bookwalker():
     print("\nChecking for new volumes on bookwalker...")
     paths_clean = [p for p in paths if p not in download_folders]
