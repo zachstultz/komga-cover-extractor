@@ -2019,221 +2019,251 @@ def rename_files_in_download_folders():
                 print("\nLocation: " + root)
                 print("Searching for files to rename...")
                 for file in volumes:
-                    multi_volume = False
-                    result = re.search(
-                        r"(\s+)?\-?(\s+)?(LN|Light Novel|Novel|Book|Volume|Vol|V|第|Disc)(\.\s?|\s?|)(([0-9]+)((([-_.]|)([0-9]+))+|))(\]|\)|\})?(\s|\.epub|\.cbz)",
-                        file.name,
-                        re.IGNORECASE,
-                    )
-                    if result or (
-                        file.is_one_shot and add_volume_one_number_to_one_shots == True
-                    ):
-                        if file.is_one_shot:
-                            result = preferred_volume_renaming_format + "01"
-                        else:
-                            result = result.group().strip()
-                        result = re.sub(r"[\[\(\{\]\)\}\_]", "", result).strip()
-                        result = re.sub(
-                            r"(-)(\s+)?(v)", preferred_volume_renaming_format, result
-                        ).strip()
-                        for ext in file_extensions:
-                            result = re.sub("\." + ext, "", result).strip()
-                        results = re.split(
-                            r"(LN|Light Novel|Novel|Book|Volume|Vol|V|第|Disc)(\.|)",
-                            result,
-                            flags=re.IGNORECASE,
+                    try:
+                        multi_volume = False
+                        result = re.search(
+                            r"(\s+)?\-?(\s+)?(LN|Light Novel|Novel|Book|Volume|Vol|V|第|Disc)(\.\s?|\s?|)(([0-9]+)((([-_.]|)([0-9]+))+|))(\]|\)|\})?(\s|\.epub|\.cbz)",
+                            file.name,
+                            re.IGNORECASE,
                         )
-                        modified = []
-                        for r in results[:]:
-                            r = r.strip()
-                            if r == "" or r == ".":
-                                results.remove(r)
-                            else:
-                                found = re.search(
-                                    r"([0-9]+)((([-_.])([0-9]+))+|)", r, re.IGNORECASE
-                                )
-                                if found:
-                                    r = found.group()
-                                    if check_for_multi_volume_file(r):
-                                        multi_volume = True
-                                        volume_numbers = (
-                                            convert_list_of_numbers_to_array(r)
-                                        )
-                                        for number in volume_numbers:
-                                            try:
-                                                if isint(number):
-                                                    number = int(number)
-                                                elif isfloat(number):
-                                                    number = float(number)
-                                            except ValueError as ve:
-                                                print(ve)
-                                            if number == volume_numbers[-1]:
-                                                modified.append(number)
-                                            else:
-                                                modified.append(number)
-                                                modified.append("-")
-                                    else:
-                                        try:
-                                            if isint(r):
-                                                r = int(r)
-                                                modified.append(r)
-                                            elif isfloat(r):
-                                                r = float(r)
-                                                modified.append(r)
-                                        except ValueError as ve:
-                                            print(ve)
-                                if isinstance(r, str):
-                                    if r != "":
-                                        if re.search(
-                                            r"(LN|Light Novel|Novel|Book|Volume|Vol|V|第|Disc)",
-                                            r,
-                                            re.IGNORECASE,
-                                        ):
-                                            modified.append(
-                                                re.sub(
-                                                    r"(LN|Light Novel|Novel|Book|Volume|Vol|V|第|Disc)",
-                                                    preferred_volume_renaming_format,
-                                                    r,
-                                                    flags=re.IGNORECASE,
-                                                )
-                                            )
-                        if ((len(modified) == 2 and len(results) == 2)) or (
-                            len(modified) == len(results) + len(volume_numbers)
+                        if result or (
+                            file.is_one_shot
+                            and add_volume_one_number_to_one_shots == True
                         ):
-                            combined = ""
-                            for item in modified:
-                                if type(item) == int:
-                                    if item < 10:
-                                        item = str(item).zfill(2)
-                                    combined += str(item)
-                                elif type(item) == float:
-                                    if item < 10:
-                                        item = str(item).zfill(4)
-                                    combined += str(item)
-                                elif isinstance(item, str):
-                                    combined += item
-                            without_keyword = re.sub(
+                            if file.is_one_shot:
+                                result = preferred_volume_renaming_format + "01"
+                            else:
+                                result = result.group().strip()
+                            result = re.sub(r"[\[\(\{\]\)\}\_]", "", result).strip()
+                            keyword = re.search(
+                                r"(LN|Light Novel|Novel|Book|Volume|Vol|V|第|Disc)",
+                                result,
+                                re.IGNORECASE,
+                            )
+                            keyword = keyword.group(0)
+                            result = re.sub(
+                                rf"(-)(\s+)?{keyword}",
+                                keyword,
+                                result,
+                                flags=re.IGNORECASE,
+                                count=1,
+                            ).strip()
+                            for ext in file_extensions:
+                                result = re.sub("\." + ext, "", result).strip()
+                            results = re.split(
                                 r"(LN|Light Novel|Novel|Book|Volume|Vol|V|第|Disc)(\.|)",
-                                "",
-                                combined,
+                                result,
                                 flags=re.IGNORECASE,
                             )
-                            issue_number = "#" + without_keyword
-                            if (
-                                add_issue_number_to_cbz_file_name == True
-                                and file.extension == ".cbz"
-                            ):
-                                combined += " " + issue_number
-                            if file.extension == ".epub":
-                                if (
-                                    check_for_bonus_xhtml(file.path)
-                                    or get_toc(file.path)
-                                ) and not re.search(
-                                    r"\bPremium\b", file.name, re.IGNORECASE
-                                ):
-                                    print(
-                                        "\nBonus content found inside epub, adding [Premium] to file name."
+                            modified = []
+                            for r in results[:]:
+                                r = r.strip()
+                                if r == "" or r == ".":
+                                    results.remove(r)
+                                else:
+                                    found = re.search(
+                                        r"([0-9]+)((([-_.])([0-9]+))+|)",
+                                        r,
+                                        re.IGNORECASE,
                                     )
-                                    combined += " [Premium]"
-                            if not file.is_one_shot:
-                                replacement = re.sub(
-                                    r"((?<![A-Za-z]+)[-_. ]\s+|)(\[|\(|\{)?(LN|Light Novel|Novel|Book|Volume|Vol|v|第|Disc)(\.|)([-_. ]|)(([0-9]+)(([-_. ]|)([0-9]+)|))(\s#([0-9]+)(([-_. ]|)([0-9]+)|))?(\]|\)|\})?",
-                                    combined,
-                                    file.name,
-                                    flags=re.IGNORECASE,
-                                    count=1,
-                                )
-                            else:
-                                base = re.sub(
-                                    r"(.epub|.cbz)",
-                                    "",
-                                    file.basename,
-                                    flags=re.IGNORECASE,
-                                ).strip()
-                                replacement = base + " " + combined
-                                if file.volume_year:
-                                    replacement += " (" + str(file.volume_year) + ")"
-                                extras = get_extras(file.name, file.root)
-                                for extra in extras:
-                                    replacement += " " + extra
-                                replacement += file.extension
-                            replacement = re.sub(r"\?", " ", replacement).strip()
-                            replacement = remove_dual_space(
-                                re.sub(r"_", " ", replacement)
-                            ).strip()
-                            if file.name != replacement:
-                                try:
-                                    if not (
-                                        os.path.isfile(os.path.join(root, replacement))
-                                    ):
-                                        user_input = ""
-                                        if not manual_rename:
-                                            user_input = "y"
-                                        else:
-                                            print("\n" + file.name)
-                                            print(replacement)
-                                            user_input = input("\tRename (y or n): ")
-                                        if user_input == "y":
-                                            os.rename(
-                                                os.path.join(root, file.name),
-                                                os.path.join(root, replacement),
+                                    if found:
+                                        r = found.group()
+                                        if check_for_multi_volume_file(r):
+                                            multi_volume = True
+                                            volume_numbers = (
+                                                convert_list_of_numbers_to_array(r)
                                             )
-                                            if os.path.isfile(
-                                                os.path.join(root, replacement)
+                                            for number in volume_numbers:
+                                                try:
+                                                    if isint(number):
+                                                        number = int(number)
+                                                    elif isfloat(number):
+                                                        number = float(number)
+                                                except ValueError as ve:
+                                                    print(ve)
+                                                if number == volume_numbers[-1]:
+                                                    modified.append(number)
+                                                else:
+                                                    modified.append(number)
+                                                    modified.append("-")
+                                        else:
+                                            try:
+                                                if isint(r):
+                                                    r = int(r)
+                                                    modified.append(r)
+                                                elif isfloat(r):
+                                                    r = float(r)
+                                                    modified.append(r)
+                                            except ValueError as ve:
+                                                print(ve)
+                                    if isinstance(r, str):
+                                        if r != "":
+                                            if re.search(
+                                                r"(LN|Light Novel|Novel|Book|Volume|Vol|V|第|Disc)",
+                                                r,
+                                                re.IGNORECASE,
                                             ):
-                                                send_change_message(
-                                                    "\tSuccessfully renamed file: "
-                                                    + file.name
-                                                    + " to "
-                                                    + replacement
-                                                )
-                                                for image_extension in image_extensions:
-                                                    image_file = (
-                                                        file.extensionless_name
-                                                        + "."
-                                                        + image_extension
+                                                modified.append(
+                                                    re.sub(
+                                                        r"(LN|Light Novel|Novel|Book|Volume|Vol|V|第|Disc)",
+                                                        preferred_volume_renaming_format,
+                                                        r,
+                                                        flags=re.IGNORECASE,
                                                     )
-                                                    if os.path.isfile(
-                                                        os.path.join(root, image_file)
-                                                    ):
-                                                        extensionless_replacement = (
-                                                            get_extensionless_name(
-                                                                replacement
-                                                            )
-                                                        )
-                                                        replacement_image = (
-                                                            extensionless_replacement
+                                                )
+                            if ((len(modified) == 2 and len(results) == 2)) or (
+                                multi_volume
+                                and (
+                                    len(modified) == len(results) + len(volume_numbers)
+                                )
+                            ):
+                                combined = ""
+                                for item in modified:
+                                    if type(item) == int:
+                                        if item < 10:
+                                            item = str(item).zfill(2)
+                                        combined += str(item)
+                                    elif type(item) == float:
+                                        if item < 10:
+                                            item = str(item).zfill(4)
+                                        combined += str(item)
+                                    elif isinstance(item, str):
+                                        combined += item
+                                without_keyword = re.sub(
+                                    r"(LN|Light Novel|Novel|Book|Volume|Vol|V|第|Disc)(\.|)",
+                                    "",
+                                    combined,
+                                    flags=re.IGNORECASE,
+                                )
+                                issue_number = "#" + without_keyword
+                                if (
+                                    add_issue_number_to_cbz_file_name == True
+                                    and file.extension == ".cbz"
+                                ):
+                                    combined += " " + issue_number
+                                if file.extension == ".epub":
+                                    if (
+                                        check_for_bonus_xhtml(file.path)
+                                        or get_toc(file.path)
+                                    ) and not re.search(
+                                        r"\bPremium\b", file.name, re.IGNORECASE
+                                    ):
+                                        print(
+                                            "\nBonus content found inside epub, adding [Premium] to file name."
+                                        )
+                                        combined += " [Premium]"
+                                if not file.is_one_shot:
+                                    replacement = re.sub(
+                                        r"((?<![A-Za-z]+)[-_. ]\s+|)(\[|\(|\{)?(LN|Light Novel|Novel|Book|Volume|Vol|v|第|Disc)(\.|)([-_. ]|)(([0-9]+)(([-_. ]|)([0-9]+)|))(\s#([0-9]+)(([-_. ]|)([0-9]+)|))?(\]|\)|\})?",
+                                        combined,
+                                        file.name,
+                                        flags=re.IGNORECASE,
+                                        count=1,
+                                    )
+                                else:
+                                    base = re.sub(
+                                        r"(.epub|.cbz)",
+                                        "",
+                                        file.basename,
+                                        flags=re.IGNORECASE,
+                                    ).strip()
+                                    replacement = base + " " + combined
+                                    if file.volume_year:
+                                        replacement += (
+                                            " (" + str(file.volume_year) + ")"
+                                        )
+                                    extras = get_extras(file.name, file.root)
+                                    for extra in extras:
+                                        replacement += " " + extra
+                                    replacement += file.extension
+                                replacement = re.sub(r"\?", " ", replacement).strip()
+                                replacement = remove_dual_space(
+                                    re.sub(r"_", " ", replacement)
+                                ).strip()
+                                if file.name != replacement:
+                                    try:
+                                        if not (
+                                            os.path.isfile(
+                                                os.path.join(root, replacement)
+                                            )
+                                        ):
+                                            user_input = ""
+                                            if not manual_rename:
+                                                user_input = "y"
+                                            else:
+                                                print("\n" + file.name)
+                                                print(replacement)
+                                                user_input = input(
+                                                    "\tRename (y or n): "
+                                                )
+                                            if user_input == "y":
+                                                os.rename(
+                                                    os.path.join(root, file.name),
+                                                    os.path.join(root, replacement),
+                                                )
+                                                if os.path.isfile(
+                                                    os.path.join(root, replacement)
+                                                ):
+                                                    send_change_message(
+                                                        "\tSuccessfully renamed file: "
+                                                        + file.name
+                                                        + " to "
+                                                        + replacement
+                                                    )
+                                                    for (
+                                                        image_extension
+                                                    ) in image_extensions:
+                                                        image_file = (
+                                                            file.extensionless_name
                                                             + "."
                                                             + image_extension
                                                         )
-                                                        try:
-                                                            os.rename(
-                                                                os.path.join(
-                                                                    root, image_file
-                                                                ),
-                                                                os.path.join(
-                                                                    root,
-                                                                    replacement_image,
-                                                                ),
+                                                        if os.path.isfile(
+                                                            os.path.join(
+                                                                root, image_file
                                                             )
-                                                        except OSError as ose:
-                                                            send_error_message(ose)
-                                            else:
-                                                send_error_message(
-                                                    "\nRename failed on: " + file.name
-                                                )
-                                except OSError as ose:
-                                    send_error_message(ose)
-                        else:
-                            send_error_message(
-                                "More than two for either array: " + file.name
-                            )
-                            print("Modified Array:")
-                            for i in modified:
-                                print("\t" + str(i))
-                            print("Results Array:")
-                            for b in results:
-                                print("\t" + str(b))
+                                                        ):
+                                                            extensionless_replacement = get_extensionless_name(
+                                                                replacement
+                                                            )
+                                                            replacement_image = (
+                                                                extensionless_replacement
+                                                                + "."
+                                                                + image_extension
+                                                            )
+                                                            try:
+                                                                os.rename(
+                                                                    os.path.join(
+                                                                        root, image_file
+                                                                    ),
+                                                                    os.path.join(
+                                                                        root,
+                                                                        replacement_image,
+                                                                    ),
+                                                                )
+                                                            except OSError as ose:
+                                                                send_error_message(ose)
+                                                else:
+                                                    send_error_message(
+                                                        "\nRename failed on: "
+                                                        + file.name
+                                                    )
+                                    except OSError as ose:
+                                        send_error_message(ose)
+                            else:
+                                send_error_message(
+                                    "More than two for either array: " + file.name
+                                )
+                                print("Modified Array:")
+                                for i in modified:
+                                    print("\t" + str(i))
+                                print("Results Array:")
+                                for b in results:
+                                    print("\t" + str(b))
+                    except Exception as e:
+                        send_error_message(
+                            "\nERROR: " + str(e) + " (" + file.name + ")"
+                        )
         else:
             if path == "":
                 print("\nERROR: Path cannot be empty.")
@@ -2244,7 +2274,7 @@ def rename_files_in_download_folders():
 # check if volume file name is a chapter
 def contains_chapter_keywords(file_name):
     return re.search(
-        r"(((ch|c|d|chapter|chap)([-_. ]+)?([0-9]+))|\s([0-9]+)(\.[0-9]+)?(\s|\.cbz))",
+        r"(((ch|c|d|chapter|chap)([-_. ]+)?([0-9]+))|\s+([0-9]+)(\.[0-9]+)?(\s+|#\d+|\.cbz))",
         file_name,
         re.IGNORECASE,
     )
@@ -2273,17 +2303,14 @@ def delete_chapters_from_downloads():
                             and not contains_volume_keywords(file)
                         ) and not (check_for_exception_keywords(file)):
                             if file.endswith(".cbz") or file.endswith(".zip"):
-                                message = (
-                                    "File: " + file + " does not contain volume keyword"
+                                send_change_message(
+                                    "\n\t\tFile: "
+                                    + file
+                                    + " does not contain volume keyword"
+                                    + "\n\t\tLocation: "
+                                    + root
+                                    + "\n\t\tDeleting chapter release."
                                 )
-                                print(message)
-                                write_to_file("changes.txt", message)
-                                message = "Location: " + root
-                                write_to_file("changes.txt", message)
-                                print(message)
-                                message = "Deleting chapter releases."
-                                print(message)
-                                write_to_file("changes.txt", message)
                                 remove_file(os.path.join(root, file))
                 for root, dirs, files in os.walk(path):
                     clean_and_sort(root, files, dirs)
