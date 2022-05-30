@@ -1435,7 +1435,7 @@ def remove_common_words(s):
 
 # Replaces all numbers
 def remove_numbers(s):
-    return re.sub("([0-9]+)", "", s, re.IGNORECASE)
+    return re.sub("([0-9]+)", "", s, flags=re.IGNORECASE)
 
 
 # Returns a string without punctuation.
@@ -1456,22 +1456,24 @@ class Result:
         self.score = score
 
 
-# get isbn from epub file
-def get_isbn(file):
-    isbn = None
+# gets the user passed result from an epub file
+def get_meta_from_epub(file, search):
+    result = None
     with zipfile.ZipFile(file, "r") as zf:
         for name in zf.namelist():
             if name.endswith(".opf"):
                 opf_file = zf.open(name)
                 opf_file_contents = opf_file.read()
                 lines = opf_file_contents.decode("utf-8")
-                search = re.search(
-                    r"(9([-_. :]+)?7([-_. :]+)?8(([-_. :]+)?[0-9]){10})", lines
-                )
+                search = re.search(search, lines, re.IGNORECASE)
                 if search:
-                    isbn = search.group(0)
+                    result = search.group(0)
+                    result = re.sub(r"<\/?.*>", "", result)
+                    result = re.sub(
+                        r"(series_id:NONE)", "", result, flags=re.IGNORECASE
+                    )
                     break
-    return isbn
+    return result
 
 
 # gets the toc.xhtml file from the epub file and checks the toc for premium content
@@ -1528,6 +1530,13 @@ def check_upgrade(existing_root, dir, file):
         )
         if len(download_dir_volumes) != 0:
             volume = download_dir_volumes[0]
+            if volume.extension == ".epub":
+                execute_command(
+                    "python3 /data/docker/scripts/manga_isbn_ocr_and_lookup/manga_isbn_ocr_and_lookup.py"
+                    + ' -zf "'
+                    + volume.path
+                    + '"'
+                )
             if isinstance(
                 volume.volume_number,
                 float,
@@ -1619,12 +1628,6 @@ def check_for_existing_series_and_move():
                                                 + str(similarity_score)
                                                 + "\n"
                                             )
-                                            if re.search(
-                                                r"savior",
-                                                existing_series_folder_from_library,
-                                                re.IGNORECASE,
-                                            ):
-                                                print("")
                                             scores.append(Result(dir, similarity_score))
                                             if (
                                                 similarity_score
@@ -1667,17 +1670,23 @@ def check_for_existing_series_and_move():
                                                 else:
                                                     continue
                                         if file.extension == ".epub" and not done:
-                                            download_file_isbn = get_isbn(file.path)
-                                            if download_file_isbn:
-                                                print(
-                                                    "\t\t("
-                                                    + str(download_file_isbn)
-                                                    + " - "
-                                                    + file.name
-                                                    + ")"
+                                            download_file_isbn = None
+                                            download_file_isbn = get_meta_from_epub(
+                                                file.path,
+                                                "(9([-_. :]+)?7([-_. :]+)?8(([-_. :]+)?[0-9]){10})",
+                                            )
+                                            download_file_series_id = None
+                                            download_file_series_id = (
+                                                get_meta_from_epub(
+                                                    file.path, "series_id:.*"
                                                 )
+                                            )
+                                            if (
+                                                download_file_isbn
+                                                or download_file_series_id
+                                            ):
                                                 print(
-                                                    "\t\tChecking existing library for a matching ISBN number... (may take a minute or so, depending on library size)"
+                                                    "\t\tChecking existing library for a matching ISBN or Series ID... (may take awhile depending on library size)"
                                                 )
                                                 for dir, subdir, files in os.walk(path):
                                                     if done:
@@ -1688,18 +1697,47 @@ def check_for_existing_series_and_move():
                                                             1
                                                         ]
                                                         if extension == ".epub":
-                                                            existing_file_isbn = (
-                                                                get_isbn(
-                                                                    os.path.join(dir, f)
+                                                            existing_file_isbn = None
+                                                            existing_file_isbn = get_meta_from_epub(
+                                                                os.path.join(dir, f),
+                                                                "(9([-_. :]+)?7([-_. :]+)?8(([-_. :]+)?[0-9]){10})",
+                                                            )
+                                                            existing_file_series_id = (
+                                                                None
+                                                            )
+                                                            existing_file_series_id = (
+                                                                get_meta_from_epub(
+                                                                    os.path.join(
+                                                                        dir, f
+                                                                    ),
+                                                                    "series_id:.*",
                                                                 )
                                                             )
-                                                            if existing_file_isbn:
+                                                            if (
+                                                                existing_file_isbn
+                                                                or existing_file_series_id
+                                                            ):
                                                                 if (
-                                                                    download_file_isbn
-                                                                    == existing_file_isbn
+                                                                    (
+                                                                        download_file_isbn
+                                                                        == existing_file_isbn
+                                                                    )
+                                                                    and (
+                                                                        download_file_isbn
+                                                                        and existing_file_isbn
+                                                                    )
+                                                                ) or (
+                                                                    (
+                                                                        download_file_series_id
+                                                                        == existing_file_series_id
+                                                                    )
+                                                                    and (
+                                                                        download_file_series_id
+                                                                        and existing_file_series_id
+                                                                    )
                                                                 ):
                                                                     send_change_message(
-                                                                        "\t\tFound existing file with the same isbn: "
+                                                                        "\t\tFound existing file with the same isbn or series id: "
                                                                         + f
                                                                     )
                                                                     dir_name = (
