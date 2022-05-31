@@ -1530,13 +1530,6 @@ def check_upgrade(existing_root, dir, file):
         )
         if len(download_dir_volumes) != 0:
             volume = download_dir_volumes[0]
-            if volume.extension == ".epub":
-                execute_command(
-                    "python3 /data/docker/scripts/manga_isbn_ocr_and_lookup/manga_isbn_ocr_and_lookup.py"
-                    + ' -zf "'
-                    + volume.path
-                    + '"'
-                )
             if isinstance(
                 volume.volume_number,
                 float,
