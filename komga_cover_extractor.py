@@ -581,7 +581,7 @@ def check_internal_zip_for_cover(file):
                                 r"(\bindex[-_. ]1[-_. ]1\b)", image_file, re.IGNORECASE
                             )
                             or re.search(
-                                r"(9([-_. :]+)?7([-_. :]+)?8(([-_. :]+)?[0-9]){10})",
+                                r"(9([-_. :]+)?7([-_. :]+)?(8|9)(([-_. :]+)?[0-9]){10})",
                                 image_file,
                                 re.IGNORECASE,
                             )
@@ -846,7 +846,7 @@ def create_folders_for_items_in_download_folder():
 def get_epub_percent_for_folder(files):
     epub_folder_count = 0
     for file in files:
-        if (file.name).endswith(".epub"):
+        if (file).endswith(".epub"):
             epub_folder_count += 1
     epub_percent = (
         (epub_folder_count / (len(files)) * 100) if epub_folder_count != 0 else 0
@@ -858,7 +858,7 @@ def get_epub_percent_for_folder(files):
 def get_cbz_percent_for_folder(files):
     cbz_folder_count = 0
     for file in files:
-        if (file.name).endswith(".cbz"):
+        if (file).endswith(".cbz"):
             cbz_folder_count += 1
     cbz_percent = (
         (cbz_folder_count / (len(files)) * 100) if cbz_folder_count != 0 else 0
@@ -1472,6 +1472,8 @@ def get_meta_from_epub(file, search):
                     result = re.sub(
                         r"(series_id:NONE)", "", result, flags=re.IGNORECASE
                     )
+                    if re.search(r"(series_id:.*,)", result, re.IGNORECASE):
+                        result = re.sub(r",.*", "", result).strip()
                     break
     return result
 
@@ -1499,23 +1501,10 @@ def check_upgrade(existing_root, dir, file):
     existing_dir = os.path.join(existing_root, dir)
     clean_existing = os.listdir(existing_dir)
     clean_and_sort(existing_dir, clean_existing)
-    download_dir_volumes = []
-    download_dir_volumes.append(file)
-    reorganize_and_rename(download_dir_volumes, existing_dir)
-    existing_dir_volumes = upgrade_to_volume_class(
-        upgrade_to_file_class(
-            [
-                f
-                for f in clean_existing
-                if os.path.isfile(os.path.join(existing_dir, f))
-            ],
-            existing_dir,
-        )
-    )
-    cbz_percent_download_folder = get_cbz_percent_for_folder(download_dir_volumes)
-    cbz_percent_existing_folder = get_cbz_percent_for_folder(existing_dir_volumes)
-    epub_percent_download_folder = get_epub_percent_for_folder(download_dir_volumes)
-    epub_percent_existing_folder = get_epub_percent_for_folder(existing_dir_volumes)
+    cbz_percent_download_folder = get_cbz_percent_for_folder([file.name])
+    cbz_percent_existing_folder = get_cbz_percent_for_folder(clean_existing)
+    epub_percent_download_folder = get_epub_percent_for_folder([file.name])
+    epub_percent_existing_folder = get_epub_percent_for_folder(clean_existing)
     if (
         (cbz_percent_download_folder and cbz_percent_existing_folder)
         >= required_matching_percentage
@@ -1523,6 +1512,18 @@ def check_upgrade(existing_root, dir, file):
         (epub_percent_download_folder and epub_percent_existing_folder)
         >= required_matching_percentage
     ):
+        download_dir_volumes = [file]
+        reorganize_and_rename(download_dir_volumes, existing_dir)
+        existing_dir_volumes = upgrade_to_volume_class(
+            upgrade_to_file_class(
+                [
+                    f
+                    for f in clean_existing
+                    if os.path.isfile(os.path.join(existing_dir, f))
+                ],
+                existing_dir,
+            )
+        )
         send_change_message("\t\tFound existing series: " + existing_dir)
         remove_duplicate_releases_from_download(
             existing_dir_volumes,
@@ -1666,7 +1667,7 @@ def check_for_existing_series_and_move():
                                             download_file_isbn = None
                                             download_file_isbn = get_meta_from_epub(
                                                 file.path,
-                                                "(9([-_. :]+)?7([-_. :]+)?8(([-_. :]+)?[0-9]){10})",
+                                                "(9([-_. :]+)?7([-_. :]+)?(8|9)(([-_. :]+)?[0-9]){10})",
                                             )
                                             download_file_series_id = None
                                             download_file_series_id = (
@@ -1693,7 +1694,7 @@ def check_for_existing_series_and_move():
                                                             existing_file_isbn = None
                                                             existing_file_isbn = get_meta_from_epub(
                                                                 os.path.join(dir, f),
-                                                                "(9([-_. :]+)?7([-_. :]+)?8(([-_. :]+)?[0-9]){10})",
+                                                                "(9([-_. :]+)?7([-_. :]+)?(8|9)(([-_. :]+)?[0-9]){10})",
                                                             )
                                                             existing_file_series_id = (
                                                                 None
@@ -2295,6 +2296,7 @@ def rename_files_in_download_folders():
                         send_error_message(
                             "\nERROR: " + str(e) + " (" + file.name + ")"
                         )
+                    reorganize_and_rename([file], file.series_name)
         else:
             if path == "":
                 print("\nERROR: Path cannot be empty.")
@@ -2938,9 +2940,15 @@ def check_for_new_volumes_on_bookwalker():
                 )
                 type = None
                 bookwalker_volumes = None
-                if get_cbz_percent_for_folder(existing_dir_volumes) >= 70:
+                if (
+                    get_cbz_percent_for_folder([f.name for f in existing_dir_volumes])
+                    >= 70
+                ):
                     type = "m"
-                elif get_epub_percent_for_folder(existing_dir_volumes) >= 70:
+                elif (
+                    get_epub_percent_for_folder([f.name for f in existing_dir_volumes])
+                    >= 70
+                ):
                     type = "l"
                 if type and dir:
                     bookwalker_volumes = search_bookwalker(dir, type, False)
