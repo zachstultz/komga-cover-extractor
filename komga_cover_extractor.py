@@ -99,6 +99,10 @@ new_releases_on_bookwalker = []
 # Whether or not to check the library against bookwalker for new releases.
 bookwalker_check = False
 
+# False = files with be renamed automatically
+# True = user will be prompted for approval
+manual_rename = False
+
 # Folder Class
 class Folder:
     def __init__(self, root, dirs, basename, folder_name, files):
@@ -1319,6 +1323,7 @@ def rename_file(
 
 
 def reorganize_and_rename(files, dir):
+    global manual_rename
     base_dir = os.path.basename(dir)
     for file in files:
         if re.search(
@@ -1380,17 +1385,34 @@ def reorganize_and_rename(files, dir):
             if file.name != rename:
                 try:
                     print("\n\t\tOriginal: " + file.name)
-                    print("\t\tRename: " + rename)
-                    rename_file(
-                        file.path,
-                        os.path.join(file.root, rename),
-                        file.root,
-                        file.extensionless_name,
-                        get_extensionless_name(rename),
-                    )
-                    send_change_message(
-                        "\t\tRenamed: " + file.name + " to \n\t\t" + rename
-                    )
+                    print("\t\tRename:   " + rename)
+                    if not manual_rename:
+                        rename_file(
+                            file.path,
+                            os.path.join(file.root, rename),
+                            file.root,
+                            file.extensionless_name,
+                            get_extensionless_name(rename),
+                        )
+                        send_change_message(
+                            "\n\t\tRenamed: " + file.name + " to \n\t\t" + rename
+                        )
+                    else:
+                        user_input = input("\tRename (y or n): ")
+                        if (
+                            user_input.lower().strip() == "y"
+                            or user_input.lower().strip() == "yes"
+                        ):
+                            rename_file(
+                                file.path,
+                                os.path.join(file.root, rename),
+                                file.root,
+                                file.extensionless_name,
+                                get_extensionless_name(rename),
+                            )
+                            send_change_message(
+                                "\n\t\tRenamed: " + file.name + " to \n\t\t" + rename
+                            )
                     file.series_name = get_series_name_from_file_name(rename, file.root)
                     file.volume_year = get_volume_year(rename)
                     file.volume_number = remove_everything_but_volume_num(
@@ -1408,7 +1430,7 @@ def reorganize_and_rename(files, dir):
 
 # Replaces any pesky double spaces
 def remove_dual_space(s):
-    return re.sub("(\s{2,})", " ", s, re.IGNORECASE)
+    return re.sub("(\s{2,})", " ", s)
 
 
 # Removes common words that to improve matching accuracy for titles that sometimes
@@ -2085,7 +2107,7 @@ def contains_issue_number(file_name, volume_number):
 def rename_files_in_download_folders():
     # Set to True for user input renaming, otherwise False
     # Useful for testing
-    manual_rename = False
+    global manual_rename
     for path in download_folders:
         if os.path.exists(path):
             for root, dirs, files in os.walk(path):
@@ -2328,6 +2350,15 @@ def rename_files_in_download_folders():
                                                         "\nRename failed on: "
                                                         + file.name
                                                     )
+                                        if os.path.isfile(
+                                            os.path.join(root, replacement)
+                                        ):
+                                            file = upgrade_to_volume_class(
+                                                upgrade_to_file_class(
+                                                    [replacement],
+                                                    root,
+                                                )
+                                            )[0]
                                     except OSError as ose:
                                         send_error_message(ose)
                             else:
