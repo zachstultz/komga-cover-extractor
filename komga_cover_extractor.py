@@ -264,10 +264,12 @@ def parse_my_args():
             bookwalker_check = True
 
 
-def compress_image(image_path, quality, to_jpg=False):
+def compress_image(image_path, quality=image_quality, to_jpg=False):
     img = Image.open(image_path)
     filename, ext = os.path.splitext(image_path)
     extension = get_file_extension(image_path)
+    if extension == ".png":
+        to_jpg = True
     if to_jpg:
         new_filename = f"{filename}.jpg"
     else:
@@ -319,15 +321,10 @@ def send_discord_message(message):
         send_error_message(e, discord=False)
 
 
-# Checks if a file exists
-def file_exists(root, file):
-    return os.path.isfile(os.path.join(root, file))
-
-
 # Removes hidden files
 def remove_hidden_files(files, root):
     for file in files[:]:
-        if file.startswith(".") and file_exists(root, file):
+        if file.startswith("."):
             files.remove(file)
 
 
@@ -335,7 +332,9 @@ def remove_hidden_files(files, root):
 def remove_unaccepted_file_types(files, root):
     for file in files[:]:
         extension = re.sub("\.", "", get_file_extension(file))
-        if extension not in file_extensions and file_exists(root, file):
+        if extension not in file_extensions and os.path.isfile(
+            os.path.join(root, file)
+        ):
             files.remove(file)
 
 
@@ -362,28 +361,6 @@ def clean_and_sort(root, files=None, dirs=None):
         dirs.sort()
         remove_hidden_folders(root, dirs)
         remove_ignored_folders(dirs)
-
-
-# Checks for the existance of a cover or poster file
-def check_for_existing_cover(files):
-    for file in files:
-        for string in series_cover_file_names:
-            if string in file:
-                return True
-    return False
-
-
-# Prints our os.walk info
-def print_info(root, dirs, files):
-    print("\nCurrent Path: ", root + "\nDirectories: ", dirs)
-    file_names = []
-    for f in files:
-        file_names.append(f.name)
-    print("Files: ", file_names)
-
-
-def print_info_two(root):
-    print("\tCurrent Path: ", root)
 
 
 # Retrieves the file extension on the passed file
@@ -431,68 +408,9 @@ def update_stats(file):
         cbr_count += 1
 
 
-# Checks if the cbz or epub file has a matching cover
-def check_for_image(file):
-    image_found = False
-    for image_type in image_extensions:
-        image_type = "." + image_type
-        if os.path.isfile(file.extensionless_path + image_type):
-            image_found = True
-            global image_count
-            image_count += 1
-    return image_found
-
-
-# Removes all results that aren't an image.
-def zip_images_only(zip):
-    results = []
-    list = zip.namelist()
-    for z in list:
-        for extension in image_extensions:
-            if z.endswith("." + extension):
-                results.append(z)
-                results.sort()
-    return results
-
-
 # Gets and returns the basename
 def get_base_name(item):
     return os.path.basename(item)
-
-
-# Opens the zip and extracts out the cover
-def extract_cover(
-    zip_file, zip_internal_image_file_path, zip_internal_image_file, file
-):
-    for extension in image_extensions:
-        if zip_internal_image_file.endswith("." + extension):
-            try:
-                with zip_file.open(
-                    os.path.join(zip_internal_image_file_path, zip_internal_image_file)
-                ) as zf, open(
-                    os.path.join(
-                        file.root,
-                        os.path.basename(
-                            file.extensionless_name
-                            + os.path.splitext(zip_internal_image_file)[1]
-                        ),
-                    ),
-                    "wb",
-                ) as f:
-                    shutil.copyfileobj(zf, f)
-                    send_change_message("\t\tExtracted cover file.\n")
-                    try:
-                        if compress_image_option:
-                            if get_file_extension(f.name) == ".png":
-                                compress_image(f.name, image_quality, True)
-                            else:
-                                compress_image(f.name, image_quality)
-                    except Exception as e:
-                        send_error_message(str(e) + "\nFile: " + f.name)
-                    return
-            except Exception as e:
-                send_error_message(e)
-    return
 
 
 # Removes hidden files with the base name.
@@ -503,140 +421,36 @@ def remove_hidden_files_with_basename(files):
             files.remove(file)
 
 
-class ImageInfo:
-    def __init__(self, path, name):
-        self.path = path
-        self.name = name
-
-
 # Credit to original source: https://alamot.github.io/epub_cover/
 # Modified by me.
 # Retrieves the inner epub cover
 def get_epub_cover(epub_path):
-    namespaces = {
-        "calibre": "http://calibre.kovidgoyal.net/2009/metadata",
-        "dc": "http://purl.org/dc/elements/1.1/",
-        "dcterms": "http://purl.org/dc/terms/",
-        "opf": "http://www.idpf.org/2007/opf",
-        "u": "urn:oasis:names:tc:opendocument:xmlns:container",
-        "xsi": "http://www.w3.org/2001/XMLSchema-instance",
-    }
-    with zipfile.ZipFile(epub_path) as z:
-        t = etree.fromstring(z.read("META-INF/container.xml"))
-        rootfile_path = t.xpath(
-            "/u:container/u:rootfiles/u:rootfile", namespaces=namespaces
-        )[0].get("full-path")
-        t = etree.fromstring(z.read(rootfile_path))
-        cover_id = t.xpath(
-            "//opf:metadata/opf:meta[@name='cover']", namespaces=namespaces
-        )[0].get("content")
-        cover_href = t.xpath(
-            "//opf:manifest/opf:item[@id='" + cover_id + "']", namespaces=namespaces
-        )[0].get("href")
-        cover_path = os.path.join(os.path.dirname(rootfile_path), cover_href)
-        return ImageInfo(
-            cover_path,
-            get_base_name(cover_path),
-        )
-
-
-# Checks the internal zip for covers.
-def check_internal_zip_for_cover(file):
-    global poster_found
-    global cbz_internal_covers_found
-    cover_found = False
-    poster_found = False
-    image_cover_name = ""
-    if file.name.endswith(".epub") and not file.name.startswith("."):
-        try:
-            image_cover_name = get_epub_cover(file.path).path
-        except Exception as e:
-            print(e)
     try:
-        if zipfile.is_zipfile(file.path):
-            zip_file = zipfile.ZipFile(file.path)
-            send_change_message("\n\t\tEntering zip: " + file.name)
-            internal_zip_images = zip_images_only(zip_file)
-            remove_hidden_files_with_basename(internal_zip_images)
-            if image_cover_name != "":
-                head_tail = os.path.split(image_cover_name)
-                image_file_path = head_tail[0]
-                image_file = head_tail[1]
-                cover_found = True
-                cbz_internal_covers_found += 1
-                extract_cover(zip_file, image_file_path, image_file, file)
-                return
-            else:
-                for image_file in internal_zip_images:
-                    head_tail = os.path.split(image_file)
-                    image_file_path = head_tail[0]
-                    image_file = head_tail[1]
-                    if cover_found != True:
-                        if (
-                            re.search(
-                                r"(\b(Cover([0-9]+|)|CoverDesign)\b)",
-                                image_file,
-                                re.IGNORECASE,
-                            )
-                            or re.search(
-                                r"(\b(p000|page_000)\b)", image_file, re.IGNORECASE
-                            )
-                            or re.search(
-                                r"(\bindex[-_. ]1[-_. ]1\b)", image_file, re.IGNORECASE
-                            )
-                            or re.search(
-                                r"(9([-_. :]+)?7([-_. :]+)?(8|9)(([-_. :]+)?[0-9]){10})",
-                                image_file,
-                                re.IGNORECASE,
-                            )
-                        ):
-                            send_change_message(
-                                "\t\tFound cover: "
-                                + get_base_name(image_file)
-                                + " in "
-                                + file.name
-                            )
-                            cover_found = True
-                            cbz_internal_covers_found += 1
-                            extract_cover(zip_file, image_file_path, image_file, file)
-                            return
-            if cover_found != True and len(internal_zip_images) != False:
-                head_tail = os.path.split(internal_zip_images[0])
-                image_file_path = head_tail[0]
-                image_file = head_tail[1]
-                send_change_message(
-                    "\t\tDefaulting to first image file found: "
-                    + internal_zip_images[0]
-                    + " in "
-                    + file.path
-                )
-                cover_found = True
-                extract_cover(zip_file, image_file_path, image_file, file)
-                return
-        else:
-            files_with_no_cover.append(file.path)
-            send_error_message(
-                "Invalid Zip File at: \n"
-                + file.path
-                + "\nCheck that you have permissions to open the file."
-            )
-
-    except zipfile.BadZipFile:
-        send_error_message("Bad Zipfile: " + file.path)
-    return cover_found
-
-
-def individual_volume_cover_file_stuff(file):
-    for file_extension in file_extensions:
-        if (file.name).endswith(file_extension) and os.path.isfile(file.path):
-            update_stats(file)
-            if not check_for_image(file):
-                try:
-                    check_internal_zip_for_cover(file)
-                except zlib.error:
-                    print(
-                        "Error -3 while decompressing data: invalid stored block lengths"
-                    )
+        namespaces = {
+            "calibre": "http://calibre.kovidgoyal.net/2009/metadata",
+            "dc": "http://purl.org/dc/elements/1.1/",
+            "dcterms": "http://purl.org/dc/terms/",
+            "opf": "http://www.idpf.org/2007/opf",
+            "u": "urn:oasis:names:tc:opendocument:xmlns:container",
+            "xsi": "http://www.w3.org/2001/XMLSchema-instance",
+        }
+        with zipfile.ZipFile(epub_path) as z:
+            t = etree.fromstring(z.read("META-INF/container.xml"))
+            rootfile_path = t.xpath(
+                "/u:container/u:rootfiles/u:rootfile", namespaces=namespaces
+            )[0].get("full-path")
+            t = etree.fromstring(z.read(rootfile_path))
+            cover_id = t.xpath(
+                "//opf:metadata/opf:meta[@name='cover']", namespaces=namespaces
+            )[0].get("content")
+            cover_href = t.xpath(
+                "//opf:manifest/opf:item[@id='" + cover_id + "']", namespaces=namespaces
+            )[0].get("href")
+            cover_path = os.path.join(os.path.dirname(rootfile_path), cover_href)
+            return cover_path
+        return None
+    except Exception as e:
+        return None
 
 
 # Checks if the passed string is a volume one.
@@ -652,6 +466,7 @@ def is_volume_one(volume_name):
     return False
 
 
+# Checks if the passed string contains volume keywords
 def contains_volume_keywords(file):
     return re.search(
         r"((\s(\s-\s|)(Part|)+(LN|Light Novel|Novel|Book|Volume|Vol|V|第|Disc)(\.|)([-_. ]|)([0-9]+)\b)|\s(\s-\s|)(Part|)(LN|Light Novel|Novel|Book|Volume|Vol|V|第|Disc)(\.|)([-_. ]|)([0-9]+)([-_.])(\s-\s|)(Part|)(LN|Light Novel|Novel|Book|Volume|Vol|V|第|Disc)([0-9]+)\s|\s(\s-\s|)(Part|)(LN|Light Novel|Novel|Book|Volume|Vol|V|第|Disc)(\.|)([-_. ]|)([0-9]+)([-_.])(\s-\s|)(Part|)(LN|Light Novel|Novel|Book|Volume|Vol|V|第|Disc)([0-9]+)\s)",
@@ -689,51 +504,6 @@ def is_one_shot(file_name, root):
             not exception_keyword_status
         ):
             return True
-    return False
-
-
-# Checks for the existance of a volume one.
-def check_for_volume_one_cover(file, zip_file, files):
-    extensionless_path = file.extensionless_path
-    zip_basename = os.path.basename(zip_file.filename)
-    if is_volume_one(zip_basename):
-        send_change_message(
-            "\t\tVolume One Cover Found" + zip_basename + " in " + file.root
-        )
-        for extension in image_extensions:
-            if os.path.isfile(extensionless_path + "." + extension):
-                shutil.copyfile(
-                    extensionless_path + "." + extension,
-                    os.path.join(file.root, "cover." + extension),
-                )
-                return True
-    else:
-        for item in files:
-            if not contains_volume_keywords(item.name):
-                send_change_message(
-                    "\t\tNo volume keyword detected, assuming file is a one-shot volume: "
-                    + zip_basename
-                    + " in "
-                    + file.root
-                )
-                for extension in image_extensions:
-                    if os.path.isfile(extensionless_path + "." + extension):
-                        shutil.copyfile(
-                            extensionless_path + "." + extension,
-                            os.path.join(file.root, "cover." + extension),
-                        )
-                        return True
-    return False
-
-
-def cover_file_stuff(file, files):
-    for file_extension in file_extensions:
-        if str(file.path).endswith(file_extension) and zipfile.is_zipfile(file.path):
-            try:
-                zip_file = zipfile.ZipFile(file.path)
-                return check_for_volume_one_cover(file, zip_file, files)
-            except zipfile.BadZipFile:
-                send_error_message("Bad zip file: " + file.path)
     return False
 
 
@@ -1060,7 +830,7 @@ def is_upgradeable(downloaded_release, current_release):
 # Deletes hidden files, used when checking if a folder is empty.
 def delete_hidden_files(files, root):
     for file in files[:]:
-        if (str(file)).startswith(".") and file_exists(root, file):
+        if (str(file)).startswith(".") and os.path.isfile(os.path.join(root, file)):
             remove_file(os.path.join(root, file))
 
 
@@ -1086,14 +856,14 @@ def remove_file(full_file_path):
     try:
         os.remove(full_file_path)
         if not os.path.isfile(full_file_path):
-            send_change_message("\t\tFile Removed: " + full_file_path)
+            send_change_message("\t\t\tFile Removed: " + full_file_path)
             remove_images(full_file_path)
             return True
         else:
-            send_error_message("\n\t\tFailed to remove file: " + full_file_path)
+            send_error_message("\n\t\t\tFailed to remove file: " + full_file_path)
             return False
     except OSError as e:
-        print(e)
+        send_error_message(e)
 
 
 # Move a file
@@ -1117,7 +887,7 @@ def move_file(file, new_location):
                     + new_location
                 )
     except OSError as e:
-        print(e)
+        send_error_message(e)
 
 
 # Replaces an old file.
@@ -1181,6 +951,7 @@ def remove_duplicate_releases_from_download(original_releases, downloaded_releas
                                 + original.name
                             )
                             send_change_message("\t\tUpgrading " + original.name)
+                            if download.extension == ".epub":
                             replace_file(original, download)
 
 
@@ -1222,7 +993,7 @@ def write_to_file(file, message, without_date=False, overwrite=False):
                 file.write("\n" + dt_string + " " + message)
             file.close()
     except Exception as e:
-        print(e)
+        send_error_message(e)
 
 
 # Checks for any missing volumes between the lowest volume of a series and the highest volume.
@@ -1451,7 +1222,7 @@ def remove_common_words(s):
         "Collection",
     ]
     for word in common_words_to_remove:
-        s = re.sub(rf"\b{word}\b", "", s, flags=re.IGNORECASE)
+        s = re.sub(rf"\b{word}\b", "", s, flags=re.IGNORECASE).strip()
     return s.strip()
 
 
@@ -1479,24 +1250,34 @@ class Result:
 
 
 # gets the user passed result from an epub file
-def get_meta_from_epub(file, search):
+def get_meta_from_file(file, search, extension):
     result = None
-    with zipfile.ZipFile(file, "r") as zf:
-        for name in zf.namelist():
-            if name.endswith(".opf"):
-                opf_file = zf.open(name)
-                opf_file_contents = opf_file.read()
-                lines = opf_file_contents.decode("utf-8")
-                search = re.search(search, lines, re.IGNORECASE)
-                if search:
-                    result = search.group(0)
-                    result = re.sub(r"<\/?.*>", "", result)
-                    result = re.sub(
-                        r"(series_id:NONE)", "", result, flags=re.IGNORECASE
-                    )
-                    if re.search(r"(series_id:.*,)", result, re.IGNORECASE):
-                        result = re.sub(r",.*", "", result).strip()
-                    break
+    if extension == ".epub":
+        with zipfile.ZipFile(file, "r") as zf:
+            for name in zf.namelist():
+                if name.endswith(".opf"):
+                    opf_file = zf.open(name)
+                    opf_file_contents = opf_file.read()
+                    lines = opf_file_contents.decode("utf-8")
+                    search = re.search(search, lines, re.IGNORECASE)
+                    if search:
+                        result = search.group(0)
+                        result = re.sub(r"<\/?.*>", "", result)
+                        result = re.sub(
+                            r"(series_id:NONE)", "", result, flags=re.IGNORECASE
+                        )
+                        if re.search(r"(series_id:.*,)", result, re.IGNORECASE):
+                            result = re.sub(r",.*", "", result).strip()
+                        break
+    elif extension == ".cbz":
+        zip_comment = get_zip_comment(file)
+        if zip_comment:
+            search = re.search(search, zip_comment, re.IGNORECASE)
+            if search:
+                result = search.group(0)
+                result = re.sub(r"(series_id:NONE)", "", result, flags=re.IGNORECASE)
+                if re.search(r"(series_id:.*,)", result, re.IGNORECASE):
+                    result = re.sub(r",.*", "", result).strip()
     return result
 
 
@@ -1576,6 +1357,12 @@ def check_upgrade(existing_root, dir, file):
 # remove duplicates elements from the passed in list
 def remove_duplicates(items):
     return list(dict.fromkeys(items))
+
+
+# Return the zip comment for the passed zip file
+def get_zip_comment(zip_file):
+    with zipfile.ZipFile(zip_file, "r") as zip_ref:
+        return zip_ref.comment.decode("utf-8")
 
 
 # Checks for an existing series by pulling the series name from each elidable file in the downloads_folder
@@ -1690,17 +1477,20 @@ def check_for_existing_series_and_move():
                                                     break
                                                 else:
                                                     continue
-                                        if file.extension == ".epub" and not done:
+                                        if not done:
                                             directories_found = []
                                             download_file_isbn = None
-                                            download_file_isbn = get_meta_from_epub(
+                                            download_file_isbn = get_meta_from_file(
                                                 file.path,
                                                 "(9([-_. :]+)?7([-_. :]+)?(8|9)(([-_. :]+)?[0-9]){10})",
+                                                file.extension,
                                             )
                                             download_file_series_id = None
                                             download_file_series_id = (
-                                                get_meta_from_epub(
-                                                    file.path, "series_id:.*"
+                                                get_meta_from_file(
+                                                    file.path,
+                                                    "series_id:.*",
+                                                    file.extension,
                                                 )
                                             )
                                             if (
@@ -1718,91 +1508,89 @@ def check_for_existing_series_and_move():
                                                         extension = os.path.splitext(f)[
                                                             1
                                                         ]
-                                                        if extension == ".epub":
-                                                            existing_file_isbn = None
-                                                            existing_file_isbn = get_meta_from_epub(
+                                                        existing_file_isbn = None
+                                                        existing_file_isbn = get_meta_from_file(
+                                                            os.path.join(dir, f),
+                                                            "(9([-_. :]+)?7([-_. :]+)?(8|9)(([-_. :]+)?[0-9]){10})",
+                                                            file.extension,
+                                                        )
+                                                        existing_file_series_id = None
+                                                        existing_file_series_id = (
+                                                            get_meta_from_file(
                                                                 os.path.join(dir, f),
-                                                                "(9([-_. :]+)?7([-_. :]+)?(8|9)(([-_. :]+)?[0-9]){10})",
+                                                                "series_id:.*",
+                                                                file.extension,
                                                             )
-                                                            existing_file_series_id = (
-                                                                None
-                                                            )
-                                                            existing_file_series_id = (
-                                                                get_meta_from_epub(
-                                                                    os.path.join(
-                                                                        dir, f
-                                                                    ),
-                                                                    "series_id:.*",
-                                                                )
-                                                            )
+                                                        )
+                                                        if (
+                                                            existing_file_isbn
+                                                            or existing_file_series_id
+                                                        ):
                                                             if (
-                                                                existing_file_isbn
-                                                                or existing_file_series_id
+                                                                download_file_isbn
+                                                                and existing_file_isbn
                                                             ):
-                                                                if (
+                                                                print(
+                                                                    (
+                                                                        "\t\t("
+                                                                        + str(
+                                                                            download_file_isbn
+                                                                        )
+                                                                        + " - "
+                                                                        + str(
+                                                                            existing_file_isbn
+                                                                        )
+                                                                        + ")"
+                                                                    ),
+                                                                    end="\r",
+                                                                )
+                                                            if (
+                                                                download_file_series_id
+                                                                and existing_file_series_id
+                                                            ):
+                                                                print(
+                                                                    (
+                                                                        "\t\t("
+                                                                        + str(
+                                                                            download_file_series_id
+                                                                        )
+                                                                        + " - "
+                                                                        + str(
+                                                                            existing_file_series_id
+                                                                        )
+                                                                        + ")"
+                                                                    ),
+                                                                    end="\r",
+                                                                )
+                                                            if (
+                                                                (
+                                                                    download_file_isbn
+                                                                    == existing_file_isbn
+                                                                )
+                                                                and (
                                                                     download_file_isbn
                                                                     and existing_file_isbn
-                                                                ):
-                                                                    print(
-                                                                        (
-                                                                            "\t\t("
-                                                                            + str(
-                                                                                download_file_isbn
-                                                                            )
-                                                                            + " - "
-                                                                            + str(
-                                                                                existing_file_isbn
-                                                                            )
-                                                                        ),
-                                                                        end="\r",
-                                                                    )
-                                                                if (
+                                                                )
+                                                            ) or (
+                                                                (
+                                                                    download_file_series_id
+                                                                    == existing_file_series_id
+                                                                )
+                                                                and (
                                                                     download_file_series_id
                                                                     and existing_file_series_id
-                                                                ):
-                                                                    print(
-                                                                        (
-                                                                            "\t\t("
-                                                                            + str(
-                                                                                download_file_series_id
-                                                                            )
-                                                                            + " - "
-                                                                            + str(
-                                                                                existing_file_series_id
-                                                                            )
-                                                                            + ")"
-                                                                        ),
-                                                                        end="\r",
-                                                                    )
-                                                                if (
-                                                                    (
-                                                                        download_file_isbn
-                                                                        == existing_file_isbn
-                                                                    )
-                                                                    and (
-                                                                        download_file_isbn
-                                                                        and existing_file_isbn
-                                                                    )
-                                                                ) or (
-                                                                    (
-                                                                        download_file_series_id
-                                                                        == existing_file_series_id
-                                                                    )
-                                                                    and (
-                                                                        download_file_series_id
-                                                                        and existing_file_series_id
-                                                                    )
-                                                                ):
-                                                                    directories_found.append(
-                                                                        dir
-                                                                    )
+                                                                )
+                                                            ):
+                                                                directories_found.append(
+                                                                    dir
+                                                                )
                                             if directories_found:
                                                 directories_found = remove_duplicates(
                                                     directories_found
                                                 )
                                                 if len(directories_found) == 1:
                                                     send_change_message(
-                                                        "\t\tMatched Directory: "
+                                                        "\t\t\tMach found in: "
                                                         + directories_found[0]
                                                     )
                                                     base = os.path.basename(
@@ -1815,13 +1603,17 @@ def check_for_existing_series_and_move():
                                                     )
                                                 else:
                                                     print(
-                                                        "\t\tMatching ISBN or Series ID found in multiple directories."
+                                                        "\t\t\tMatching ISBN or Series ID found in multiple directories."
                                                     )
                                                     for d in directories_found:
-                                                        print("\t\t\t" + d)
-                                                    print("\t\tDisregarding Matches...")
+                                                        print("\t\t\t\t" + d)
+                                                    print(
+                                                        "\t\t\tDisregarding Matches..."
+                                                    )
                                             else:
-                                                print("\t\tNo match found in: " + path)
+                                                print(
+                                                    "\t\t\tNo match found in: " + path
+                                                )
                                 except FileNotFoundError:
                                     send_error_message(
                                         "\nERROR: " + path + " is not a valid path.\n"
@@ -1905,7 +1697,7 @@ def rename_dirs_in_download_folder():
                                         os.path.join(folder_accessor.root, dir_clean),
                                     )
                                 except OSError as e:
-                                    print(e)
+                                    send_error_message(e)
                             elif (
                                 os.path.isdir(
                                     os.path.join(folder_accessor.root, dir_clean)
@@ -2435,7 +2227,7 @@ def delete_chapters_from_downloads():
                 else:
                     print("\nERROR: " + path + " is an invalid path.\n")
     except Exception as e:
-        print(e)
+        send_error_message(e)
 
 
 # execute terminal command
@@ -2444,47 +2236,243 @@ def execute_command(command):
         try:
             subprocess.call(command, shell=True)
         except Exception as e:
-            print(e)
+            send_error_message(e)
+
+
+# remove all non-images from list of files
+def remove_non_images(files):
+    clean_list = []
+    for file in files:
+        extension = re.sub(r"\.", "", get_file_extension(os.path.basename(file)))
+        if extension in image_extensions:
+            clean_list.append(file)
+    return clean_list
+
+
+# Finds and extracts the internal cover from a cbz or epub file
+def find_and_extract_cover(file):
+    # check if the file is a valid zip file
+    if zipfile.is_zipfile(file.path):
+        epub_cover_path = ""
+        if file.extension == ".epub":
+            epub_cover_path = get_epub_cover(file.path)
+        with zipfile.ZipFile(file.path, "r") as zip_ref:
+            zip_list = zip_ref.namelist()
+            zip_list = [
+                x
+                for x in zip_list
+                if not os.path.basename(x).startswith(".")
+                and not os.path.basename(x).startswith("__")
+            ]
+            zip_list = remove_non_images(zip_list)
+            # remove anything that isn't a file
+            zip_list = [
+                x for x in zip_list if not x.endswith("/") and re.search(r"\.", x)
+            ]
+            zip_list.sort()
+            if not epub_cover_path:
+                for image_file in zip_list:
+                    if (
+                        re.search(
+                            r"(\b(Cover([0-9]+|)|CoverDesign)\b)",
+                            image_file,
+                            re.IGNORECASE,
+                        )
+                        or re.search(
+                            r"(\b(p000|page_000)\b)", image_file, re.IGNORECASE
+                        )
+                        or re.search(
+                            r"(\bindex[-_. ]1[-_. ]1\b)", image_file, re.IGNORECASE
+                        )
+                        or re.search(
+                            r"(9([-_. :]+)?7([-_. :]+)?(8|9)(([-_. :]+)?[0-9]){10})",
+                            image_file,
+                            re.IGNORECASE,
+                        )
+                    ):
+                        print("\t\tCover Found: " + image_file)
+                        image_extension = get_file_extension(
+                            os.path.basename(image_file)
+                        )
+                        source = zip_ref.open(image_file)
+                        target = open(
+                            os.path.join(
+                                file.root, file.extensionless_name + image_extension
+                            ),
+                            "wb",
+                        )
+                        with source, target:
+                            shutil.copyfileobj(source, target)
+                            if compress_image_option:
+                                compress_image(
+                                    os.path.join(
+                                        file.root,
+                                        file.extensionless_name + image_extension,
+                                    )
+                                )
+                                image_extension = ".jpg"
+                        return file.extensionless_name + image_extension
+                print("\t\tNo cover found, defaulting to first image: " + zip_list[0])
+                default_cover_path = zip_list[0]
+                image_extension = get_file_extension(
+                    os.path.basename(default_cover_path)
+                )
+                source = zip_ref.open(default_cover_path)
+                target = open(
+                    os.path.join(file.root, file.extensionless_name + image_extension),
+                    "wb",
+                )
+                with source, target:
+                    shutil.copyfileobj(source, target)
+                    if compress_image_option:
+                        compress_image(
+                            os.path.join(
+                                file.root,
+                                file.extensionless_name + image_extension,
+                            )
+                        )
+                        image_extension = ".jpg"
+                return file.extensionless_name + image_extension
+            else:
+                print("\t\tCover Found: " + epub_cover_path)
+                epub_path_extension = get_file_extension(
+                    os.path.basename(epub_cover_path)
+                )
+                source = zip_ref.open(epub_cover_path)
+                target = open(
+                    os.path.join(
+                        file.root, file.extensionless_name + epub_path_extension
+                    ),
+                    "wb",
+                )
+                with source, target:
+                    shutil.copyfileobj(source, target)
+                    if compress_image_option:
+                        compress_image(
+                            os.path.join(
+                                file.root,
+                                file.extensionless_name + epub_path_extension,
+                            )
+                        )
+                        epub_path_extension = ".jpg"
+                return file.extensionless_name + epub_path_extension
+
+    else:
+        print("\nFile: " + file.name + " is not a valid zip file.")
+    return False
+
+
+# Checks if a volume series cover exists in the passed Directory
+def check_for_series_cover(path):
+    # get list of files from directory
+    files = os.listdir(path)
+    # remove hidden files
+    remove_hidden_files(files, path)
+    for file in files:
+        lower_extensionless_name_base = os.path.basename(
+            get_extensionless_name(file).lower()
+        )
+        # file name without extension
+        if lower_extensionless_name_base == "cover":
+            return True
+    return False
 
 
 # Extracts the covers out from our cbz and epub files
 def extract_covers():
+    print("\nLooking for covers to extract...")
     for path in paths:
         if os.path.exists(path):
-            try:
-                os.chdir(path)
-                for root, dirs, files in os.walk(path):
-                    remove_hidden_files(files, root)
-                    has_cover = check_for_existing_cover(files)
-                    clean_and_sort(root, files, dirs)
-                    global folder_accessor
-                    file_objects = upgrade_to_file_class(files, root)
-                    folder_accessor = Folder(
-                        root,
-                        dirs,
-                        os.path.basename(os.path.dirname(root)),
-                        os.path.basename(root),
-                        file_objects,
-                    )
-                    print_info(
-                        folder_accessor.root,
-                        folder_accessor.dirs,
-                        folder_accessor.files,
-                    )
-                    for file in folder_accessor.files:
-                        individual_volume_cover_file_stuff(file)
+            os.chdir(path)
+            for root, dirs, files in os.walk(path):
+                global folder_accessor
+                clean_and_sort(root, files, dirs)
+                remove_ignored_folders(dirs)
+                dirs.sort()
+                files.sort()
+                remove_hidden_files(files, root)
+                print("\nRoot: " + root)
+                print("Dirs: " + str(dirs))
+                print("Files: " + str(files))
+                folder_accessor = Folder(
+                    root,
+                    dirs,
+                    os.path.basename(os.path.dirname(root)),
+                    os.path.basename(root),
+                    upgrade_to_file_class(files, root),
+                )
+                global image_count
+                global files_with_no_cover
+                for file in folder_accessor.files:
+                    update_stats(file)
+                    try:
+                        has_cover = False
+                        printed = False
+                        cover = ""
+                        for extension in image_extensions:
+                            potential_cover = os.path.join(
+                                file.root, file.extensionless_path + "." + extension
+                            )
+                            if os.path.isfile(potential_cover):
+                                cover = potential_cover
+                                has_cover = True
+                                break
                         if not has_cover:
-                            try:
-                                has_cover = has_cover + cover_file_stuff(
-                                    file, folder_accessor.files
+                            if not printed:
+                                print("\tFile: " + file.name)
+                                printed = True
+                            print("\t\tFile does not have a cover.")
+                            result = find_and_extract_cover(file)
+                            if result:
+                                image_count += 1
+                                print("\t\tCover successfully extracted.")
+                                has_cover = True
+                                cover = result
+                            else:
+                                print("\t\tCover not found.")
+                                files_with_no_cover += 1
+                        else:
+                            image_count += 1
+                        if (
+                            (
+                                is_volume_one(file.name)
+                                or is_one_shot(file.name, file.root)
+                            )
+                            and not check_for_series_cover(file.root)
+                            and has_cover
+                            and cover
+                        ):
+                            if not printed:
+                                print("\tFile: " + file.name)
+                                printed = True
+                            print("\t\tMissing volume one cover.")
+                            print("\t\tFound volume one cover.")
+                            cover_extension = get_file_extension(
+                                os.path.basename(cover)
+                            )
+                            if os.path.isfile(
+                                os.path.join(file.root, os.path.basename(cover))
+                            ):
+                                shutil.copy(
+                                    os.path.join(file.root, os.path.basename(cover)),
+                                    os.path.join(file.root, "cover" + cover_extension),
                                 )
-                            except Exception:
-                                send_error_message(
-                                    "Exception thrown when finding existing cover."
+                                print("\t\tCopied cover as series cover.")
+                            else:
+                                print(
+                                    "\t\tCover does not exist at: "
+                                    + str(
+                                        os.path.join(file.root, os.path.basename(cover))
+                                    )
                                 )
-                                send_error_message("Excpetion occured on: " + str(file))
-            except FileNotFoundError:
-                print("\nERROR: " + path + " is not a valid path.\n")
+                    except Exception as e:
+                        send_error_message(
+                            "\nERROR in extract_covers(): "
+                            + str(e)
+                            + " with file: "
+                            + file.name
+                        )
+
         else:
             if path == "":
                 print("\nERROR: Path cannot be empty.")
@@ -2536,7 +2524,7 @@ def delete_unacceptable_files():
                 else:
                     print("\nERROR: " + path + " is an invalid path.\n")
     except Exception as e:
-        print(e)
+        send_error_message(e)
 
 
 # execute terminal command
@@ -2545,7 +2533,7 @@ def execute_command(command):
         try:
             subprocess.call(command, shell=True)
         except Exception as e:
-            print(e)
+            send_error_message(e)
 
 
 class BookwalkerBook:
@@ -2873,7 +2861,7 @@ def search_bookwalker(query, type, print_info=False):
                 )
                 books.append(book)
             except Exception as e:
-                print(e)
+                send_error_message(e)
                 errors.append(url)
                 continue
         if books is not None and len(books) > 1:
