@@ -951,7 +951,6 @@ def remove_duplicate_releases_from_download(original_releases, downloaded_releas
                                 + original.name
                             )
                             send_change_message("\t\tUpgrading " + original.name)
-                            if download.extension == ".epub":
                             replace_file(original, download)
 
 
