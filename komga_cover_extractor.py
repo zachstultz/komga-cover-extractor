@@ -268,6 +268,8 @@ def compress_image(image_path, quality=image_quality, to_jpg=False):
     img = Image.open(image_path)
     filename, ext = os.path.splitext(image_path)
     extension = get_file_extension(image_path)
+    if img.mode in ("RGBA", "P"):
+        img = img.convert("RGB")
     if extension == ".png":
         to_jpg = True
     if to_jpg:
@@ -282,14 +284,9 @@ def compress_image(image_path, quality=image_quality, to_jpg=False):
             os.remove(image_path)
             return image_path
     except OSError as ose:
-        ImageFile.LOAD_TRUNCATED_IMAGES = True
-        img = img.convert("RGB")
-        img.save(new_filename, quality=quality, optimize=True)
-        if extension == ".png" and (
-            os.path.isfile(new_filename) and os.path.isfile(image_path)
-        ):
-            os.remove(image_path)
-            return image_path
+        send_error_message(
+            "\t\tFailed to compress image: " + image_path + " \n\t\tERROR:" + str(ose)
+        )
 
 
 # Appends, sends, and prints our error message
@@ -2293,67 +2290,78 @@ def find_and_extract_cover(file):
                         image_extension = get_file_extension(
                             os.path.basename(image_file)
                         )
-                        source = zip_ref.open(image_file)
-                        target = open(
-                            os.path.join(
-                                file.root, file.extensionless_name + image_extension
-                            ),
-                            "wb",
-                        )
-                        with source, target:
-                            shutil.copyfileobj(source, target)
-                            if compress_image_option:
-                                compress_image(
-                                    os.path.join(
-                                        file.root,
-                                        file.extensionless_name + image_extension,
-                                    )
+                        if image_extension == ".jpeg":
+                            image_extension = ".jpg"
+                        with zip_ref.open(image_file) as image_file_ref:
+                            # save image_file_ref as file.extensionless_name + image_extension to file.root
+                            with open(
+                                os.path.join(
+                                    file.root,
+                                    file.extensionless_name + image_extension,
+                                ),
+                                "wb",
+                            ) as image_file_ref_out:
+                                image_file_ref_out.write(image_file_ref.read())
+                        if compress_image_option:
+                            compress_image(
+                                os.path.join(
+                                    file.root,
+                                    file.extensionless_name + image_extension,
                                 )
-                                image_extension = ".jpg"
+                            )
+                            image_extension = ".jpg"
                         return file.extensionless_name + image_extension
                 print("\t\tNo cover found, defaulting to first image: " + zip_list[0])
                 default_cover_path = zip_list[0]
                 image_extension = get_file_extension(
                     os.path.basename(default_cover_path)
                 )
-                source = zip_ref.open(default_cover_path)
-                target = open(
-                    os.path.join(file.root, file.extensionless_name + image_extension),
-                    "wb",
-                )
-                with source, target:
-                    shutil.copyfileobj(source, target)
-                    if compress_image_option:
-                        compress_image(
-                            os.path.join(
-                                file.root,
-                                file.extensionless_name + image_extension,
-                            )
+                if image_extension == ".jpeg":
+                    image_extension = ".jpg"
+                with zip_ref.open(default_cover_path) as default_cover_ref:
+                    # save image_file_ref as file.extensionless_name + image_extension to file.root
+                    with open(
+                        os.path.join(
+                            file.root,
+                            file.extensionless_name + image_extension,
+                        ),
+                        "wb",
+                    ) as default_cover_ref_out:
+                        default_cover_ref_out.write(default_cover_ref.read())
+                if compress_image_option:
+                    compress_image(
+                        os.path.join(
+                            file.root,
+                            file.extensionless_name + image_extension,
                         )
-                        image_extension = ".jpg"
+                    )
+                    image_extension = ".jpg"
                 return file.extensionless_name + image_extension
             else:
                 print("\t\tCover Found: " + epub_cover_path)
                 epub_path_extension = get_file_extension(
                     os.path.basename(epub_cover_path)
                 )
-                source = zip_ref.open(epub_cover_path)
-                target = open(
-                    os.path.join(
-                        file.root, file.extensionless_name + epub_path_extension
-                    ),
-                    "wb",
-                )
-                with source, target:
-                    shutil.copyfileobj(source, target)
-                    if compress_image_option:
-                        compress_image(
-                            os.path.join(
-                                file.root,
-                                file.extensionless_name + epub_path_extension,
-                            )
+                if epub_path_extension == ".jpeg":
+                    epub_path_extension = ".jpg"
+                with zip_ref.open(epub_cover_path) as epub_cover_ref:
+                    # save image_file_ref as file.extensionless_name + image_extension to file.root
+                    with open(
+                        os.path.join(
+                            file.root,
+                            file.extensionless_name + epub_path_extension,
+                        ),
+                        "wb",
+                    ) as epub_cover_ref_out:
+                        epub_cover_ref_out.write(epub_cover_ref.read())
+                if compress_image_option:
+                    compress_image(
+                        os.path.join(
+                            file.root,
+                            file.extensionless_name + epub_path_extension,
                         )
-                        epub_path_extension = ".jpg"
+                    )
+                    epub_path_extension = ".jpg"
                 return file.extensionless_name + epub_path_extension
 
     else:
@@ -2471,7 +2479,6 @@ def extract_covers():
                             + " with file: "
                             + file.name
                         )
-
         else:
             if path == "":
                 print("\nERROR: Path cannot be empty.")
