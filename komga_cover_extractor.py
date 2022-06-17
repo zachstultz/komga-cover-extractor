@@ -237,6 +237,18 @@ def parse_my_args():
         help="Checks for new releases on bookwalker.",
         required=False,
     )
+    parser.add_argument(
+        "-c",
+        "--compress",
+        help="Whether or not to compress the extracted cover images.",
+        required=False,
+    )
+    parser.add_argument(
+        "-cq",
+        "--compress_quality",
+        help="The quality of the compressed cover images.",
+        required=False,
+    )
     parser = parser.parse_args()
     if not parser.paths and not parser.download_folders:
         print("No paths or download folders were passed to the script.")
@@ -262,6 +274,41 @@ def parse_my_args():
         ):
             global bookwalker_check
             bookwalker_check = True
+    if parser.compress is not None:
+        if (
+            parser.compress == 1
+            or parser.compress.lower() == "true"
+            or parser.compress.lower() == "yes"
+        ):
+            global compress_image_option
+            compress_image_option = True
+    if parser.compress_quality is not None:
+        global image_quality
+        image_quality = set_num_as_float_or_int(parser.compress_quality)
+
+
+def set_num_as_float_or_int(num):
+    if num != "":
+        if isinstance(num, list):
+            result = ""
+            for num in num:
+                if float(num) == int(num):
+                    if num == num[-1]:
+                        result += str(int(num))
+                    else:
+                        result += str(int(num)) + "-"
+                else:
+                    if num == num[-1]:
+                        result += str(float(num))
+                    else:
+                        result += str(float(num)) + "-"
+            return result
+        else:
+            if float(num) == int(num):
+                num = int(num)
+            else:
+                num = float(num)
+    return num
 
 
 def compress_image(image_path, quality=image_quality, to_jpg=False):
