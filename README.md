@@ -38,10 +38,7 @@ optional arguments:
                         The path/paths to be scanned for cover extraction.
   -wh WEBHOOK, --webhook WEBHOOK
                         The discord webhook url for notifications about
-                        changes and errors. (Optional) (Suggsted Usage is on a
-                        small amount of files/folders or after you've already
-                        taken care of the bulk of your library to avoid rate-
-                        limiting
+                        changes and errors.
   -c COMPRESS, --compress COMPRESS
                         Whether or not to compress the extracted cover images.
   -cq COMPRESS_QUALITY, --compress_quality COMPRESS_QUALITY
