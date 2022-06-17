@@ -6,7 +6,7 @@ Allowing the user to use local high-resolution covers within Komga instead of th
 
 Primary usage is with https://github.com/gotson/komga, **with volume releases**.
 
-**There is no compression of the cover by default, so take that into account in-relation to your setup.**
+**There is no compression of the cover by default, see usage at the bottom for compressing the covers.**
 
 ## Cover Detection
 Detection is based on various scene releases, if none are detected, it will default to the first image. Which, unless you have scans from online, will almost always be the cover.
@@ -26,8 +26,9 @@ Detection is based on various scene releases, if none are detected, it will defa
 
 ## Usage
 ```
-usage: komga_cover_extractor.py [-h] [-p [PATHS [PATHS ...]]] [-df [DOWNLOAD_FOLDERS [DOWNLOAD_FOLDERS ...]]] 
-                                [-wh WEBHOOK]
+usage: komga_cover_extractor.py [-h] [-p [PATHS [PATHS ...]]]
+                                [-wh WEBHOOK] [-c COMPRESS] 
+                                [-cq COMPRESS_QUALITY]
 
 Scans for covers in the cbz and epub files.
 
@@ -36,8 +37,21 @@ optional arguments:
   -p [PATHS [PATHS ...]], --paths [PATHS [PATHS ...]]
                         The path/paths to be scanned for cover extraction.
   -wh WEBHOOK, --webhook WEBHOOK
-                        The discord webhook url for notifications about changes and errors. 
-                        (Optional) (Suggsted Usage is on a small amount of files/folders or after you've already 
-                        taken care of the bulk of your library to avoid rate-limiting
+                        The discord webhook url for notifications about
+                        changes and errors. (Optional) (Suggsted Usage is on a
+                        small amount of files/folders or after you've already
+                        taken care of the bulk of your library to avoid rate-
+                        limiting
+  -c COMPRESS, --compress COMPRESS
+                        Whether or not to compress the extracted cover images.
+  -cq COMPRESS_QUALITY, --compress_quality COMPRESS_QUALITY
+                        The quality of the compressed cover images.
 ```
-```EX: python3 komga_cover_extractor.py -p "/path/to/manga" -p "/path/to/novels" -wh "WEBHOOK_URL"```
+with compression:
+  
+  ```EX: python3 komga_cover_extractor.py -p "/path/to/manga" -p "/path/to/novels" -wh "WEBHOOK_URL" -c "True" -cq "60"```
+
+without compression:
+  
+  ```EX: python3 komga_cover_extractor.py -p "/path/to/manga" -p "/path/to/novels" -wh "WEBHOOK_URL"```
+
