@@ -27,8 +27,11 @@ from bs4 import BeautifulSoup, SoupStrainer
 # Git: https://github.com/zachstultz *
 # ************************************
 
+# Do not hardcode these, pass them in!
 paths = [""]
 download_folders = [""]
+
+# Folder names to be ignored
 ignored_folder_names = [""]
 
 # List of file types used throughout the program
@@ -44,7 +47,7 @@ folder_accessor = None
 # whether or not to compress the extractred images
 compress_image_option = False
 
-# Image compression value
+# Default image compression value
 image_quality = 60
 
 # Stat-related
@@ -109,6 +112,10 @@ log_to_file = False
 # If enabled, it will extract all important bits of information from the file, basically restructuring
 # when renaming
 resturcture_when_renaming = False
+
+# Whether or not to search an epub file for premium content if no
+# premium keyword is found, and add it into the file name.
+search_and_add_premium_to_file_name = False
 
 # Folder Class
 class Folder:
@@ -2098,7 +2105,10 @@ def rename_files_in_download_folders():
                                     and file.extension == ".cbz"
                                 ):
                                     combined += " " + issue_number
-                                if file.extension == ".epub":
+                                if (
+                                    file.extension == ".epub"
+                                    and search_and_add_premium_to_file_name
+                                ):
                                     if (
                                         check_for_bonus_xhtml(file.path)
                                         or get_toc(file.path)
@@ -2560,7 +2570,7 @@ def print_stats():
     print("\t" + str(cbz_count) + " were cbz files")
     print("\t" + str(cbr_count) + " were cbr files")
     print("\t" + str(epub_count) + " were epub files")
-    print("\tof those we found " + str(image_count) + " had a cover image file.")
+    print("\tof those we found that " + str(image_count) + " had a cover image file.")
     if len(errors) != 0:
         print("\nErrors (" + str(len(errors)) + "):")
         for error in errors:
