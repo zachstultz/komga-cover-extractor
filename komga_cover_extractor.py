@@ -1,6 +1,5 @@
 import os
 import re
-import zlib
 import zipfile
 import shutil
 import string
@@ -10,8 +9,6 @@ import argparse
 import subprocess
 import urllib.request
 import calendar
-import lxml
-import cchardet
 import requests
 import time
 from PIL import Image
@@ -71,7 +68,7 @@ files_with_no_cover = []
 # or vice versa because they can have the same exact series name.
 required_matching_percentage = 90
 
-# The required score when comparing two strings likeness
+# The required score when comparing two strings likeness, used when matching a series_name to a folder name.
 required_similarity_score = 0.9790
 
 # The preferred naming format used by rename_files_in_download_folders()
@@ -102,6 +99,11 @@ bookwalker_check = False
 # False = files with be renamed automatically
 # True = user will be prompted for approval
 manual_rename = False
+
+# Whether or not an isbn/series_id match should be used
+# as an alternative when matching a downloaded file to
+# the existing library.
+match_through_isbn_or_series_id = False
 
 # Folder Class
 class Folder:
@@ -228,7 +230,7 @@ def parse_my_args():
     parser.add_argument(
         "-wh",
         "--webhook",
-        help="The discord webhook url for notifications about changes and errors. (Optional) (Suggsted Usage is on a small amount of files/folders or after you've already taken care of the bulk of your library to avoid rate-limiting",
+        help="The discord webhook url for notifications about changes and errors.",
         required=False,
     )
     parser.add_argument(
@@ -286,7 +288,7 @@ def parse_my_args():
         global image_quality
         image_quality = set_num_as_float_or_int(parser.compress_quality)
 
-
+        
 def set_num_as_float_or_int(num):
     if num != "":
         if isinstance(num, list):
@@ -1014,27 +1016,30 @@ def check_and_delete_empty_folder(folder):
 
 # Writes a log file
 def write_to_file(file, message, without_date=False, overwrite=False):
-    message = re.sub("\t|\n", "", str(message), flags=re.IGNORECASE)
-    ROOT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
-    file_path = os.path.join(ROOT_DIR, file)
-    append_write = ""
-    if os.path.exists(file_path):
-        if not overwrite:
-            append_write = "a"  # append if already exists
-        else:
-            append_write = "w"
-    else:
-        append_write = "w"  # make a new file if not
     try:
-        if append_write != "":
-            now = datetime.now()
-            dt_string = now.strftime("%d/%m/%Y %H:%M:%S")
-            file = open(file_path, append_write)
-            if without_date:
-                file.write("\n " + message)
+        message = re.sub("\t|\n", "", str(message), flags=re.IGNORECASE)
+        ROOT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+        file_path = os.path.join(ROOT_DIR, file)
+        append_write = ""
+        if os.path.exists(file_path):
+            if not overwrite:
+                append_write = "a"  # append if already exists
             else:
-                file.write("\n" + dt_string + " " + message)
-            file.close()
+                append_write = "w"
+        else:
+            append_write = "w"  # make a new file if not
+        try:
+            if append_write != "":
+                now = datetime.now()
+                dt_string = now.strftime("%d/%m/%Y %H:%M:%S")
+                file = open(file_path, append_write)
+                if without_date:
+                    file.write("\n " + message)
+                else:
+                    file.write("\n" + dt_string + " " + message)
+                file.close()
+        except Exception as e:
+            send_error_message(e)
     except Exception as e:
         send_error_message(e)
 
@@ -1520,7 +1525,7 @@ def check_for_existing_series_and_move():
                                                     break
                                                 else:
                                                     continue
-                                        if not done:
+                                        if not done and match_through_isbn_or_series_id:
                                             directories_found = []
                                             download_file_isbn = None
                                             download_file_isbn = get_meta_from_file(
@@ -2254,7 +2259,7 @@ def delete_chapters_from_downloads():
                                 send_change_message(
                                     "\n\t\tFile: "
                                     + file
-                                    + " does not contain volume keyword"
+                                    + " does not contain a volume keyword"
                                     + "\n\t\tLocation: "
                                     + root
                                     + "\n\t\tDeleting chapter release."
@@ -2313,103 +2318,106 @@ def find_and_extract_cover(file):
                 x for x in zip_list if not x.endswith("/") and re.search(r"\.", x)
             ]
             zip_list.sort()
-            if not epub_cover_path:
-                for image_file in zip_list:
-                    if (
-                        re.search(
-                            r"(\b(Cover([0-9]+|)|CoverDesign)\b)",
-                            image_file,
-                            re.IGNORECASE,
-                        )
-                        or re.search(
-                            r"(\b(p000|page_000)\b)", image_file, re.IGNORECASE
-                        )
-                        or re.search(
-                            r"(\bindex[-_. ]1[-_. ]1\b)", image_file, re.IGNORECASE
-                        )
-                        or re.search(
-                            r"(9([-_. :]+)?7([-_. :]+)?(8|9)(([-_. :]+)?[0-9]){10})",
-                            image_file,
-                            re.IGNORECASE,
-                        )
-                    ):
-                        print("\t\tCover Found: " + image_file)
-                        image_extension = get_file_extension(
-                            os.path.basename(image_file)
-                        )
-                        if image_extension == ".jpeg":
-                            image_extension = ".jpg"
-                        with zip_ref.open(image_file) as image_file_ref:
-                            # save image_file_ref as file.extensionless_name + image_extension to file.root
-                            with open(
-                                os.path.join(
-                                    file.root,
-                                    file.extensionless_name + image_extension,
-                                ),
-                                "wb",
-                            ) as image_file_ref_out:
-                                image_file_ref_out.write(image_file_ref.read())
-                        if compress_image_option:
-                            compress_image(
-                                os.path.join(
-                                    file.root,
-                                    file.extensionless_name + image_extension,
-                                )
+            if zip_list:
+                if not epub_cover_path:
+                    for image_file in zip_list:
+                        if (
+                            re.search(
+                                r"(\b(Cover([0-9]+|)|CoverDesign)\b)",
+                                image_file,
+                                re.IGNORECASE,
                             )
-                            image_extension = ".jpg"
-                        return file.extensionless_name + image_extension
-                print("\t\tNo cover found, defaulting to first image: " + zip_list[0])
-                default_cover_path = zip_list[0]
-                image_extension = get_file_extension(
-                    os.path.basename(default_cover_path)
-                )
-                if image_extension == ".jpeg":
-                    image_extension = ".jpg"
-                with zip_ref.open(default_cover_path) as default_cover_ref:
-                    # save image_file_ref as file.extensionless_name + image_extension to file.root
-                    with open(
-                        os.path.join(
-                            file.root,
-                            file.extensionless_name + image_extension,
-                        ),
-                        "wb",
-                    ) as default_cover_ref_out:
-                        default_cover_ref_out.write(default_cover_ref.read())
-                if compress_image_option:
-                    compress_image(
-                        os.path.join(
-                            file.root,
-                            file.extensionless_name + image_extension,
-                        )
+                            or re.search(
+                                r"(\b(p000|page_000)\b)", image_file, re.IGNORECASE
+                            )
+                            or re.search(
+                                r"(\bindex[-_. ]1[-_. ]1\b)", image_file, re.IGNORECASE
+                            )
+                            or re.search(
+                                r"(9([-_. :]+)?7([-_. :]+)?(8|9)(([-_. :]+)?[0-9]){10})",
+                                image_file,
+                                re.IGNORECASE,
+                            )
+                        ):
+                            print("\t\tCover Found: " + image_file)
+                            image_extension = get_file_extension(
+                                os.path.basename(image_file)
+                            )
+                            if image_extension == ".jpeg":
+                                image_extension = ".jpg"
+                            with zip_ref.open(image_file) as image_file_ref:
+                                # save image_file_ref as file.extensionless_name + image_extension to file.root
+                                with open(
+                                    os.path.join(
+                                        file.root,
+                                        file.extensionless_name + image_extension,
+                                    ),
+                                    "wb",
+                                ) as image_file_ref_out:
+                                    image_file_ref_out.write(image_file_ref.read())
+                            if compress_image_option:
+                                compress_image(
+                                    os.path.join(
+                                        file.root,
+                                        file.extensionless_name + image_extension,
+                                    )
+                                )
+                                image_extension = ".jpg"
+                            return file.extensionless_name + image_extension
+                    print(
+                        "\t\tNo cover found, defaulting to first image: " + zip_list[0]
                     )
-                    image_extension = ".jpg"
-                return file.extensionless_name + image_extension
-            else:
-                print("\t\tCover Found: " + epub_cover_path)
-                epub_path_extension = get_file_extension(
-                    os.path.basename(epub_cover_path)
-                )
-                if epub_path_extension == ".jpeg":
-                    epub_path_extension = ".jpg"
-                with zip_ref.open(epub_cover_path) as epub_cover_ref:
-                    # save image_file_ref as file.extensionless_name + image_extension to file.root
-                    with open(
-                        os.path.join(
-                            file.root,
-                            file.extensionless_name + epub_path_extension,
-                        ),
-                        "wb",
-                    ) as epub_cover_ref_out:
-                        epub_cover_ref_out.write(epub_cover_ref.read())
-                if compress_image_option:
-                    compress_image(
-                        os.path.join(
-                            file.root,
-                            file.extensionless_name + epub_path_extension,
-                        )
+                    default_cover_path = zip_list[0]
+                    image_extension = get_file_extension(
+                        os.path.basename(default_cover_path)
                     )
-                    epub_path_extension = ".jpg"
-                return file.extensionless_name + epub_path_extension
+                    if image_extension == ".jpeg":
+                        image_extension = ".jpg"
+                    with zip_ref.open(default_cover_path) as default_cover_ref:
+                        # save image_file_ref as file.extensionless_name + image_extension to file.root
+                        with open(
+                            os.path.join(
+                                file.root,
+                                file.extensionless_name + image_extension,
+                            ),
+                            "wb",
+                        ) as default_cover_ref_out:
+                            default_cover_ref_out.write(default_cover_ref.read())
+                    if compress_image_option:
+                        compress_image(
+                            os.path.join(
+                                file.root,
+                                file.extensionless_name + image_extension,
+                            )
+                        )
+                        image_extension = ".jpg"
+                    return file.extensionless_name + image_extension
+                else:
+                    print("\t\tCover Found: " + epub_cover_path)
+                    epub_path_extension = get_file_extension(
+                        os.path.basename(epub_cover_path)
+                    )
+                    if epub_path_extension == ".jpeg":
+                        epub_path_extension = ".jpg"
+                    with zip_ref.open(epub_cover_path) as epub_cover_ref:
+                        # save image_file_ref as file.extensionless_name + image_extension to file.root
+                        with open(
+                            os.path.join(
+                                file.root,
+                                file.extensionless_name + epub_path_extension,
+                            ),
+                            "wb",
+                        ) as epub_cover_ref_out:
+                            epub_cover_ref_out.write(epub_cover_ref.read())
+                    if compress_image_option:
+                        compress_image(
+                            os.path.join(
+                                file.root,
+                                file.extensionless_name + epub_path_extension,
+                            )
+                        )
+                        epub_path_extension = ".jpg"
+                    return file.extensionless_name + epub_path_extension
 
     else:
         print("\nFile: " + file.name + " is not a valid zip file.")
@@ -2815,9 +2823,7 @@ def search_bookwalker(query, type, print_info=False):
                 if volume_number:
                     if hasattr(volume_number, "group"):
                         volume_number = volume_number.group(1)
-                        volume_number = float(volume_number)
-                        if volume_number == int(volume_number):
-                            volume_number = int(volume_number)
+                        volume_number = set_num_as_float_or_int(volume_number)
                     else:
                         if title not in no_volume_number:
                             no_volume_number.append(title)
@@ -3071,6 +3077,7 @@ def check_for_new_volumes_on_bookwalker():
                     >= 70
                 ):
                     type = "l"
+
                 if type and dir:
                     bookwalker_volumes = search_bookwalker(dir, type, False)
                 if existing_dir_volumes and bookwalker_volumes:
@@ -3155,7 +3162,7 @@ def main():
     parse_my_args()  # parses the user's arguments
     #delete_unacceptable_files()  # deletes any file with an extension in unaccepted_file_extensions from the download_folers
     #delete_chapters_from_downloads()  # deletes chapter releases from the download_folers
-    #rename_files_in_download_folders()  # replaces any detected volume keyword that isn't what the user specified up top
+    #rename_files_in_download_folders()  # replaces any detected volume keyword that isn't what the user specified up top and restructures them
     #create_folders_for_items_in_download_folder()  # creates folders for any lone files in the root of the download_folders
     #rename_dirs_in_download_folder()  # cleans up any unnessary information in the series folder names within the download_folders
     extract_covers()  # extracts covers from cbz and epub files recursively from the paths passed in
