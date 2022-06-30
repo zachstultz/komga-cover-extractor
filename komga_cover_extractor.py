@@ -287,8 +287,8 @@ def parse_my_args():
     if parser.compress_quality is not None:
         global image_quality
         image_quality = set_num_as_float_or_int(parser.compress_quality)
-
         
+
 def set_num_as_float_or_int(num):
     if num != "":
         if isinstance(num, list):
@@ -2492,7 +2492,7 @@ def extract_covers():
                                 cover = result
                             else:
                                 print("\t\tCover not found.")
-                                files_with_no_cover += 1
+                                files_with_no_cover.append(file)
                         else:
                             image_count += 1
                         if (
