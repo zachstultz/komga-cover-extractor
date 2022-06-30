@@ -57,8 +57,6 @@ cbz_internal_covers_found = 0
 poster_found = 0
 errors = []
 items_changed = []
-# The remaining files without covers
-files_with_no_cover = []
 
 # The required file type matching percentage between
 # the download folder and the existing folder
@@ -98,7 +96,7 @@ bookwalker_check = False
 
 # False = files with be renamed automatically
 # True = user will be prompted for approval
-manual_rename = False
+manual_rename = True
 
 # Whether or not an isbn/series_id match should be used
 # as an alternative when matching a downloaded file to
@@ -106,7 +104,11 @@ manual_rename = False
 match_through_isbn_or_series_id = False
 
 # Whether or not to output errors and changes to a log file
-log_to_file = True
+log_to_file = False
+
+# If enabled, it will extract all important bits of information from the file, basically restructuring
+# when renaming
+resturcture_when_renaming = False
 
 # Folder Class
 class Folder:
@@ -337,7 +339,7 @@ def compress_image(image_path, quality=image_quality, to_jpg=False):
             return image_path
     except OSError as ose:
         send_error_message(
-            "\t\tFailed to compress image: " + image_path + " \n\t\tERROR:" + str(ose)
+            "\t\tFailed to compress image: " + image_path + " \n\t\tERROR: " + str(ose)
         )
 
 
@@ -403,9 +405,7 @@ def remove_hidden_folders(root, dirs):
 # Removes all chapter releases
 def remove_all_chapters(files):
     for file in files[:]:
-        if (
-            contains_chapter_keywords(file) and not contains_volume_keywords(file)
-        ) and not (check_for_exception_keywords(file)):
+        if contains_chapter_keywords(file) and not contains_volume_keywords(file):
             files.remove(file)
 
 
@@ -1378,7 +1378,8 @@ def check_upgrade(existing_root, dir, file):
         >= required_matching_percentage
     ):
         download_dir_volumes = [file]
-        reorganize_and_rename(download_dir_volumes, existing_dir)
+        if resturcture_when_renaming:
+            reorganize_and_rename(download_dir_volumes, existing_dir)
         existing_dir_volumes = upgrade_to_volume_class(
             upgrade_to_file_class(
                 [
@@ -2229,7 +2230,7 @@ def rename_files_in_download_folders():
                         send_error_message(
                             "\nERROR: " + str(e) + " (" + file.name + ")"
                         )
-                    if not file.multi_volume:
+                    if not file.multi_volume and resturcture_when_renaming:
                         reorganize_and_rename([file], file.series_name)
         else:
             if path == "":
@@ -2478,7 +2479,6 @@ def extract_covers():
                     upgrade_to_file_class(files, root),
                 )
                 global image_count
-                global files_with_no_cover
                 for file in folder_accessor.files:
                     update_stats(file)
                     try:
@@ -2506,7 +2506,6 @@ def extract_covers():
                                 cover = result
                             else:
                                 print("\t\tCover not found.")
-                                files_with_no_cover.append(file)
                         else:
                             image_count += 1
                         if (
@@ -2562,12 +2561,6 @@ def print_stats():
     print("\t" + str(cbr_count) + " were cbr files")
     print("\t" + str(epub_count) + " were epub files")
     print("\tof those we found " + str(image_count) + " had a cover image file.")
-    if len(files_with_no_cover) != 0:
-        print(
-            "\nRemaining files without covers (" + str(len(files_with_no_cover)) + "):"
-        )
-        for lonely_file in files_with_no_cover:
-            print("\t" + lonely_file)
     if len(errors) != 0:
         print("\nErrors (" + str(len(errors)) + "):")
         for error in errors:
