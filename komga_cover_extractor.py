@@ -105,6 +105,9 @@ manual_rename = False
 # the existing library.
 match_through_isbn_or_series_id = False
 
+# Whether or not to output errors and changes to a log file
+log_to_file = True
+
 # Folder Class
 class Folder:
     def __init__(self, root, dirs, basename, folder_name, files):
@@ -287,7 +290,7 @@ def parse_my_args():
     if parser.compress_quality is not None:
         global image_quality
         image_quality = set_num_as_float_or_int(parser.compress_quality)
-        
+
 
 def set_num_as_float_or_int(num):
     if num != "":
@@ -397,12 +400,22 @@ def remove_hidden_folders(root, dirs):
             dirs.remove(folder)
 
 
+# Removes all chapter releases
+def remove_all_chapters(files):
+    for file in files[:]:
+        if (
+            contains_chapter_keywords(file) and not contains_volume_keywords(file)
+        ) and not (check_for_exception_keywords(file)):
+            files.remove(file)
+
+
 # Cleans up the files array before usage
 def clean_and_sort(root, files=None, dirs=None):
     if files:
         files.sort()
         remove_hidden_files(files, root)
         remove_unaccepted_file_types(files, root)
+        remove_all_chapters(files)
     if dirs:
         dirs.sort()
         remove_hidden_folders(root, dirs)
@@ -1016,32 +1029,33 @@ def check_and_delete_empty_folder(folder):
 
 # Writes a log file
 def write_to_file(file, message, without_date=False, overwrite=False):
-    try:
-        message = re.sub("\t|\n", "", str(message), flags=re.IGNORECASE)
-        ROOT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
-        file_path = os.path.join(ROOT_DIR, file)
-        append_write = ""
-        if os.path.exists(file_path):
-            if not overwrite:
-                append_write = "a"  # append if already exists
-            else:
-                append_write = "w"
-        else:
-            append_write = "w"  # make a new file if not
+    if log_to_file:
         try:
-            if append_write != "":
-                now = datetime.now()
-                dt_string = now.strftime("%d/%m/%Y %H:%M:%S")
-                file = open(file_path, append_write)
-                if without_date:
-                    file.write("\n " + message)
+            message = re.sub("\t|\n", "", str(message), flags=re.IGNORECASE)
+            ROOT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+            file_path = os.path.join(ROOT_DIR, file)
+            append_write = ""
+            if os.path.exists(file_path):
+                if not overwrite:
+                    append_write = "a"  # append if already exists
                 else:
-                    file.write("\n" + dt_string + " " + message)
-                file.close()
+                    append_write = "w"
+            else:
+                append_write = "w"  # make a new file if not
+            try:
+                if append_write != "":
+                    now = datetime.now()
+                    dt_string = now.strftime("%d/%m/%Y %H:%M:%S")
+                    file = open(file_path, append_write)
+                    if without_date:
+                        file.write("\n " + message)
+                    else:
+                        file.write("\n" + dt_string + " " + message)
+                    file.close()
+            except Exception as e:
+                send_error_message(e)
         except Exception as e:
             send_error_message(e)
-    except Exception as e:
-        send_error_message(e)
 
 
 # Checks for any missing volumes between the lowest volume of a series and the highest volume.
