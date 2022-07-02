@@ -80,7 +80,7 @@ preferred_volume_renaming_format = "v"
 # A discord webhook url used to send messages to discord about the changes made.
 discord_webhook_url = ""
 
-# Whether or not to add the issue number to the file names
+# Whether or not to add the issue number to the file name
 # Useful when using ComicTagger
 # TRUE: manga v01 #01 (2001).cbz
 # FALSE: manga v01 (2001).cbz
@@ -197,9 +197,10 @@ class Keyword:
 
 
 # Keywords ranked by point values, used when determining if a downloaded volume
-# is an upgrade to the existing volume in the library
+# is an upgrade to the existing volume in the library. Case is ignored when checked.
 # EX: Keyword("Keyword or Regex", point_value)
 ranked_keywords = []
+
 
 volume_keywords = [
     "LN",
@@ -1409,7 +1410,12 @@ def check_upgrade(existing_root, dir, file):
                 float,
             ):
                 send_change_message(
-                    "\t\tVolume: " + volume.name + " does not exist in: " + existing_dir
+                    "\t\tVolume "
+                    + str(volume.volume_number)
+                    + ": "
+                    + volume.name
+                    + " does not exist in: "
+                    + existing_dir
                 )
                 send_change_message(
                     "\t\tMoving: " + volume.name + " to " + existing_dir
@@ -1435,6 +1441,11 @@ def get_zip_comment(zip_file):
         return zip_ref.comment.decode("utf-8")
 
 
+# Removes bracket info from the end of a string.
+def remove_bracketed_info_from_name(name):
+    return re.sub(r"([\{\[\(][^\)\]\}]*[\)\]\}])", "", name).strip()
+
+
 # Checks for an existing series by pulling the series name from each elidable file in the downloads_folder
 # and comparing it to an existin folder within the user's library.
 def check_for_existing_series_and_move():
@@ -1456,234 +1467,260 @@ def check_for_existing_series_and_move():
                             if os.path.exists(path) and done == False:
                                 try:
                                     os.chdir(path)
-                                    path_dirs = [
-                                        f for f in os.listdir(path) if os.path.isdir(f)
-                                    ]
-                                    clean_and_sort(path, dirs=path_dirs)
-                                    global folder_accessor
-                                    folder_accessor = Folder(
-                                        path,
-                                        path_dirs,
-                                        os.path.basename(os.path.dirname(path)),
-                                        os.path.basename(path),
-                                        [""],
-                                    )
-                                    current_folder_path = folder_accessor.root
-                                    download_folder_basename = os.path.basename(
-                                        download_folder
-                                    )
-                                    if not re.search(
-                                        download_folder_basename,
-                                        current_folder_path,
-                                        re.IGNORECASE,
-                                    ):
-                                        print("\nFile: " + file.name)
-                                        print("Looking for: " + dir_clean)
-                                        print("\tInside of: " + folder_accessor.root)
-                                        scores = []
-                                        for dir in folder_accessor.dirs:
-                                            downloaded_file_series_name = (
-                                                (str(dir_clean)).lower()
-                                            ).strip()
-                                            downloaded_file_series_name = (
-                                                remove_punctuation(
-                                                    downloaded_file_series_name
-                                                )
-                                            ).lower()
-                                            existing_series_folder_from_library = (
-                                                remove_punctuation(dir)
-                                            ).lower()
-                                            similarity_score = similar(
-                                                existing_series_folder_from_library,
-                                                downloaded_file_series_name,
-                                            )
+                                    for root, dirs, files in os.walk(path):
+                                        path_dirs = dirs
+                                        clean_and_sort(root, dirs=path_dirs)
+                                        global folder_accessor
+                                        folder_accessor = Folder(
+                                            root,
+                                            path_dirs,
+                                            os.path.basename(os.path.dirname(root)),
+                                            os.path.basename(root),
+                                            [""],
+                                        )
+                                        current_folder_path = folder_accessor.root
+                                        download_folder_basename = os.path.basename(
+                                            download_folder
+                                        )
+                                        if not re.search(
+                                            download_folder_basename,
+                                            current_folder_path,
+                                            re.IGNORECASE,
+                                        ):
+                                            print("\nFile: " + file.name)
+                                            print("Looking for: " + dir_clean)
                                             print(
-                                                "\t\tCHECKING: "
-                                                + downloaded_file_series_name
-                                                + "\n\t\tAGAINST: "
-                                                + existing_series_folder_from_library
-                                                + "\n\t\tSCORE: "
-                                                + str(similarity_score)
-                                                + "\n"
+                                                "\tInside of: " + folder_accessor.root
                                             )
-                                            scores.append(Result(dir, similarity_score))
-                                            if (
-                                                similarity_score
-                                                >= required_similarity_score
-                                            ):
-                                                write_to_file(
-                                                    "changes.txt",
-                                                    (
+                                            scores = []
+                                            for dir in folder_accessor.dirs:
+                                                downloaded_file_series_name = (
+                                                    (str(dir_clean)).lower()
+                                                ).strip()
+                                                downloaded_file_series_name = (
+                                                    remove_bracketed_info_from_name(
+                                                        remove_punctuation(
+                                                            downloaded_file_series_name
+                                                        )
+                                                    )
+                                                ).lower()
+                                                existing_series_folder_from_library = (
+                                                    remove_bracketed_info_from_name(
+                                                        remove_punctuation(dir)
+                                                    )
+                                                ).lower()
+                                                similarity_score = similar(
+                                                    existing_series_folder_from_library,
+                                                    downloaded_file_series_name,
+                                                )
+                                                print(
+                                                    "\t\tCHECKING: "
+                                                    + downloaded_file_series_name
+                                                    + "\n\t\tAGAINST: "
+                                                    + existing_series_folder_from_library
+                                                    + "\n\t\tSCORE: "
+                                                    + str(similarity_score)
+                                                    + "\n"
+                                                )
+                                                scores.append(
+                                                    Result(dir, similarity_score)
+                                                )
+                                                if (
+                                                    similarity_score
+                                                    >= required_similarity_score
+                                                ):
+                                                    write_to_file(
+                                                        "changes.txt",
+                                                        (
+                                                            '\t\tSimilarity between: "'
+                                                            + existing_series_folder_from_library
+                                                            + '" and "'
+                                                            + downloaded_file_series_name
+                                                            + '"'
+                                                        ),
+                                                    )
+                                                    write_to_file(
+                                                        "changes.txt",
+                                                        (
+                                                            "\tSimilarity Score: "
+                                                            + str(similarity_score)
+                                                            + " out of 1.0"
+                                                        ),
+                                                    )
+                                                    print(
                                                         '\t\tSimilarity between: "'
                                                         + existing_series_folder_from_library
                                                         + '" and "'
                                                         + downloaded_file_series_name
-                                                        + '"'
-                                                    ),
-                                                )
-                                                write_to_file(
-                                                    "changes.txt",
-                                                    (
-                                                        "\tSimilarity Score: "
+                                                        + '" Score: '
                                                         + str(similarity_score)
-                                                        + " out of 1.0"
-                                                    ),
-                                                )
-                                                print(
-                                                    '\t\tSimilarity between: "'
-                                                    + existing_series_folder_from_library
-                                                    + '" and "'
-                                                    + downloaded_file_series_name
-                                                    + '" Score: '
-                                                    + str(similarity_score)
-                                                    + " out of 1.0\n"
-                                                )
-                                                done = check_upgrade(
-                                                    folder_accessor.root,
-                                                    dir,
-                                                    file,
-                                                )
-                                                if done:
-                                                    break
-                                                else:
-                                                    continue
-                                        if not done and match_through_isbn_or_series_id:
-                                            directories_found = []
-                                            download_file_isbn = None
-                                            download_file_isbn = get_meta_from_file(
-                                                file.path,
-                                                "(9([-_. :]+)?7([-_. :]+)?(8|9)(([-_. :]+)?[0-9]){10})",
-                                                file.extension,
-                                            )
-                                            download_file_series_id = None
-                                            download_file_series_id = (
-                                                get_meta_from_file(
-                                                    file.path,
-                                                    "series_id:.*",
-                                                    file.extension,
-                                                )
-                                            )
-                                            if (
-                                                download_file_isbn
-                                                or download_file_series_id
-                                            ):
-                                                print(
-                                                    "\t\tChecking existing library for a matching ISBN or Series ID... (may take awhile depending on library size)"
-                                                )
-                                                for dir, subdir, files in os.walk(path):
-                                                    if done:
-                                                        break
-                                                    clean_and_sort(dir, files, subdir)
-                                                    for f in files:
-                                                        extension = os.path.splitext(f)[
-                                                            1
-                                                        ]
-                                                        existing_file_isbn = None
-                                                        existing_file_isbn = get_meta_from_file(
-                                                            os.path.join(dir, f),
-                                                            "(9([-_. :]+)?7([-_. :]+)?(8|9)(([-_. :]+)?[0-9]){10})",
-                                                            file.extension,
-                                                        )
-                                                        existing_file_series_id = None
-                                                        existing_file_series_id = (
-                                                            get_meta_from_file(
-                                                                os.path.join(dir, f),
-                                                                "series_id:.*",
-                                                                file.extension,
-                                                            )
-                                                        )
-                                                        if (
-                                                            existing_file_isbn
-                                                            or existing_file_series_id
-                                                        ):
-                                                            if (
-                                                                download_file_isbn
-                                                                and existing_file_isbn
-                                                            ):
-                                                                print(
-                                                                    (
-                                                                        "\t\t("
-                                                                        + str(
-                                                                            download_file_isbn
-                                                                        )
-                                                                        + " - "
-                                                                        + str(
-                                                                            existing_file_isbn
-                                                                        )
-                                                                        + ")"
-                                                                    ),
-                                                                    end="\r",
-                                                                )
-                                                            if (
-                                                                download_file_series_id
-                                                                and existing_file_series_id
-                                                            ):
-                                                                print(
-                                                                    (
-                                                                        "\t\t("
-                                                                        + str(
-                                                                            download_file_series_id
-                                                                        )
-                                                                        + " - "
-                                                                        + str(
-                                                                            existing_file_series_id
-                                                                        )
-                                                                        + ")"
-                                                                    ),
-                                                                    end="\r",
-                                                                )
-                                                            if (
-                                                                (
-                                                                    download_file_isbn
-                                                                    == existing_file_isbn
-                                                                )
-                                                                and (
-                                                                    download_file_isbn
-                                                                    and existing_file_isbn
-                                                                )
-                                                            ) or (
-                                                                (
-                                                                    download_file_series_id
-                                                                    == existing_file_series_id
-                                                                )
-                                                                and (
-                                                                    download_file_series_id
-                                                                    and existing_file_series_id
-                                                                )
-                                                            ):
-                                                                directories_found.append(
-                                                                    dir
-                                                                )
-                                            if directories_found:
-                                                directories_found = remove_duplicates(
-                                                    directories_found
-                                                )
-                                                if len(directories_found) == 1:
-                                                    send_change_message(
-                                                        "\t\t\tMach found in: "
-                                                        + directories_found[0]
-                                                    )
-                                                    base = os.path.basename(
-                                                        directories_found[0]
+                                                        + " out of 1.0\n"
                                                     )
                                                     done = check_upgrade(
                                                         folder_accessor.root,
-                                                        base,
+                                                        dir,
                                                         file,
                                                     )
+                                                    if done:
+                                                        break
+                                                    else:
+                                                        continue
+                                            if (
+                                                not done
+                                                and match_through_isbn_or_series_id
+                                            ):
+                                                directories_found = []
+                                                download_file_isbn = None
+                                                download_file_isbn = get_meta_from_file(
+                                                    file.path,
+                                                    "(9([-_. :]+)?7([-_. :]+)?(8|9)(([-_. :]+)?[0-9]){10})",
+                                                    file.extension,
+                                                )
+                                                download_file_series_id = None
+                                                download_file_series_id = (
+                                                    get_meta_from_file(
+                                                        file.path,
+                                                        "series_id:.*",
+                                                        file.extension,
+                                                    )
+                                                )
+                                                if (
+                                                    download_file_isbn
+                                                    or download_file_series_id
+                                                ):
+                                                    print(
+                                                        "\t\tChecking existing library for a matching ISBN or Series ID... (may take awhile depending on library size)"
+                                                    )
+                                                    for dir, subdir, files in os.walk(
+                                                        root
+                                                    ):
+                                                        if done:
+                                                            break
+                                                        clean_and_sort(
+                                                            dir, files, subdir
+                                                        )
+                                                        for f in files:
+                                                            extension = (
+                                                                os.path.splitext(f)[1]
+                                                            )
+                                                            if (
+                                                                extension
+                                                                != file.extension
+                                                            ):
+                                                                continue
+                                                            existing_file_isbn = None
+                                                            existing_file_isbn = get_meta_from_file(
+                                                                os.path.join(dir, f),
+                                                                "(9([-_. :]+)?7([-_. :]+)?(8|9)(([-_. :]+)?[0-9]){10})",
+                                                                file.extension,
+                                                            )
+                                                            existing_file_series_id = (
+                                                                None
+                                                            )
+                                                            existing_file_series_id = (
+                                                                get_meta_from_file(
+                                                                    os.path.join(
+                                                                        dir, f
+                                                                    ),
+                                                                    "series_id:.*",
+                                                                    file.extension,
+                                                                )
+                                                            )
+                                                            if (
+                                                                existing_file_isbn
+                                                                or existing_file_series_id
+                                                            ):
+                                                                if (
+                                                                    download_file_isbn
+                                                                    and existing_file_isbn
+                                                                ):
+                                                                    print(
+                                                                        (
+                                                                            "\t\t("
+                                                                            + str(
+                                                                                download_file_isbn
+                                                                            )
+                                                                            + " - "
+                                                                            + str(
+                                                                                existing_file_isbn
+                                                                            )
+                                                                            + ")"
+                                                                        ),
+                                                                        end="\r",
+                                                                    )
+                                                                if (
+                                                                    download_file_series_id
+                                                                    and existing_file_series_id
+                                                                ):
+                                                                    print(
+                                                                        (
+                                                                            "\t\t("
+                                                                            + str(
+                                                                                download_file_series_id
+                                                                            )
+                                                                            + " - "
+                                                                            + str(
+                                                                                existing_file_series_id
+                                                                            )
+                                                                            + ")"
+                                                                        ),
+                                                                        end="\r",
+                                                                    )
+                                                                if (
+                                                                    (
+                                                                        download_file_isbn
+                                                                        == existing_file_isbn
+                                                                    )
+                                                                    and (
+                                                                        download_file_isbn
+                                                                        and existing_file_isbn
+                                                                    )
+                                                                ) or (
+                                                                    (
+                                                                        download_file_series_id
+                                                                        == existing_file_series_id
+                                                                    )
+                                                                    and (
+                                                                        download_file_series_id
+                                                                        and existing_file_series_id
+                                                                    )
+                                                                ):
+                                                                    directories_found.append(
+                                                                        dir
+                                                                    )
+                                                if directories_found:
+                                                    directories_found = (
+                                                        remove_duplicates(
+                                                            directories_found
+                                                        )
+                                                    )
+                                                    if len(directories_found) == 1:
+                                                        send_change_message(
+                                                            "\n\t\t\tMach found in: "
+                                                            + directories_found[0]
+                                                        )
+                                                        base = os.path.basename(
+                                                            directories_found[0]
+                                                        )
+                                                        done = check_upgrade(
+                                                            folder_accessor.root,
+                                                            base,
+                                                            file,
+                                                        )
+                                                    else:
+                                                        print(
+                                                            "\t\t\tMatching ISBN or Series ID found in multiple directories."
+                                                        )
+                                                        for d in directories_found:
+                                                            print("\t\t\t\t" + d)
+                                                        print(
+                                                            "\t\t\tDisregarding Matches..."
+                                                        )
                                                 else:
                                                     print(
-                                                        "\t\t\tMatching ISBN or Series ID found in multiple directories."
+                                                        "\t\t\tNo match found in: "
+                                                        + root
                                                     )
-                                                    for d in directories_found:
-                                                        print("\t\t\t\t" + d)
-                                                    print(
-                                                        "\t\t\tDisregarding Matches..."
-                                                    )
-                                            else:
-                                                print(
-                                                    "\t\t\tNo match found in: " + path
-                                                )
                                 except FileNotFoundError:
                                     send_error_message(
                                         "\nERROR: " + path + " is not a valid path.\n"
@@ -1761,11 +1798,25 @@ def rename_dirs_in_download_folder():
                             if not os.path.isdir(
                                 os.path.join(folder_accessor.root, dir_clean)
                             ):
+                                print("\tBEFORE: " + folderDir)
+                                print("\tAFTER:  " + dir_clean)
+                                user_input = ""
+                                if manual_rename:
+                                    user_input = input("Rename (y or n): ")
+                                else:
+                                    user_input = "y"
                                 try:
-                                    os.rename(
-                                        os.path.join(folder_accessor.root, folderDir),
-                                        os.path.join(folder_accessor.root, dir_clean),
-                                    )
+                                    if user_input.lower().strip() == "y":
+                                        os.rename(
+                                            os.path.join(
+                                                folder_accessor.root, folderDir
+                                            ),
+                                            os.path.join(
+                                                folder_accessor.root, dir_clean
+                                            ),
+                                        )
+                                    else:
+                                        continue
                                 except OSError as e:
                                     send_error_message(e)
                             elif (
@@ -2174,7 +2225,7 @@ def rename_files_in_download_folders():
                                                     send_change_message(
                                                         "\tSuccessfully renamed file: "
                                                         + file.name
-                                                        + " to "
+                                                        + "\n\tto "
                                                         + replacement
                                                     )
                                                     for (
