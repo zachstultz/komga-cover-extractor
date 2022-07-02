@@ -513,6 +513,8 @@ def get_epub_cover(epub_path):
             cover_href = t.xpath(
                 "//opf:manifest/opf:item[@id='" + cover_id + "']", namespaces=namespaces
             )[0].get("href")
+            if re.search(r"%", cover_href):
+                cover_href = urllib.parse.unquote(cover_href)
             cover_path = os.path.join(os.path.dirname(rootfile_path), cover_href)
             return cover_path
         return None
@@ -1329,9 +1331,9 @@ def get_meta_from_file(file, search, extension):
                     opf_file = zf.open(name)
                     opf_file_contents = opf_file.read()
                     lines = opf_file_contents.decode("utf-8")
-                    search = re.search(search, lines, re.IGNORECASE)
-                    if search:
-                        result = search.group(0)
+                    search_result = re.search(search, lines, re.IGNORECASE)
+                    if search_result:
+                        result = search_result.group(0)
                         result = re.sub(r"<\/?.*>", "", result)
                         result = re.sub(
                             r"(series_id:NONE)", "", result, flags=re.IGNORECASE
@@ -1342,9 +1344,9 @@ def get_meta_from_file(file, search, extension):
     elif extension == ".cbz":
         zip_comment = get_zip_comment(file)
         if zip_comment:
-            search = re.search(search, zip_comment, re.IGNORECASE)
-            if search:
-                result = search.group(0)
+            search_result = re.search(search, zip_comment, re.IGNORECASE)
+            if search_result:
+                result = search_result.group(0)
                 result = re.sub(r"(series_id:NONE)", "", result, flags=re.IGNORECASE)
                 if re.search(r"(series_id:.*,)", result, re.IGNORECASE):
                     result = re.sub(r",.*", "", result).strip()
