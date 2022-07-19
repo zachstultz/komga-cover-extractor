@@ -129,6 +129,12 @@ processed_files = []
 # and epubs internal contents.
 internal_epub_extensions = [".xhtml", ".opf", ".ncx", ".xml", ".html"]
 
+# Keyword Class
+class Keyword:
+    def __init__(self, name, score):
+        self.name = name
+        self.score = score
+
 # Keywords ranked by point values, used when determining if a downloaded volume
 # is an upgrade to the existing volume in the library. Case is ignored when checked.
 # EX: Keyword(r"Keyword or Regex", point_value)
@@ -207,14 +213,7 @@ class Volume:
         self.multi_volume = multi_volume
         self.is_one_shot = is_one_shot
 
-
-# Keyword Class
-class Keyword:
-    def __init__(self, name, score):
-        self.name = name
-        self.score = score
-
-
+        
 volume_keywords = [
     "LN",
     "Light Novel",
