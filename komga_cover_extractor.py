@@ -30,8 +30,8 @@ from bs4 import BeautifulSoup, SoupStrainer
 # ************************************
 
 # Do not hardcode these, pass them in!
-paths = [""]
-download_folders = [""]
+paths = []
+download_folders = []
 
 # Folder names to be ignored
 ignored_folder_names = [""]
