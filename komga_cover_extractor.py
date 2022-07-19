@@ -12,6 +12,7 @@ import calendar
 import requests
 import time
 import scandir
+import random
 from PIL import Image
 from PIL import ImageFile
 from lxml import etree
@@ -79,7 +80,7 @@ required_similarity_score = 0.9790
 preferred_volume_renaming_format = "v"
 
 # A discord webhook url used to send messages to discord about the changes made.
-discord_webhook_url = ""
+discord_webhook_url = []
 
 # Whether or not to add the issue number to the file name
 # Useful when using ComicTagger
@@ -112,7 +113,8 @@ match_through_isbn_or_series_id = False
 log_to_file = False
 
 # If enabled, it will extract all important bits of information from the file, basically restructuring
-# when renaming
+# when renaming.
+# Also changes the series name to the folder name that it's being moved to.
 resturcture_when_renaming = False
 
 # Whether or not to search an epub file for premium content if no
@@ -122,6 +124,15 @@ search_and_add_premium_to_file_name = False
 # A quick and dirty fix to avoid non-processed files from
 # being moved over to the existing library. Will be removed in the future.
 processed_files = []
+
+# All extensions that aren't in this list will be ignored when searching
+# and epubs internal contents.
+internal_epub_extensions = [".xhtml", ".opf", ".ncx", ".xml", ".html"]
+
+# Keywords ranked by point values, used when determining if a downloaded volume
+# is an upgrade to the existing volume in the library. Case is ignored when checked.
+# EX: Keyword(r"Keyword or Regex", point_value)
+ranked_keywords = []
 
 # Folder Class
 class Folder:
@@ -173,6 +184,7 @@ class Volume:
         path,
         extensionless_path,
         extras,
+        revision_number,
         multi_volume=None,
         is_one_shot=None,
     ):
@@ -191,6 +203,7 @@ class Volume:
         self.path = path
         self.extensionless_path = extensionless_path
         self.extras = extras
+        self.revision_number = revision_number
         self.multi_volume = multi_volume
         self.is_one_shot = is_one_shot
 
@@ -200,12 +213,6 @@ class Keyword:
     def __init__(self, name, score):
         self.name = name
         self.score = score
-
-
-# Keywords ranked by point values, used when determining if a downloaded volume
-# is an upgrade to the existing volume in the library. Case is ignored when checked.
-# EX: Keyword(r"Keyword or Regex", point_value)
-ranked_keywords = []
 
 
 volume_keywords = [
@@ -249,6 +256,8 @@ def parse_my_args():
     parser.add_argument(
         "-wh",
         "--webhook",
+        action="append",
+        nargs="*",
         help="The discord webhook url for notifications about changes and errors.",
         required=False,
     )
@@ -286,7 +295,11 @@ def parse_my_args():
             for folder in download_folder:
                 download_folders.append(folder)
     if parser.webhook is not None:
-        discord_webhook_url = parser.webhook
+        discord_webhook_url = []
+        for item in parser.webhook:
+            for hook in item:
+                if hook not in discord_webhook_url:
+                    discord_webhook_url.append(hook)
     if parser.bookwalker_check is not None:
         if (
             parser.bookwalker_check == 1
@@ -332,6 +345,7 @@ def set_num_as_float_or_int(num):
     return num
 
 
+# Handles image compression
 def compress_image(image_path, quality=image_quality, to_jpg=False):
     img = Image.open(image_path)
     filename, ext = os.path.splitext(image_path)
@@ -377,9 +391,11 @@ def send_change_message(message):
 # Sends a discord message using the users webhook url
 def send_discord_message(message):
     try:
-        if discord_webhook_url != "":
+        if discord_webhook_url:
             webhook = DiscordWebhook(
-                url=discord_webhook_url, content=message, rate_limit_retry=True
+                url=random.choice(discord_webhook_url),
+                content=message,
+                rate_limit_retry=True,
             )
             webhook.execute()
     except TypeError as e:
@@ -682,10 +698,8 @@ def create_folders_for_items_in_download_folder():
                                     move_file(file, folder_location)
                                 else:
                                     move_file(file, folder_location)
-            except FileNotFoundError:
-                send_error_message(
-                    "\nERROR: " + download_folder + " is not a valid path.\n"
-                )
+            except Exception as e:
+                send_error_message(e)
         else:
             if download_folder == "":
                 send_error_message("\nERROR: Path cannot be empty.")
@@ -871,6 +885,7 @@ def upgrade_to_volume_class(files):
             file.path,
             file.extensionless_path,
             get_extras(file.name, file.root),
+            None,  # get_meta_from_file(file.path, [r"(<.>Ebook edition.*<\/.>)"]),
             check_for_multi_volume_file(file.name),
             is_one_shot=is_one_shot(file.name, file.root),
         )
@@ -950,7 +965,7 @@ def move_file(file, new_location):
             shutil.move(file.path, new_location)
             if os.path.isfile(os.path.join(new_location, file.name)):
                 send_change_message(
-                    "\t\tMoved File:\n\t\t\t" + file.name + " to " + new_location
+                    "\t\tMoved File: " + file.name + " to " + new_location
                 )
                 move_images(file, new_location)
             else:
@@ -1036,7 +1051,7 @@ def check_and_delete_empty_folder(folder):
     remove_hidden_files(folder_contents, folder)
     if len(folder_contents) == 0:
         try:
-            print("\t\tRemoving empty folder: " + folder)
+            print("\t\t\tRemoving empty folder: " + folder)
             os.rmdir(folder)
         except OSError as e:
             send_error_message(e)
@@ -1328,22 +1343,24 @@ class Result:
 
 
 # gets the user passed result from an epub file
-def get_meta_from_file(file, searches):
+def get_meta_from_file(file, searches, parse_tags=False):
     extension = get_file_extension(file)
     results = []
     if extension == ".epub":
         with zipfile.ZipFile(file, "r") as zf:
             for name in zf.namelist():
-                if name.endswith(".opf"):
-                    opf_file = zf.open(name)
-                    opf_file_contents = opf_file.read()
-                    lines = opf_file_contents.decode("utf-8")
+                internal_file_extension = get_file_extension(name)
+                if internal_file_extension in internal_epub_extensions:
+                    internal_file = zf.open(name)
+                    internal_file_contents = internal_file.read()
+                    lines = internal_file_contents.decode("utf-8")
                     for search in searches:
                         search_result = None
                         result = None
                         search_result = re.search(search, lines, re.IGNORECASE)
                         if search_result:
                             result = search_result.group(0)
+                            result = re.sub(r"isbn:", "", result).strip()
                             result = re.sub(r"<\/?.*>", "", result)
                             result = re.sub(
                                 r"(series_id:NONE)", "", result, flags=re.IGNORECASE
@@ -1372,8 +1389,8 @@ def get_meta_from_file(file, searches):
     return results
 
 
-# gets the toc.xhtml file from the epub file and checks the toc for premium content
-def get_toc(file):
+# gets the toc.xhtml or copyright.xhtml file from the epub file and checks for premium content
+def get_toc_or_copyright(file):
     bonus_content_found = False
     with zipfile.ZipFile(file, "r") as zf:
         for name in zf.namelist():
@@ -1384,6 +1401,16 @@ def get_toc(file):
                 search = re.search(
                     r"(Bonus\s+((Color\s+)?Illustrations?|(Short\s+)?Stories))",
                     lines,
+                )
+                if search:
+                    bonus_content_found = search.group(0)
+                    break
+            elif os.path.basename(name) == "copyright.xhtml":
+                cop_file = zf.open(name)
+                cop_file_contents = cop_file.read()
+                lines = cop_file_contents.decode("utf-8")
+                search = re.search(
+                    r"(Premium(\s)+(E?-?Book|Epub))", lines, re.IGNORECASE
                 )
                 if search:
                     bonus_content_found = search.group(0)
@@ -1504,8 +1531,8 @@ def check_for_existing_series():
                             download_file_isbn = None
                             download_file_series_id = None
                             searches = [
-                                "(9([-_. :]+)?7([-_. :]+)?(8|9)(([-_. :]+)?[0-9]){10})",
-                                "series_id:.*",
+                                r"(isbn:9([-_. :]+)?7([-_. :]+)?(8|9)(([-_. :]+)?[0-9]){10})",
+                                r"series_id:.*",
                             ]
                             if match_through_isbn_or_series_id:
                                 download_file_meta = get_meta_from_file(
@@ -1734,12 +1761,8 @@ def check_for_existing_series():
                                                                         directories_found.append(
                                                                             f.root
                                                                         )
-                                    except FileNotFoundError:
-                                        send_error_message(
-                                            "\nERROR: "
-                                            + path
-                                            + " is not a valid path.\n"
-                                        )
+                                    except Exception as e:
+                                        send_error_message(e)
                             if not done and match_through_isbn_or_series_id:
                                 if directories_found:
                                     directories_found = remove_duplicates(
@@ -1835,8 +1858,15 @@ def rename_dirs_in_download_folder():
                                 re.IGNORECASE,
                             )
                             or re.search(r"\bPremium\b", folderDir, re.IGNORECASE)
+                            or re.search(r":", folderDir, re.IGNORECASE)
+                            or re.search(r"([A-Za-z])(_)", folderDir, re.IGNORECASE)
                         ):
                             dir_clean = get_series_name(folderDir)
+                            dir_clean = re.sub(r"([A-Za-z])(_)", r"\1 ", dir_clean)
+                            # replace : with - in dir_clean
+                            dir_clean = re.sub(r"([A-Za-z])(\:)", r"\1 -", dir_clean)
+                            # remove dual spaces from dir_clean
+                            dir_clean = remove_dual_space(dir_clean).strip()
                             if not os.path.isdir(
                                 os.path.join(folder_accessor.root, dir_clean)
                             ):
@@ -1920,10 +1950,8 @@ def rename_dirs_in_download_folder():
                                         check_and_delete_empty_folder(
                                             folder_accessor2.root
                                         )
-            except FileNotFoundError:
-                send_error_message(
-                    "\nERROR: " + download_folder + " is not a valid path.\n"
-                )
+            except Exception as e:
+                send_error_message(e)
         else:
             if download_folder == "":
                 send_error_message("\nERROR: Path cannot be empty.")
@@ -2205,7 +2233,7 @@ def rename_files_in_download_folders():
                                 ):
                                     if (
                                         check_for_bonus_xhtml(file.path)
-                                        or get_toc(file.path)
+                                        or get_toc_or_copyright(file.path)
                                     ) and not re.search(
                                         r"\bPremium\b", file.name, re.IGNORECASE
                                     ):
@@ -2241,6 +2269,12 @@ def rename_files_in_download_folders():
                                 replacement = remove_dual_space(
                                     re.sub(r"_", " ", replacement)
                                 ).strip()
+                                # replace : with - in dir_clean
+                                replacement = re.sub(
+                                    r"([A-Za-z])(\:)", r"\1 -", replacement
+                                )
+                                # remove dual spaces from dir_clean
+                                replacement = remove_dual_space(replacement)
                                 if file.name != replacement:
                                     try:
                                         if not (
