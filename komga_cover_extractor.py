@@ -40,7 +40,7 @@ ignored_folder_names = [""]
 file_extensions = ["epub", "cbz", "cbr"]  # (cbr is only used for the stat printout)
 image_extensions = ["jpg", "jpeg", "png", "tbn", "jxl"]
 # file extensions deleted from the download folders in an optional method. [".example"]
-unaccepted_file_extensions = [""]
+unaccepted_file_extensions = []
 series_cover_file_names = ["cover", "poster"]
 
 # Our global folder_accessor
@@ -67,7 +67,7 @@ items_changed = []
 # the download folder and the existing folder
 #
 # For exmpale, 90% of the folder's files must be CBZ or EPUB
-# Used to avoid accdientally matching a epub volume to a manga library
+# Used to avoid accdientally matching an epub volume to a manga library
 # or vice versa because they can have the same exact series name.
 required_matching_percentage = 90
 
@@ -113,7 +113,7 @@ match_through_isbn_or_series_id = False
 log_to_file = False
 
 # If enabled, it will extract all important bits of information from the file, basically restructuring
-# when renaming.
+# when renaming
 # Also changes the series name to the folder name that it's being moved to.
 resturcture_when_renaming = False
 
@@ -126,7 +126,7 @@ search_and_add_premium_to_file_name = False
 processed_files = []
 
 # All extensions that aren't in this list will be ignored when searching
-# and epubs internal contents.
+# an epubs internal contents.
 internal_epub_extensions = [".xhtml", ".opf", ".ncx", ".xml", ".html"]
 
 # Keyword Class
@@ -134,6 +134,7 @@ class Keyword:
     def __init__(self, name, score):
         self.name = name
         self.score = score
+
 
 # Keywords ranked by point values, used when determining if a downloaded volume
 # is an upgrade to the existing volume in the library. Case is ignored when checked.
@@ -662,7 +663,7 @@ def create_folders_for_items_in_download_folder():
     for download_folder in download_folders:
         if os.path.exists(download_folder):
             try:
-                for root, dirs, files in scandir.walk(download_folder, topdown=True):
+                for root, dirs, files in scandir.walk(download_folder):
                     clean_and_sort(root, files, dirs)
                     global folder_accessor
                     file_objects = upgrade_to_file_class(files, root)
@@ -1022,9 +1023,7 @@ def remove_duplicate_releases_from_download(original_releases, downloaded_releas
                                 + download.name
                                 + " is not an upgrade to: "
                                 + original.name
-                            )
-                            send_change_message(
-                                "\t\tDeleting "
+                                + "\n\t\tDeleting: "
                                 + download.name
                                 + " from download folder."
                             )
@@ -1037,8 +1036,9 @@ def remove_duplicate_releases_from_download(original_releases, downloaded_releas
                                 + download.name
                                 + " is an upgrade to: "
                                 + original.name
+                                + "\n\t\tUpgrading "
+                                + original.name
                             )
-                            send_change_message("\t\tUpgrading " + original.name)
                             replace_file(original, download)
 
 
@@ -1296,8 +1296,9 @@ def remove_dual_space(s):
     return re.sub("(\s{2,})", " ", s)
 
 
-# Removes common words that to improve matching accuracy for titles that sometimes
-# include them, and sometimes don't.
+# Removes common words to improve string matching accuracy between a series_name
+# from a file name, and a folder name, useful for when releasers sometimes include them,
+# and sometimes don't.
 def remove_common_words(s):
     common_words_to_remove = [
         "the",
@@ -1312,6 +1313,21 @@ def remove_common_words(s):
         "Light Novel",
         "Manga",
         "Collection",
+        "LN",
+        "wa",
+        "o",
+        "mo",
+        "ni",
+        "e",
+        "de",
+        "ga",
+        "kara",
+        "made",
+        "to",
+        "ya",
+        "no",
+        "ne",
+        "yo",
     ]
     for word in common_words_to_remove:
         s = re.sub(rf"\b{word}\b", "", s, flags=re.IGNORECASE).strip()
@@ -1463,9 +1479,10 @@ def check_upgrade(existing_root, dir, file):
                     + volume.name
                     + " does not exist in: "
                     + existing_dir
-                )
-                send_change_message(
-                    "\t\t\tMoving: " + volume.name + " to " + existing_dir
+                    + "\n\t\t\tMoving: "
+                    + volume.name
+                    + " to "
+                    + existing_dir
                 )
                 move_file(volume, existing_dir)
                 check_and_delete_empty_folder(volume.root)
@@ -1497,7 +1514,16 @@ def remove_bracketed_info_from_name(name):
 # Useful for when testing new code changes intended
 # to speedup the existing code.
 def print_execution_time(start_time):
-    print(
+    message = ""
+    if len(processed_files) > 1:
+        message = (
+            " seconds for " + str(len(processed_files)) + " files, with all features."
+        )
+    elif len(processed_files) == 1:
+        message = (
+            " seconds for " + str(len(processed_files)) + " file, with all features."
+        )
+    send_change_message(
         "\n\t\t\tTotal execution time: "
         + str(
             round(
@@ -1505,7 +1531,9 @@ def print_execution_time(start_time):
                 2,
             )
         )
-        + " seconds."
+        + message
+        + "\n"
+        + str(processed_files)
     )
 
 
@@ -1515,7 +1543,7 @@ def check_for_existing_series():
     start_time = time.time()
     for download_folder in download_folders:
         if os.path.exists(download_folder):
-            for root, dirs, files in scandir.walk(download_folder, topdown=True):
+            for root, dirs, files in scandir.walk(download_folder):
                 clean_and_sort(root, files, dirs)
                 volumes = upgrade_to_volume_class(
                     upgrade_to_file_class(
@@ -1548,9 +1576,7 @@ def check_for_existing_series():
                                 ):
                                     try:
                                         os.chdir(path)
-                                        for root, dirs, files in scandir.walk(
-                                            path, topdown=True
-                                        ):
+                                        for root, dirs, files in scandir.walk(path):
                                             if done:
                                                 break
                                             clean_and_sort(root, files, dirs)
@@ -1901,7 +1927,6 @@ def rename_dirs_in_download_folder():
                                 ) != os.path.join(folder_accessor.root, dir_clean):
                                     for root, dirs, files in scandir.walk(
                                         os.path.join(folder_accessor.root, folderDir),
-                                        topdown=True,
                                     ):
                                         remove_hidden_files(files, root)
                                         file_objects = upgrade_to_file_class(
@@ -2093,7 +2118,7 @@ def rename_files_in_download_folders():
     global manual_rename
     for path in download_folders:
         if os.path.exists(path):
-            for root, dirs, files in scandir.walk(path, topdown=True):
+            for root, dirs, files in scandir.walk(path):
                 clean_and_sort(root, files, dirs)
                 volumes = upgrade_to_volume_class(
                     upgrade_to_file_class(
@@ -2299,7 +2324,7 @@ def rename_files_in_download_folders():
                                                     os.path.join(root, replacement)
                                                 ):
                                                     send_change_message(
-                                                        "\tSuccessfully renamed file: \n\t"
+                                                        "\tSuccessfully renamed file: \n\t\t"
                                                         + file.name
                                                         + " to "
                                                         + replacement
@@ -2380,7 +2405,7 @@ def rename_files_in_download_folders():
 # check if volume file name is a chapter
 def contains_chapter_keywords(file_name):
     return re.search(
-        r"(((ch|c|d|chapter|chap)([-_. ]+)?([0-9]+))|\s+([0-9]+)(\.[0-9]+)?(x\d+((\.\d+)+)?)?(\s+|#\d+|\.cbz))",
+        r"(((ch|d|chapter|chap)([-_. ]+)?([0-9]+))|\s+([0-9]+)(\.[0-9]+)?(x\d+((\.\d+)+)?)?(\s+|#\d+|\.cbz))",
         file_name,
         re.IGNORECASE,
     )
@@ -2397,11 +2422,9 @@ def delete_chapters_from_downloads():
         for path in download_folders:
             if os.path.exists(path):
                 os.chdir(path)
-                for root, dirs, files in scandir.walk(path, topdown=True):
+                for root, dirs, files in scandir.walk(path):
                     # clean_and_sort(root, files, dirs)
                     remove_ignored_folders(dirs)
-                    dirs.sort()
-                    files.sort()
                     remove_hidden_files(files, root)
                     for file in files:
                         if (
@@ -2418,7 +2441,7 @@ def delete_chapters_from_downloads():
                                     + "\n\t\tDeleting chapter release."
                                 )
                                 remove_file(os.path.join(root, file))
-                for root, dirs, files in scandir.walk(path, topdown=True):
+                for root, dirs, files in scandir.walk(path):
                     clean_and_sort(root, files, dirs)
                     for dir in dirs:
                         check_and_delete_empty_folder(os.path.join(root, dir))
@@ -2470,7 +2493,6 @@ def find_and_extract_cover(file):
             zip_list = [
                 x for x in zip_list if not x.endswith("/") and re.search(r"\.", x)
             ]
-            zip_list.sort()
             if zip_list:
                 if not epub_cover_path:
                     for image_file in zip_list:
@@ -2599,12 +2621,10 @@ def extract_covers():
     for path in paths:
         if os.path.exists(path):
             os.chdir(path)
-            for root, dirs, files in scandir.walk(path, topdown=True):
+            for root, dirs, files in scandir.walk(path):
                 global folder_accessor
                 clean_and_sort(root, files, dirs)
                 remove_ignored_folders(dirs)
-                dirs.sort()
-                files.sort()
                 remove_hidden_files(files, root)
                 print("\nRoot: " + root)
                 print("Dirs: " + str(dirs))
@@ -2711,17 +2731,25 @@ def delete_unacceptable_files():
         for path in download_folders:
             if os.path.exists(path):
                 os.chdir(path)
-                for root, dirs, files in scandir.walk(path, topdown=True):
+                for root, dirs, files in scandir.walk(path):
                     # clean_and_sort(root, files, dirs)
                     remove_ignored_folders(dirs)
-                    dirs.sort()
-                    files.sort()
                     remove_hidden_files(files, root)
                     for file in files:
                         extension = get_file_extension(file)
                         if extension in unaccepted_file_extensions:
                             remove_file(os.path.join(root, file))
-                for root, dirs, files in scandir.walk(path, topdown=True):
+                            if not os.path.isfile(os.path.join(root, file)):
+                                send_change_message(
+                                    "\t\tSuccessfully removed unacceptable file: "
+                                    + os.path.join(root, file)
+                                )
+                            else:
+                                send_error_message(
+                                    "\t\tFailed to remove unacceptable file: "
+                                    + os.path.join(root, file)
+                                )
+                for root, dirs, files in scandir.walk(path):
                     clean_and_sort(root, files, dirs)
                     for dir in dirs:
                         check_and_delete_empty_folder(os.path.join(root, dir))
