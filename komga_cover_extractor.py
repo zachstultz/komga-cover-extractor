@@ -22,34 +22,22 @@ from difflib import SequenceMatcher
 from datetime import datetime
 from discord_webhook import DiscordWebhook
 from bs4 import BeautifulSoup, SoupStrainer
+from settings import *
 
 
-# ************************************
-# Created by: Zach Stultz            *
-# Git: https://github.com/zachstultz *
-# ************************************
-
-# Do not hardcode these, pass them in!
+# Paths = existing library
+# Download_folders = newly aquired manga/novels
 paths = []
 download_folders = []
 
-# Folder names to be ignored
-ignored_folder_names = [""]
-
-# List of file types used throughout the program
-file_extensions = ["epub", "cbz", "cbr"]  # (cbr is only used for the stat printout)
-image_extensions = ["jpg", "jpeg", "png", "tbn", "jxl"]
-# file extensions deleted from the download folders in an optional method. [".example"]
-unaccepted_file_extensions = []
-series_cover_file_names = ["cover", "poster"]
-
-# Our global folder_accessor
+# global folder_accessor
 folder_accessor = None
 
 # whether or not to compress the extractred images
 compress_image_option = False
 
-# Default image compression value
+# Default image compression value.
+# Pass in via cli
 image_quality = 60
 
 # Stat-related
@@ -63,63 +51,15 @@ poster_found = 0
 errors = []
 items_changed = []
 
-# The required file type matching percentage between
-# the download folder and the existing folder
-#
-# For exmpale, 90% of the folder's files must be CBZ or EPUB
-# Used to avoid accdientally matching an epub volume to a manga library
-# or vice versa because they can have the same exact series name.
-required_matching_percentage = 90
-
-# The required score when comparing two strings likeness, used when matching a series_name to a folder name.
-required_similarity_score = 0.9790
-
-# The preferred naming format used by rename_files_in_download_folders()
-# v = v01, Volume = Volume01, and so on.
-# IF YOU WANT A SPACE BETWEEN THE TWO, ADD IT IN THE PREFERRED NAMING.
-preferred_volume_renaming_format = "v"
-
 # A discord webhook url used to send messages to discord about the changes made.
+# Pass in via cli
 discord_webhook_url = []
-
-# Whether or not to add the issue number to the file name
-# Useful when using ComicTagger
-# TRUE: manga v01 #01 (2001).cbz
-# FALSE: manga v01 (2001).cbz
-add_issue_number_to_cbz_file_name = False
-
-# Whether or not to add a volume number one to one-shot volumes
-# Useful for Comictagger matching, and enabling upgrading of
-# one-shot volumes.
-# Requires the one shot to be the only cbz or epub file within the folder.
-add_volume_one_number_to_one_shots = False
-
-# Newly released volumes that aren't currently in the library.
-new_releases_on_bookwalker = []
 
 # Whether or not to check the library against bookwalker for new releases.
 bookwalker_check = False
 
-# False = files with be renamed automatically
-# True = user will be prompted for approval
-manual_rename = True
-
-# Whether or not an isbn/series_id match should be used
-# as an alternative when matching a downloaded file to
-# the existing library.
-match_through_isbn_or_series_id = False
-
-# Whether or not to output errors and changes to a log file
-log_to_file = False
-
-# If enabled, it will extract all important bits of information from the file, basically restructuring
-# when renaming
-# Also changes the series name to the folder name that it's being moved to.
-resturcture_when_renaming = False
-
-# Whether or not to search an epub file for premium content if no
-# premium keyword is found, and add it into the file name.
-search_and_add_premium_to_file_name = False
+# Newly released volumes that aren't currently in the library.
+new_releases_on_bookwalker = []
 
 # A quick and dirty fix to avoid non-processed files from
 # being moved over to the existing library. Will be removed in the future.
@@ -129,17 +69,6 @@ processed_files = []
 # an epubs internal contents.
 internal_epub_extensions = [".xhtml", ".opf", ".ncx", ".xml", ".html"]
 
-# Keyword Class
-class Keyword:
-    def __init__(self, name, score):
-        self.name = name
-        self.score = score
-
-
-# Keywords ranked by point values, used when determining if a downloaded volume
-# is an upgrade to the existing volume in the library. Case is ignored when checked.
-# EX: Keyword(r"Keyword or Regex", point_value)
-ranked_keywords = []
 
 # Folder Class
 class Folder:
@@ -214,7 +143,7 @@ class Volume:
         self.multi_volume = multi_volume
         self.is_one_shot = is_one_shot
 
-        
+
 volume_keywords = [
     "LN",
     "Light Novel",
@@ -981,22 +910,37 @@ def move_file(file, new_location):
 
 # Replaces an old file.
 def replace_file(old_file, new_file):
-    if os.path.isfile(old_file.path) and os.path.isfile(new_file.path):
-        remove_file(old_file.path)
-        if not os.path.isfile(old_file.path):
-            move_file(new_file, old_file.root)
-            if os.path.isfile(os.path.join(old_file.root, new_file.name)):
-                send_change_message(
-                    "\t\tFile: " + old_file.name + " moved to: " + new_file.root
-                )
+    try:
+        if os.path.isfile(old_file.path) and os.path.isfile(new_file.path):
+            file_removal_status = remove_file(old_file.path)
+            if not os.path.isfile(old_file.path) and file_removal_status:
+                move_file(new_file, old_file.root)
+                if os.path.isfile(os.path.join(old_file.root, new_file.name)):
+                    send_change_message(
+                        "\t\tFile: " + old_file.name + " moved to: " + new_file.root
+                    )
+                else:
+                    send_error_message(
+                        "\tFailed to replace: "
+                        + old_file.name
+                        + " with: "
+                        + new_file.name
+                    )
             else:
                 send_error_message(
-                    "\tFailed to replace: " + old_file.name + " with: " + new_file.name
+                    "\tFailed to remove old file: "
+                    + old_file.name
+                    + "\nUpgrade aborted."
                 )
         else:
             send_error_message(
-                "\tFailed to remove old file: " + old_file.name + "\nUpgrade aborted."
+                "\tOne of the files is missing, failed to replace.\n"
+                + old_file.path
+                + new_file.path
             )
+    except Exception as e:
+        send_error_message(e)
+        send_error_message("Failed file replacement.")
 
 
 # Removes the duplicate after determining it's upgrade status, otherwise, it upgrades
@@ -1036,7 +980,7 @@ def remove_duplicate_releases_from_download(original_releases, downloaded_releas
                                 + download.name
                                 + " is an upgrade to: "
                                 + original.name
-                                + "\n\t\tUpgrading "
+                                + "\n\tUpgrading "
                                 + original.name
                             )
                             replace_file(original, download)
@@ -1048,7 +992,9 @@ def check_and_delete_empty_folder(folder):
     delete_hidden_files(os.listdir(folder), folder)
     folder_contents = os.listdir(folder)
     remove_hidden_files(folder_contents, folder)
-    if len(folder_contents) == 0:
+    if len(folder_contents) == 0 and (
+        folder not in paths and folder not in download_folders
+    ):
         try:
             print("\t\t\tRemoving empty folder: " + folder)
             os.rmdir(folder)
@@ -1537,10 +1483,194 @@ def print_execution_time(start_time):
     )
 
 
+# Checks for any duplicate volumes and deletes the inferior one.
+def check_for_duplicate_volumes(paths_to_search=[]):
+    try:
+        for p in paths_to_search:
+            if os.path.exists(p):
+                print("\nSearching " + p + " for duplicate volumes...")
+                for root, dirs, files in scandir.walk(p):
+                    clean_and_sort(root, files, dirs)
+                    volumes = upgrade_to_volume_class(
+                        upgrade_to_file_class(
+                            [f for f in files if os.path.isfile(os.path.join(root, f))],
+                            root,
+                        )
+                    )
+                    for file in volumes:
+                        try:
+                            if os.path.isfile(file.path):
+                                print("\n\tChecking: " + file.name)
+                                volume_series_name = (
+                                    (
+                                        remove_bracketed_info_from_name(
+                                            remove_punctuation(file.series_name)
+                                        )
+                                    )
+                                    .lower()
+                                    .strip()
+                                )
+                                for root, dirs, files in scandir.walk(file.root):
+                                    clean_and_sort(root, files, dirs)
+                                    compare_volumes = upgrade_to_volume_class(
+                                        upgrade_to_file_class(
+                                            [
+                                                f
+                                                for f in files
+                                                if os.path.isfile(os.path.join(root, f))
+                                            ],
+                                            root,
+                                        )
+                                    )
+                                    for compare_file in compare_volumes:
+                                        try:
+                                            if (
+                                                os.path.isfile(compare_file.path)
+                                                and file.name != compare_file.name
+                                            ):
+                                                print(
+                                                    "\t\tAgainst:  " + compare_file.name
+                                                )
+                                                compare_volume_series_name = (
+                                                    (
+                                                        remove_bracketed_info_from_name(
+                                                            remove_punctuation(
+                                                                compare_file.series_name
+                                                            )
+                                                        )
+                                                    )
+                                                    .lower()
+                                                    .strip()
+                                                )
+                                                if (
+                                                    file.root == compare_file.root
+                                                    and (
+                                                        file.volume_number
+                                                        and compare_file.volume_number
+                                                    )
+                                                    and file.volume_number
+                                                    == compare_file.volume_number
+                                                    and file.volume_part
+                                                    == compare_file.volume_part
+                                                    and file.extension
+                                                    == compare_file.extension
+                                                    and similar(
+                                                        volume_series_name,
+                                                        compare_volume_series_name,
+                                                    )
+                                                    >= required_similarity_score
+                                                ):
+                                                    main_file_upgrade_status = (
+                                                        is_upgradeable(
+                                                            file, compare_file
+                                                        )
+                                                    )
+                                                    compare_file_upgrade_status = (
+                                                        is_upgradeable(
+                                                            compare_file, file
+                                                        )
+                                                    )
+                                                    if main_file_upgrade_status:
+                                                        send_change_message(
+                                                            "\n\t\tDuplicate found in: "
+                                                            + file.root
+                                                            + "\n\t\tDuplicate: "
+                                                            + compare_file.name
+                                                            + " is inferior to "
+                                                            + file.name
+                                                            + "\n\t\tDeleting: "
+                                                            + compare_file.name
+                                                            + " inside of "
+                                                            + compare_file.root
+                                                        )
+                                                        if not manual_delete:
+                                                            remove_file(
+                                                                compare_file.path
+                                                            )
+                                                        elif (
+                                                            input(
+                                                                "\t\t\tDelete: "
+                                                                + compare_file.name
+                                                                + "? (y/n): "
+                                                            )
+                                                            == "y"
+                                                        ):
+                                                            remove_file(
+                                                                compare_file.path
+                                                            )
+                                                        else:
+                                                            print(
+                                                                "\t\t\tSkipping: "
+                                                                + compare_file.name
+                                                            )
+                                                        check_and_delete_empty_folder(
+                                                            compare_file.root
+                                                        )
+                                                    elif compare_file_upgrade_status:
+                                                        send_change_message(
+                                                            "\n\t\tDuplicate found in: "
+                                                            + compare_file.root
+                                                            + "\n\t\tDuplicate: "
+                                                            + file.name
+                                                            + " is inferior to "
+                                                            + compare_file.name
+                                                            + "\n\t\tDeleting: "
+                                                            + file.name
+                                                            + " inside of "
+                                                            + file.root
+                                                        )
+                                                        if not manual_delete:
+                                                            remove_file(file.path)
+                                                        elif (
+                                                            input(
+                                                                "\t\t\tDelete: "
+                                                                + file.name
+                                                                + "? (y/n): "
+                                                            )
+                                                            == "y"
+                                                        ):
+                                                            remove_file(file.path)
+                                                        else:
+                                                            print(
+                                                                "\t\t\tSkipping: "
+                                                                + file.name
+                                                            )
+                                                        check_and_delete_empty_folder(
+                                                            file.root
+                                                        )
+                                                    else:
+                                                        send_error_message(
+                                                            "\n\t\tDuplicate found in: "
+                                                            + compare_file.root
+                                                            + "\n\t\t\t"
+                                                            + file.name
+                                                            + "\n\t\t\t"
+                                                            + compare_file.name
+                                                            + "\n\t\t\t\tRanking scores are equal, REQUIRES MANUAL DECISION."
+                                                        )
+                                                        print("\t\t\t\tSkipping...")
+                                        except Exception as e:
+                                            send_error_message(
+                                                "\n\t\tError: "
+                                                + str(e)
+                                                + "\n\t\tSkipping: "
+                                                + compare_file.name
+                                            )
+                                            continue
+                        except Exception as e:
+                            send_error_message(
+                                "\n\tError: " + str(e) + "\n\tSkipping: " + file.name
+                            )
+                            continue
+            else:
+                print("\n\tPath does not exist: " + p)
+    except Exception as e:
+        send_error_message("\n\tError: " + str(e))
+
+
 # Checks for an existing series by pulling the series name from each elidable file in the downloads_folder
 # and comparing it to an existin folder within the user's library.
 def check_for_existing_series():
-    start_time = time.time()
     for download_folder in download_folders:
         if os.path.exists(download_folder):
             for root, dirs, files in scandir.walk(download_folder):
@@ -1813,8 +1943,6 @@ def check_for_existing_series():
                                         print("\t\t\tDisregarding Matches...")
                             elif not done:
                                 print("\t\t\tNo match found in: " + root)
-    # print_execution_time(start_time)
-    # print("")
 
 
 # Removes any unnecessary junk through regex in the folder name and returns the result
@@ -2404,9 +2532,10 @@ def rename_files_in_download_folders():
 
 # check if volume file name is a chapter
 def contains_chapter_keywords(file_name):
+    file_name_clean = remove_dual_space(re.sub(r"(_)", " ", file_name).strip()).strip()
     return re.search(
         r"(((ch|d|chapter|chap)([-_. ]+)?([0-9]+))|\s+([0-9]+)(\.[0-9]+)?(x\d+((\.\d+)+)?)?(\s+|#\d+|\.cbz))",
-        file_name,
+        file_name_clean,
         re.IGNORECASE,
     )
 
@@ -2437,7 +2566,7 @@ def delete_chapters_from_downloads():
                                     + file
                                     + "\n\t\tLocation: "
                                     + root
-                                    + "\n\t\tContains chapter keywords and does not contain any volume keywords"
+                                    + "\n\t\tContains chapter keywords/lone numbers and does not contain any volume keywords"
                                     + "\n\t\tDeleting chapter release."
                                 )
                                 remove_file(os.path.join(root, file))
@@ -2727,6 +2856,7 @@ def print_stats():
 
 # Deletes any file with an extension in unaccepted_file_extensions from the download_folers
 def delete_unacceptable_files():
+    print("Searching for unacceptable files...")
     try:
         for path in download_folders:
             if os.path.exists(path):
@@ -3326,23 +3456,33 @@ def check_for_bonus_xhtml(zip):
     return False
 
 
-# Optional features below have been commented out, use at your own risk.
-# I don't intend to advertise these on the git page until I consider them
-# close to perfect.
+# Optional features below, use at your own risk.
+# Activate them in settings.py
 def main():
     global bookwalker_check
     parse_my_args()  # parses the user's arguments
-    #delete_unacceptable_files()  # deletes any file with an extension in unaccepted_file_extensions from the download_folers
-    #delete_chapters_from_downloads()  # deletes chapter releases from the download_folers
-    #rename_files_in_download_folders()  # replaces any detected volume keyword that isn't what the user specified up top and restructures them
-    #create_folders_for_items_in_download_folder()  # creates folders for any lone files in the root of the download_folders
-    #rename_dirs_in_download_folder()  # cleans up any unnessary information in the series folder names within the download_folders
-    extract_covers()  # extracts covers from cbz and epub files recursively from the paths passed in
-    #check_for_existing_series()  # finds the corresponding series name in our existing library for the files in download_folders and handles moving, upgrading, and deletion
-    #check_for_missing_volumes()  # checks for any missing volumes bewteen the highest detected volume number and the lowest
-    #if bookwalker_check:
-        # currently slowed down to avoid rate-limiting, advised not to run on each use, but rather once a week
-        #check_for_new_volumes_on_bookwalker()  # checks the library against bookwalker for any missing volumes that are released or on pre-order
+    if delete_unacceptable_files_toggle:
+        delete_unacceptable_files()
+    if delete_chapters_from_downloads_toggle:
+        delete_chapters_from_downloads()
+    if rename_files_in_download_folders_toggle:
+        rename_files_in_download_folders()
+    if create_folders_for_items_in_download_folder_toggle:
+        create_folders_for_items_in_download_folder()
+    if rename_dirs_in_download_folder_toggle:
+        rename_dirs_in_download_folder()
+    if check_for_duplicate_volumes_toggle:
+        check_for_duplicate_volumes(download_folders)
+    if extract_covers_toggle:
+        extract_covers()
+    if check_for_existing_series_toggle:
+        check_for_existing_series()
+    if check_for_missing_volumes_toggle:
+        check_for_missing_volumes()
+    if bookwalker_check:
+        # currently slowed down to avoid rate limiting,
+        # advised not to run on each use, but rather once a week
+        check_for_new_volumes_on_bookwalker()  # checks the library against bookwalker for any missing volumes that are released or on pre-order
     print_stats()
 
 
