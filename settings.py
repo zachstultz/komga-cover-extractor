@@ -19,7 +19,7 @@ check_for_existing_series_toggle = False
 check_for_missing_volumes_toggle = False
 ################################################################
 
-########################### RENAMING ###########################
+########################### RENAMING/PROCESSING ###########################
 # The preferred naming format used by rename_files_in_download_folders()
 # v = v01, Volume = Volume01, and so on.
 # IF YOU WANT A SPACE BETWEEN THE TWO, ADD IT IN THE PREFERRED NAMING.
@@ -78,7 +78,8 @@ class Keyword:
 
 
 # Keywords ranked by point values, used when determining if a downloaded volume
-# is an upgrade to the existing volume in the library. Case is ignored when checked.
+# is an upgrade to the existing volume in the library.
+# Case is ignored when checked.
 # EX: Keyword(r"Keyword or Regex", point_value)
 ranked_keywords = []
 #################################################################
@@ -96,7 +97,11 @@ series_cover_file_names = ["cover", "poster"]
 log_to_file = False
 # Whether or not to check the library against bookwalker for new releases.
 bookwalker_check = False
-# Prompts the user when deleting an inferior duplicate volume when running
-# check_for_duplicate_volumes
-manual_delete = True  # for testing
+# Prompts the user when deleting a lower-ranking duplicate volume when running
+# check_for_duplicate_volumes()
+manual_delete = True  # for testing, verify the results
+# Any keywords/regexes within this array that are found within a file name,
+# will be automatically deleted from the download_folders by delete_unacceptable_files()
+# EX: Keyword(r"Keyword or Regex")
+unacceptable_keywords = []
 ################################################################
