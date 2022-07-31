@@ -750,7 +750,9 @@ def get_volume_year(name):
 
 # Determines whether or not the release is a fixed release
 def is_fixed_volume(name):
-    if re.search(r"(\(|\[|\{)f([0-9]+|)(\)|\]|\})", name, re.IGNORECASE):
+    if re.search(
+        r"(\(|\[|\{)(f|fix(ed)?)([-_. :]+)?([0-9]+)?(\)|\]|\})", name, re.IGNORECASE
+    ):
         return True
     else:
         return False
@@ -943,14 +945,23 @@ def replace_file(old_file, new_file):
         send_error_message("Failed file replacement.")
 
 
+# execute terminal command
+def execute_command(command):
+    if command != "":
+        try:
+            subprocess.call(command, shell=True)
+        except Exception as e:
+            send_error_message(e)
+
+
 # Removes the duplicate after determining it's upgrade status, otherwise, it upgrades
 def remove_duplicate_releases_from_download(original_releases, downloaded_releases):
     for download in downloaded_releases[:]:
         if not isinstance(download.volume_number, int) and not isinstance(
             download.volume_number, float
         ):
-            send_error_message("\n\t\tThe volume number is empty on: " + download.name)
-            send_error_message("\t\tAvoiding file, might be a chapter.")
+            send_error_message("\n\t\tVolume number empty/missing in: " + download.name)
+            send_error_message("\t\tAvoiding file, could be a chapter.")
             downloaded_releases.remove(download)
         if len(downloaded_releases) != 0:
             for original in original_releases:
@@ -963,7 +974,7 @@ def remove_duplicate_releases_from_download(original_releases, downloaded_releas
                     ):
                         if not is_upgradeable(download, original):
                             send_change_message(
-                                "\t\tVolume: "
+                                "\t\tNOT UPGRADE: "
                                 + download.name
                                 + " is not an upgrade to: "
                                 + original.name
@@ -976,7 +987,7 @@ def remove_duplicate_releases_from_download(original_releases, downloaded_releas
                             remove_file(download.path)
                         else:
                             send_change_message(
-                                "\t\tVolume: "
+                                "\t\tUPGRADE: "
                                 + download.name
                                 + " is an upgrade to: "
                                 + original.name
@@ -1459,16 +1470,22 @@ def remove_bracketed_info_from_name(name):
 # Used for printing the total execution time in seconds.
 # Useful for when testing new code changes intended
 # to speedup the existing code.
-def print_execution_time(start_time):
+def print_execution_time(start_time, extra_msg=None):
     message = ""
     if len(processed_files) > 1:
-        message = (
-            " seconds for " + str(len(processed_files)) + " files, with all features."
-        )
-    elif len(processed_files) == 1:
-        message = (
-            " seconds for " + str(len(processed_files)) + " file, with all features."
-        )
+        if extra_msg:
+            message = (
+                " seconds for "
+                + str(len(processed_files))
+                + " files, with all features, for: "
+                + message
+            )
+        else:
+            message = (
+                " seconds for "
+                + str(len(processed_files))
+                + " files, with all features."
+            )
     send_change_message(
         "\n\t\t\tTotal execution time: "
         + str(
@@ -1483,7 +1500,7 @@ def print_execution_time(start_time):
     )
 
 
-# Checks for any duplicate volumes and deletes the inferior one.
+# Checks for any duplicate volumes and deletes the lower ranking one.
 def check_for_duplicate_volumes(paths_to_search=[]):
     try:
         for p in paths_to_search:
@@ -1503,8 +1520,10 @@ def check_for_duplicate_volumes(paths_to_search=[]):
                                 print("\n\tChecking: " + file.name)
                                 volume_series_name = (
                                     (
-                                        remove_bracketed_info_from_name(
-                                            remove_punctuation(file.series_name)
+                                        remove_underscore_from_name(
+                                            remove_bracketed_info_from_name(
+                                                remove_punctuation(file.series_name)
+                                            )
                                         )
                                     )
                                     .lower()
@@ -1533,9 +1552,11 @@ def check_for_duplicate_volumes(paths_to_search=[]):
                                                 )
                                                 compare_volume_series_name = (
                                                     (
-                                                        remove_bracketed_info_from_name(
-                                                            remove_punctuation(
-                                                                compare_file.series_name
+                                                        remove_underscore_from_name(
+                                                            remove_bracketed_info_from_name(
+                                                                remove_punctuation(
+                                                                    compare_file.series_name
+                                                                )
                                                             )
                                                         )
                                                     )
@@ -1576,7 +1597,7 @@ def check_for_duplicate_volumes(paths_to_search=[]):
                                                             + file.root
                                                             + "\n\t\tDuplicate: "
                                                             + compare_file.name
-                                                            + " is inferior to "
+                                                            + " has a lower score than "
                                                             + file.name
                                                             + "\n\t\tDeleting: "
                                                             + compare_file.name
@@ -1599,8 +1620,8 @@ def check_for_duplicate_volumes(paths_to_search=[]):
                                                                 compare_file.path
                                                             )
                                                         else:
-                                                            print(
-                                                                "\t\t\tSkipping: "
+                                                            send_change_message(
+                                                                "\t\t\tBased on user input, Skipping: "
                                                                 + compare_file.name
                                                             )
                                                         check_and_delete_empty_folder(
@@ -1631,8 +1652,8 @@ def check_for_duplicate_volumes(paths_to_search=[]):
                                                         ):
                                                             remove_file(file.path)
                                                         else:
-                                                            print(
-                                                                "\t\t\tSkipping: "
+                                                            send_change_message(
+                                                                "\t\t\tBased on user input, Skipping: "
                                                                 + file.name
                                                             )
                                                         check_and_delete_empty_folder(
@@ -1666,6 +1687,13 @@ def check_for_duplicate_volumes(paths_to_search=[]):
                 print("\n\tPath does not exist: " + p)
     except Exception as e:
         send_error_message("\n\tError: " + str(e))
+
+
+# regex out underscore from passed string and return it
+def remove_underscore_from_name(name):
+    name = re.sub(r"_", " ", name)
+    name = remove_dual_space(name).strip()
+    return name
 
 
 # Checks for an existing series by pulling the series name from each elidable file in the downloads_folder
@@ -1731,15 +1759,19 @@ def check_for_existing_series():
                                                     (str(file.series_name)).lower()
                                                 ).strip()
                                                 downloaded_file_series_name = (
-                                                    remove_bracketed_info_from_name(
-                                                        remove_punctuation(
-                                                            downloaded_file_series_name
+                                                    remove_underscore_from_name(
+                                                        remove_bracketed_info_from_name(
+                                                            remove_punctuation(
+                                                                downloaded_file_series_name
+                                                            )
                                                         )
                                                     )
                                                 ).lower()
                                                 existing_series_folder_from_library = (
-                                                    remove_bracketed_info_from_name(
-                                                        remove_punctuation(dir)
+                                                    remove_underscore_from_name(
+                                                        remove_bracketed_info_from_name(
+                                                            remove_punctuation(dir)
+                                                        )
                                                     )
                                                 ).lower()
                                                 similarity_score = similar(
@@ -2532,9 +2564,12 @@ def rename_files_in_download_folders():
 
 # check if volume file name is a chapter
 def contains_chapter_keywords(file_name):
-    file_name_clean = remove_dual_space(re.sub(r"(_)", " ", file_name).strip()).strip()
+    file_name_clean = re.sub(r"c1fi7", "", file_name, re.IGNORECASE)
+    file_name_clean = remove_dual_space(
+        re.sub(r"(_)", " ", file_name_clean).strip()
+    ).strip()
     return re.search(
-        r"(((ch|d|chapter|chap)([-_. ]+)?([0-9]+))|\s+([0-9]+)(\.[0-9]+)?(x\d+((\.\d+)+)?)?(\s+|#\d+|\.cbz))",
+        r"(((ch|c|d|chapter|chap)([-_. ]+)?([0-9]+))|\s+([0-9]+)(\.[0-9]+)?(x\d+((\.\d+)+)?)?(\s+|#\d+|\.cbz))",
         file_name_clean,
         re.IGNORECASE,
     )
@@ -2581,15 +2616,6 @@ def delete_chapters_from_downloads():
                     print("\nERROR: " + path + " is an invalid path.\n")
     except Exception as e:
         send_error_message(e)
-
-
-# execute terminal command
-def execute_command(command):
-    if command != "":
-        try:
-            subprocess.call(command, shell=True)
-        except Exception as e:
-            send_error_message(e)
 
 
 # remove all non-images from list of files
@@ -2856,47 +2882,66 @@ def print_stats():
 
 # Deletes any file with an extension in unaccepted_file_extensions from the download_folers
 def delete_unacceptable_files():
-    print("Searching for unacceptable files...")
-    try:
-        for path in download_folders:
-            if os.path.exists(path):
-                os.chdir(path)
-                for root, dirs, files in scandir.walk(path):
-                    # clean_and_sort(root, files, dirs)
-                    remove_ignored_folders(dirs)
-                    remove_hidden_files(files, root)
-                    for file in files:
-                        extension = get_file_extension(file)
-                        if extension in unaccepted_file_extensions:
-                            remove_file(os.path.join(root, file))
-                            if not os.path.isfile(os.path.join(root, file)):
-                                send_change_message(
-                                    "\t\tSuccessfully removed unacceptable file: "
-                                    + os.path.join(root, file)
-                                )
-                            else:
-                                send_error_message(
-                                    "\t\tFailed to remove unacceptable file: "
-                                    + os.path.join(root, file)
-                                )
-                for root, dirs, files in scandir.walk(path):
-                    clean_and_sort(root, files, dirs)
-                    for dir in dirs:
-                        check_and_delete_empty_folder(os.path.join(root, dir))
-            else:
-                if path == "":
-                    print("\nERROR: Path cannot be empty.")
-                else:
-                    print("\nERROR: " + path + " is an invalid path.\n")
-    except Exception as e:
-        send_error_message(e)
-
-
-# execute terminal command
-def execute_command(command):
-    if command != "":
+    if unaccepted_file_extensions:
+        print("Searching for unacceptable files...")
         try:
-            subprocess.call(command, shell=True)
+            for path in download_folders:
+                if os.path.exists(path):
+                    os.chdir(path)
+                    for root, dirs, files in scandir.walk(path):
+                        # clean_and_sort(root, files, dirs)
+                        remove_ignored_folders(dirs)
+                        remove_hidden_files(files, root)
+                        for file in files:
+                            extension = get_file_extension(file)
+                            if (
+                                unaccepted_file_extensions
+                                and extension
+                                and extension in unaccepted_file_extensions
+                            ):
+                                remove_file(os.path.join(root, file))
+                                if not os.path.isfile(os.path.join(root, file)):
+                                    send_change_message(
+                                        "\t\tSuccessfully removed unacceptable file: "
+                                        + os.path.join(root, file)
+                                    )
+                                else:
+                                    send_error_message(
+                                        "\t\tFailed to remove unacceptable file: "
+                                        + os.path.join(root, file)
+                                    )
+                            elif unacceptable_keywords:
+                                for keyword in unacceptable_keywords:
+                                    if re.search(keyword, file, re.IGNORECASE):
+                                        send_change_message(
+                                            "\tUnacceptable Regex/Keyword: "
+                                            + keyword
+                                            + " match found in "
+                                            + file
+                                            + "\n\t\tDeleting file from: "
+                                            + root
+                                        )
+                                        remove_file(os.path.join(root, file))
+                                        if not os.path.isfile(os.path.join(root, file)):
+                                            send_change_message(
+                                                "\t\t\tSuccessfully removed unacceptable file: "
+                                                + os.path.join(root, file)
+                                            )
+                                        else:
+                                            send_error_message(
+                                                "\t\t\tFailed to remove unacceptable file: "
+                                                + os.path.join(root, file)
+                                            )
+                                        break
+                    for root, dirs, files in scandir.walk(path):
+                        clean_and_sort(root, files, dirs)
+                        for dir in dirs:
+                            check_and_delete_empty_folder(os.path.join(root, dir))
+                else:
+                    if path == "":
+                        print("\nERROR: Path cannot be empty.")
+                    else:
+                        print("\nERROR: " + path + " is an invalid path.\n")
         except Exception as e:
             send_error_message(e)
 
@@ -3461,23 +3506,25 @@ def check_for_bonus_xhtml(zip):
 def main():
     global bookwalker_check
     parse_my_args()  # parses the user's arguments
-    if delete_unacceptable_files_toggle:
+    if delete_unacceptable_files_toggle and (
+        download_folders and (unaccepted_file_extensions or unacceptable_keywords)
+    ):
         delete_unacceptable_files()
-    if delete_chapters_from_downloads_toggle:
+    if delete_chapters_from_downloads_toggle and download_folders:
         delete_chapters_from_downloads()
-    if rename_files_in_download_folders_toggle:
+    if rename_files_in_download_folders_toggle and download_folders:
         rename_files_in_download_folders()
-    if create_folders_for_items_in_download_folder_toggle:
+    if create_folders_for_items_in_download_folder_toggle and download_folders:
         create_folders_for_items_in_download_folder()
-    if rename_dirs_in_download_folder_toggle:
+    if rename_dirs_in_download_folder_toggle and download_folders:
         rename_dirs_in_download_folder()
     if check_for_duplicate_volumes_toggle:
         check_for_duplicate_volumes(download_folders)
-    if extract_covers_toggle:
+    if extract_covers_toggle and paths:
         extract_covers()
-    if check_for_existing_series_toggle:
+    if check_for_existing_series_toggle and download_folders and paths:
         check_for_existing_series()
-    if check_for_missing_volumes_toggle:
+    if check_for_missing_volumes_toggle and paths:
         check_for_missing_volumes()
     if bookwalker_check:
         # currently slowed down to avoid rate limiting,
