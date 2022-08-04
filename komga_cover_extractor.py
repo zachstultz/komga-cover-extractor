@@ -23,6 +23,7 @@ from datetime import datetime
 from discord_webhook import DiscordWebhook
 from bs4 import BeautifulSoup, SoupStrainer
 from settings import *
+from langdetect import detect
 
 
 # Paths = existing library
@@ -1270,6 +1271,9 @@ def remove_common_words(s):
         "Light Novel",
         "Manga",
         "Collection",
+        "Edition",
+        "Deluxe",
+        "Omnibus",
         "LN",
         "wa",
         "o",
@@ -1298,9 +1302,18 @@ def remove_numbers(s):
 
 # Returns a string without punctuation.
 def remove_punctuation(s):
-    return convert_to_ascii(
-        remove_dual_space(remove_common_words(re.sub(r"[^\w\s+]", " ", s)))
-    )
+    language = detect_language(s)
+    if language and language != "en":
+        return remove_dual_space(remove_common_words(re.sub(r"[^\w\s+]", " ", s)))
+    else:
+        return convert_to_ascii(
+            remove_dual_space(remove_common_words(re.sub(r"[^\w\s+]", " ", s)))
+        )
+
+
+# detect language of the passed string using langdetect
+def detect_language(s):
+    return detect(s)
 
 
 # convert string to acsii
@@ -1719,6 +1732,7 @@ def check_for_existing_series():
                                 r"(isbn:9([-_. :]+)?7([-_. :]+)?(8|9)(([-_. :]+)?[0-9]){10})",
                                 r"series_id:.*",
                             ]
+                            start_time = time.time()
                             if match_through_isbn_or_series_id:
                                 download_file_meta = get_meta_from_file(
                                     file.path,
@@ -1730,7 +1744,7 @@ def check_for_existing_series():
                                 if (
                                     os.path.exists(path)
                                     and not done
-                                    and not path in download_folders
+                                    and path not in download_folders
                                 ):
                                     try:
                                         os.chdir(path)
@@ -2292,7 +2306,7 @@ def rename_files_in_download_folders():
                     try:
                         multi_volume = False
                         result = re.search(
-                            r"(\s+)?\-?(\s+)?(LN|Light Novel|Novel|Book|Volume|Vol|V|第|Disc)(\.\s?|\s?|)(([0-9]+)((([-_.]|)([0-9]+))+|))(\]|\)|\})?(\s|\.epub|\.cbz)",
+                            r"(\s+)?\-?(\s+)?(LN|Light Novel|Novel|Book|Volume|Vol|V|第|Disc)(\.\s?|\s?|)(([0-9]+)((([-_.]|)([0-9]+))+|))(\]|\)|\})?(\s|巻?\.epub|巻?\.cbz)",
                             file.name,
                             re.IGNORECASE,
                         )
@@ -2914,7 +2928,7 @@ def delete_unacceptable_files():
                                 for keyword in unacceptable_keywords:
                                     if re.search(keyword, file, re.IGNORECASE):
                                         send_change_message(
-                                            "\tUnacceptable Regex/Keyword: "
+                                            "\tUnacceptable: "
                                             + keyword
                                             + " match found in "
                                             + file
@@ -3530,7 +3544,8 @@ def main():
         # currently slowed down to avoid rate limiting,
         # advised not to run on each use, but rather once a week
         check_for_new_volumes_on_bookwalker()  # checks the library against bookwalker for any missing volumes that are released or on pre-order
-    print_stats()
+    if extract_covers_toggle and paths:
+        print_stats()
 
 
 if __name__ == "__main__":
