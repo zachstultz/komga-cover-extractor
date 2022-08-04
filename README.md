@@ -26,9 +26,7 @@ Detection is based on various scene releases, if none are detected, it will defa
 
 ## Usage
 ```
-usage: komga_cover_extractor.py [-h] [-p [PATHS [PATHS ...]]]
-                                [-wh WEBHOOK] [-c COMPRESS] 
-                                [-cq COMPRESS_QUALITY]
+usage: komga_cover_extractor.py [-h] [-p [PATHS [PATHS ...]]] [-wh [WEBHOOK [WEBHOOK ...]]] [-c COMPRESS] [-cq COMPRESS_QUALITY]
 
 Scans for covers in the cbz and epub files.
 
@@ -36,9 +34,8 @@ optional arguments:
   -h, --help            show this help message and exit
   -p [PATHS [PATHS ...]], --paths [PATHS [PATHS ...]]
                         The path/paths to be scanned for cover extraction.
-  -wh WEBHOOK, --webhook WEBHOOK
-                        The discord webhook url for notifications about
-                        changes and errors.
+  -wh [WEBHOOK [WEBHOOK ...]], --webhook [WEBHOOK [WEBHOOK ...]]
+                        The discord webhook url for notifications about changes and errors.
   -c COMPRESS, --compress COMPRESS
                         Whether or not to compress the extracted cover images.
   -cq COMPRESS_QUALITY, --compress_quality COMPRESS_QUALITY
