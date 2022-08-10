@@ -56,6 +56,13 @@ items_changed = []
 # Pass in via cli
 discord_webhook_url = []
 
+# Two webhooks specific to the bookwalker check.
+# One is used for released books, the other is used for upcoming books.
+# Intended to be sent to two seperate channels.
+# FIRST WEBHOOK = released books
+# SECOND WEBHOOK = upcoming books
+bookwalker_webhook_urls = []
+
 # Whether or not to check the library against bookwalker for new releases.
 bookwalker_check = False
 
@@ -70,6 +77,11 @@ processed_files = []
 # an epubs internal contents.
 internal_epub_extensions = [".xhtml", ".opf", ".ncx", ".xml", ".html"]
 
+# Where logs are written to.
+ROOT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+
+# Paths that were a successful match
+successful_paths = []
 
 # Folder Class
 class Folder:
@@ -209,6 +221,14 @@ def parse_my_args():
         help="The quality of the compressed cover images.",
         required=False,
     )
+    parser.add_argument(
+        "-bwk_whs",
+        "--bookwalker_webhook_urls",
+        help="The webhook urls for the bookwalker check.",
+        action="append",
+        nargs="*",
+        required=False,
+    )
     parser = parser.parse_args()
     if not parser.paths and not parser.download_folders:
         print("No paths or download folders were passed to the script.")
@@ -249,14 +269,23 @@ def parse_my_args():
     if parser.compress_quality is not None:
         global image_quality
         image_quality = set_num_as_float_or_int(parser.compress_quality)
+    if parser.bookwalker_webhook_urls is not None:
+        global bookwalker_webhook_urls
+        bookwalker_webhook_urls = []
+        for item in parser.bookwalker_webhook_urls:
+            for hook in item:
+                if hook not in bookwalker_webhook_urls:
+                    bookwalker_webhook_urls.append(hook)
 
 
 def set_num_as_float_or_int(num):
-    if num != "":
+    if num:
+        if isinstance(num, str) and not isinstance(num, list):
+            num = float(num)
         if isinstance(num, list):
             result = ""
             for num in num:
-                if float(num) == int(num):
+                if float(num) == float(int(num)):
                     if num == num[-1]:
                         result += str(int(num))
                     else:
@@ -319,14 +348,25 @@ def send_change_message(message):
 
 
 # Sends a discord message using the users webhook url
-def send_discord_message(message):
+def send_discord_message(message, hook=None, random_order=True):
     try:
-        if discord_webhook_url:
-            webhook = DiscordWebhook(
-                url=random.choice(discord_webhook_url),
-                content=message,
-                rate_limit_retry=True,
-            )
+        if discord_webhook_url and not hook:
+            if random_order:
+                webhook = DiscordWebhook(
+                    url=random.choice(discord_webhook_url),
+                    content=str(message),
+                    rate_limit_retry=True,
+                )
+                webhook.execute()
+            elif not random_order and hook:
+                webhook = DiscordWebhook(
+                    url=hook,
+                    content=str(message),
+                    rate_limit_retry=True,
+                )
+                webhook.execute()
+        elif discord_webhook_url and hook:
+            webhook = DiscordWebhook(url=hook, content=message, rate_limit_retry=True)
             webhook.execute()
     except TypeError as e:
         send_error_message(e, discord=False)
@@ -1000,18 +1040,21 @@ def remove_duplicate_releases_from_download(original_releases, downloaded_releas
 
 # Checks if the folder is empty, then deletes if it is
 def check_and_delete_empty_folder(folder):
-    print("\t\tChecking for empty folder: " + folder)
-    delete_hidden_files(os.listdir(folder), folder)
-    folder_contents = os.listdir(folder)
-    remove_hidden_files(folder_contents, folder)
-    if len(folder_contents) == 0 and (
-        folder not in paths and folder not in download_folders
-    ):
-        try:
-            print("\t\t\tRemoving empty folder: " + folder)
-            os.rmdir(folder)
-        except OSError as e:
-            send_error_message(e)
+    try:
+        print("\t\tChecking for empty folder: " + folder)
+        delete_hidden_files(os.listdir(folder), folder)
+        folder_contents = os.listdir(folder)
+        remove_hidden_files(folder_contents, folder)
+        if len(folder_contents) == 0 and (
+            folder not in paths and folder not in download_folders
+        ):
+            try:
+                print("\t\t\tRemoving empty folder: " + folder)
+                os.rmdir(folder)
+            except OSError as e:
+                send_error_message(e)
+    except Exception as e:
+        send_error_message(e)
 
 
 # Writes a log file
@@ -1019,7 +1062,6 @@ def write_to_file(file, message, without_date=False, overwrite=False):
     if log_to_file:
         try:
             message = re.sub("\t|\n", "", str(message), flags=re.IGNORECASE)
-            ROOT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
             file_path = os.path.join(ROOT_DIR, file)
             append_write = ""
             if os.path.exists(file_path):
@@ -1258,40 +1300,41 @@ def remove_dual_space(s):
 # from a file name, and a folder name, useful for when releasers sometimes include them,
 # and sometimes don't.
 def remove_common_words(s):
-    common_words_to_remove = [
-        "the",
-        "a",
-        "and",
-        "&",
-        "I",
-        "Complete",
-        "Series",
-        "of",
-        "Novel",
-        "Light Novel",
-        "Manga",
-        "Collection",
-        "Edition",
-        "Deluxe",
-        "Omnibus",
-        "LN",
-        "wa",
-        "o",
-        "mo",
-        "ni",
-        "e",
-        "de",
-        "ga",
-        "kara",
-        "made",
-        "to",
-        "ya",
-        "no",
-        "ne",
-        "yo",
-    ]
-    for word in common_words_to_remove:
-        s = re.sub(rf"\b{word}\b", "", s, flags=re.IGNORECASE).strip()
+    if len(s) > 1:
+        common_words_to_remove = [
+            "the",
+            "a",
+            "and",
+            "&",
+            "I",
+            "Complete",
+            "Series",
+            "of",
+            "Novel",
+            "Light Novel",
+            "Manga",
+            "Collection",
+            "Edition",
+            "Deluxe",
+            "Omnibus",
+            "LN",
+            "wa",
+            "o",
+            "mo",
+            "ni",
+            "e",
+            "de",
+            "ga",
+            "kara",
+            "made",
+            "to",
+            "ya",
+            "no",
+            "ne",
+            "yo",
+        ]
+        for word in common_words_to_remove:
+            s = re.sub(rf"\b{word}\b", "", s, flags=re.IGNORECASE).strip()
     return s.strip()
 
 
@@ -1805,6 +1848,9 @@ def check_for_existing_series():
                                                     similarity_score
                                                     >= required_similarity_score
                                                 ):
+                                                    successful_paths.append(
+                                                        folder_accessor
+                                                    )
                                                     write_to_file(
                                                         "changes.txt",
                                                         (
@@ -2987,16 +3033,20 @@ class BookwalkerSeries:
 session_object = None
 
 
-def scrape_url(url, strainer=None):
+def scrape_url(url, strainer=None, headers=None):
     try:
         global session_object
         if not session_object:
             session_object = requests.Session()
-        page_obj = session_object.get(url)
-        if page_obj.status_code == 403:
+        page_obj = None
+        if headers:
+            page_obj = session_object.get(url, headers=headers)
+        else:
+            page_obj = session_object.get(url)
+        if page_obj and page_obj.status_code == 403:
             print("\nTOO MANY REQUESTS TO BOOKWALKER, WERE BEING RATE-LIMTIED!")
         soup = None
-        if strainer:
+        if strainer and page_obj:
             soup = BeautifulSoup(page_obj.text, "lxml", parse_only=strainer)
         else:
             soup = BeautifulSoup(page_obj.text, "lxml")
@@ -3426,8 +3476,8 @@ def check_for_new_volumes_on_bookwalker():
                         existing_dir,
                     )
                 )
-                type = None
                 bookwalker_volumes = None
+                type = None
                 if (
                     get_cbz_percent_for_folder([f.name for f in existing_dir_volumes])
                     >= 70
@@ -3477,6 +3527,12 @@ def check_for_new_volumes_on_bookwalker():
                 pre_orders.append(release)
     pre_orders.sort(key=lambda x: x.date, reverse=False)
     released.sort(key=lambda x: x.date, reverse=False)
+    # Get rid of the old released and pre-orders and replace them with a new ones.
+    if log_to_file:
+        if os.path.isfile(os.path.join(ROOT_DIR, "released.txt")):
+            os.remove(os.path.join(ROOT_DIR, "released.txt"))
+        if os.path.isfile(os.path.join(ROOT_DIR, "pre-orders.txt")):
+            os.remove(os.path.join(ROOT_DIR, "pre-orders.txt"))
     if len(released) > 0:
         print("\nNew Releases:")
         for r in released:
@@ -3489,6 +3545,8 @@ def check_for_new_volumes_on_bookwalker():
                 r.date + " " + r.title + " Volume " + str(r.volume_number) + " " + r.url
             )
             write_to_file("released.txt", message, without_date=True, overwrite=False)
+            if bookwalker_webhook_urls and len(bookwalker_webhook_urls) == 2:
+                send_discord_message(message, bookwalker_webhook_urls[0], False)
     if len(pre_orders) > 0:
         print("\nPre-orders:")
         for p in pre_orders:
@@ -3501,6 +3559,10 @@ def check_for_new_volumes_on_bookwalker():
                 p.date + " " + p.title + " Volume " + str(p.volume_number) + " " + p.url
             )
             write_to_file("pre-orders.txt", message, without_date=True, overwrite=False)
+            if bookwalker_webhook_urls and len(bookwalker_webhook_urls) == 2:
+                send_discord_message(message, bookwalker_webhook_urls[1], False)
+            elif bookwalker_webhook_urls and len(bookwalker_webhook_urls) == 1:
+                send_discord_message(message, bookwalker_webhook_urls[0], False)
 
 
 # Checks the epub for bonus.xhtml or bonus[0-9].xhtml
