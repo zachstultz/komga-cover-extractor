@@ -1383,7 +1383,8 @@ def remove_common_words(s):
             "yo",
         ]
         for word in common_words_to_remove:
-            s = re.sub(rf"\b{word}\b", "", s, flags=re.IGNORECASE).strip()
+            s = re.sub(rf"\b{word}\b", " ", s, flags=re.IGNORECASE).strip()
+            s = remove_dual_space(s)
     return s.strip()
 
 
