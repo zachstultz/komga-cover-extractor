@@ -1005,9 +1005,11 @@ def remove_duplicate_releases_from_download(original_releases, downloaded_releas
             send_error_message("\t\tAvoiding file, could be a chapter.")
             downloaded_releases.remove(download)
         if len(downloaded_releases) != 0:
-            for original in original_releases:
-                if isinstance(download.volume_number, float) and isinstance(
-                    original.volume_number, float
+            for original in original_releases[:]:
+                if (
+                    isinstance(download.volume_number, float)
+                    and isinstance(original.volume_number, float)
+                    and os.path.isfile(original.path)
                 ):
                     if (download.volume_number == original.volume_number) and (
                         (download.volume_number != "" and original.volume_number != "")
@@ -1036,6 +1038,53 @@ def remove_duplicate_releases_from_download(original_releases, downloaded_releas
                                 + original.name
                             )
                             replace_file(original, download)
+                            if download in downloaded_releases:
+                                downloaded_releases.remove(download)
+                    elif (download.volume_number == original.volume_number) and (
+                        (download.volume_number != "" and original.volume_number != "")
+                        and (not download.volume_part and original.volume_part)
+                    ):
+                        if not is_upgradeable(download, original):
+                            send_change_message(
+                                "\t\tNOT UPGRADE: "
+                                + download.name
+                                + " is not an upgrade to: "
+                                + original.name
+                                + "\n\t\tDeleting: "
+                                + download.name
+                                + " from download folder."
+                            )
+                            if download in downloaded_releases:
+                                downloaded_releases.remove(download)
+                            remove_file(download.path)
+                        else:
+                            send_change_message(
+                                "\t\tUPGRADE: "
+                                + download.name
+                                + " is an upgrade to: "
+                                + original.name
+                                + "\n\tUpgrading "
+                                + original.name
+                            )
+                            send_change_message(
+                                "\t\tRemoving remaining part files with matching volume numbers:"
+                            )
+                            clone_original_releases = original_releases.copy()
+                            clone_original_releases.remove(original)
+                            for v in clone_original_releases:
+                                if (
+                                    (download.volume_number == v.volume_number)
+                                    and (
+                                        download.volume_number != ""
+                                        and v.volume_number != ""
+                                    )
+                                    and (not download.volume_part and v.volume_part)
+                                ):
+                                    remove_file(v.path)
+                                    original_releases.remove(v)
+                            replace_file(original, download)
+                            if download in downloaded_releases:
+                                downloaded_releases.remove(download)
 
 
 # Checks if the folder is empty, then deletes if it is
@@ -1766,7 +1815,9 @@ def check_for_existing_series():
                     )
                 )
                 for file in volumes:
-                    if file.name in processed_files or not processed_files:
+                    if (
+                        file.name in processed_files or not processed_files
+                    ) and os.path.isfile(file.path):
                         if not file.multi_volume:
                             download_file_meta = None
                             download_file_isbn = None
@@ -1775,7 +1826,6 @@ def check_for_existing_series():
                                 r"(isbn:9([-_. :]+)?7([-_. :]+)?(8|9)(([-_. :]+)?[0-9]){10})",
                                 r"series_id:.*",
                             ]
-                            start_time = time.time()
                             if match_through_isbn_or_series_id:
                                 download_file_meta = get_meta_from_file(
                                     file.path,
@@ -2810,7 +2860,7 @@ def find_and_extract_cover(file):
                     return file.extensionless_name + epub_path_extension
 
     else:
-        print("\nFile: " + file.name + " is not a valid zip file.")
+        send_error_message("\nFile: " + file.name + " is not a valid zip file.")
     return False
 
 
@@ -3527,7 +3577,7 @@ def check_for_new_volumes_on_bookwalker():
                 pre_orders.append(release)
     pre_orders.sort(key=lambda x: x.date, reverse=False)
     released.sort(key=lambda x: x.date, reverse=False)
-    # Get rid of the old released and pre-orders and replace them with a new ones.
+    # Get rid of the old released and pre-orders and replace them with new ones.
     if log_to_file:
         if os.path.isfile(os.path.join(ROOT_DIR, "released.txt")):
             os.remove(os.path.join(ROOT_DIR, "released.txt"))
