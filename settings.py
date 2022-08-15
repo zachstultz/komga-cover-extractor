@@ -17,6 +17,9 @@ extract_covers_toggle = True
 check_for_existing_series_toggle = False
 # checks for any missing volumes bewteen the highest detected volume number and the lowest
 check_for_missing_volumes_toggle = False
+# caches the roots of each item obtained through os.scandir at the beginning of the script,
+# used when matching a downloaded volume to an existing library
+cache_each_root_for_each_path_in_paths_at_beginning_toggle = False
 ################################################################
 
 ########################### RENAMING/PROCESSING ###########################
