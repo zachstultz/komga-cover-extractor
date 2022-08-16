@@ -560,7 +560,7 @@ def is_volume_one(volume_name):
 def contains_volume_keywords(file):
     return re.search(
         r"((\s(\s-\s|)(Part|)+(LN|Light Novel|Novel|Book|Volume|Vol|V|第|Disc)(\.|)([-_. ]|)([0-9]+)\b)|\s(\s-\s|)(Part|)(LN|Light Novel|Novel|Book|Volume|Vol|V|第|Disc)(\.|)([-_. ]|)([0-9]+)([-_.])(\s-\s|)(Part|)(LN|Light Novel|Novel|Book|Volume|Vol|V|第|Disc)([0-9]+)\s|\s(\s-\s|)(Part|)(LN|Light Novel|Novel|Book|Volume|Vol|V|第|Disc)(\.|)([-_. ]|)([0-9]+)([-_.])(\s-\s|)(Part|)(LN|Light Novel|Novel|Book|Volume|Vol|V|第|Disc)([0-9]+)\s)",
-        file,
+        remove_underscore_from_name(file),
         re.IGNORECASE,
     )
 
@@ -959,14 +959,15 @@ def remove_file(full_file_path, silent=False):
 
 
 # Move a file
-def move_file(file, new_location):
+def move_file(file, new_location, silent=False):
     try:
         if os.path.isfile(file.path):
             shutil.move(file.path, new_location)
             if os.path.isfile(os.path.join(new_location, file.name)):
-                send_change_message(
-                    "\t\tMoved File: " + file.name + " to " + new_location
-                )
+                if not silent:
+                    send_change_message(
+                        "\t\tMoved File: " + file.name + " to " + new_location
+                    )
                 move_images(file, new_location)
             else:
                 send_error_message(
@@ -985,10 +986,10 @@ def replace_file(old_file, new_file):
         if os.path.isfile(old_file.path) and os.path.isfile(new_file.path):
             file_removal_status = remove_file(old_file.path)
             if not os.path.isfile(old_file.path) and file_removal_status:
-                move_file(new_file, old_file.root)
+                move_file(new_file, old_file.root, silent=True)
                 if os.path.isfile(os.path.join(old_file.root, new_file.name)):
                     send_change_message(
-                        "\t\tFile: " + old_file.name + " moved to: " + new_file.root
+                        "\t\tFile: " + old_file.name + " was moved to: " + new_file.root
                     )
                 else:
                     send_error_message(
@@ -1788,7 +1789,7 @@ def check_for_duplicate_volumes(paths_to_search=[]):
                                                             + compare_file.root
                                                             + "\n\t\tDuplicate: "
                                                             + file.name
-                                                            + " is inferior to "
+                                                            + " has a lower score than "
                                                             + compare_file.name
                                                             + "\n\t\tDeleting: "
                                                             + file.name
@@ -1852,7 +1853,7 @@ def remove_underscore_from_name(name):
 
 
 # Reorganizes the passed array list by pulling the first letter of the string passed
-# and inserting all matched items into second position of the array list
+# and inserting all matched items into the passed position of the array list
 def organize_array_list_by_first_letter(
     array_list, string, position_to_insert_at, exclude=None
 ):
@@ -4009,9 +4010,13 @@ def main():
     ):
         cached_paths = read_lines_from_file(os.path.join(ROOT_DIR, "cached_paths.txt"))
     if (
-        cache_each_root_for_each_path_in_paths_at_beginning_toggle
-        or not os.path.isfile(os.path.join(ROOT_DIR, "cached_paths.txt"))
-    ) and paths:
+        (
+            cache_each_root_for_each_path_in_paths_at_beginning_toggle
+            or not os.path.isfile(os.path.join(ROOT_DIR, "cached_paths.txt"))
+        )
+        and paths
+        and check_for_existing_series_toggle
+    ):
         cache_paths()
     if delete_unacceptable_files_toggle and (
         download_folders and (unaccepted_file_extensions or unacceptable_keywords)
