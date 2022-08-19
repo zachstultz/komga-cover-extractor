@@ -1749,7 +1749,7 @@ def check_for_duplicate_volumes(paths_to_search=[]):
                                                     )
                                                     if main_file_upgrade_status:
                                                         send_change_message(
-                                                            "\n\t\tDuplicate found in: "
+                                                            "\n\t\tDuplicate volume found in: "
                                                             + file.root
                                                             + "\n\t\tDuplicate: "
                                                             + compare_file.name
@@ -1785,7 +1785,7 @@ def check_for_duplicate_volumes(paths_to_search=[]):
                                                         )
                                                     elif compare_file_upgrade_status:
                                                         send_change_message(
-                                                            "\n\t\tDuplicate found in: "
+                                                            "\n\t\tDuplicate volume found in: "
                                                             + compare_file.root
                                                             + "\n\t\tDuplicate: "
                                                             + file.name
@@ -2448,11 +2448,13 @@ def rename_dirs_in_download_folder():
                             or re.search(r"\bPremium\b", folderDir, re.IGNORECASE)
                             or re.search(r":", folderDir, re.IGNORECASE)
                             or re.search(r"([A-Za-z])(_)", folderDir, re.IGNORECASE)
+                            or re.search(r"([!?])", folderDir)
                         ):
                             dir_clean = get_series_name(folderDir)
                             dir_clean = re.sub(r"([A-Za-z])(_)", r"\1 ", dir_clean)
                             # replace : with - in dir_clean
                             dir_clean = re.sub(r"([A-Za-z])(\:)", r"\1 -", dir_clean)
+                            dir_clean = re.sub(r"([!?])", " ", dir_clean)
                             # remove dual spaces from dir_clean
                             dir_clean = remove_dual_space(dir_clean).strip()
                             if not os.path.isdir(
@@ -2863,7 +2865,9 @@ def rename_files_in_download_folders():
                                     for extra in extras:
                                         replacement += " " + extra
                                     replacement += file.extension
-                                replacement = re.sub(r"\?", " ", replacement).strip()
+                                replacement = re.sub(
+                                    r"([!?])", " ", replacement
+                                ).strip()
                                 replacement = remove_dual_space(
                                     re.sub(r"_", " ", replacement)
                                 ).strip()
@@ -3425,13 +3429,15 @@ class BookwalkerSeries:
 session_object = None
 
 
-def scrape_url(url, strainer=None, headers=None):
+def scrape_url(url, strainer=None, headers=None, cookies=None):
     try:
         global session_object
         if not session_object:
             session_object = requests.Session()
         page_obj = None
-        if headers:
+        if headers and cookies:
+            page_obj = session_object.get(url, headers=headers, cookies=cookies)
+        elif headers and not cookies:
             page_obj = session_object.get(url, headers=headers)
         else:
             page_obj = session_object.get(url)
@@ -3493,7 +3499,7 @@ def combine_series(series_list):
 
 
 def search_bookwalker(query, type, print_info=False):
-    sleep_timer = 3
+    sleep_timer = 8
     # The total amount of pages to scrape
     total_pages_to_scrape = 5
     # The books returned from the search
@@ -3533,7 +3539,10 @@ def search_bookwalker(query, type, print_info=False):
             url += bookwalker_light_novel_category
         page_count += 1
         # scrape url page
-        page = scrape_url(url)
+        page = scrape_url(
+            url,
+            cookies={"glSafeSearch": "1", "safeSearch": "111"},
+        )
         if page == "":
             print("\t\tError: Empty page")
             errors.append("Empty page")
