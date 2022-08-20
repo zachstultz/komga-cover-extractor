@@ -910,10 +910,6 @@ def is_upgradeable(downloaded_release, current_release):
     current_release_score = get_keyword_score(current_release.name)
     if downloaded_release_score > current_release_score:
         return True
-    elif (downloaded_release_score == current_release_score) and (
-        downloaded_release.is_fixed == True and current_release.is_fixed == False
-    ):
-        return True
     else:
         return False
 
@@ -2449,13 +2445,13 @@ def rename_dirs_in_download_folder():
                             or re.search(r"\bPremium\b", folderDir, re.IGNORECASE)
                             or re.search(r":", folderDir, re.IGNORECASE)
                             or re.search(r"([A-Za-z])(_)", folderDir, re.IGNORECASE)
-                            or re.search(r"([!?])", folderDir)
+                            or re.search(r"([?])", folderDir)
                         ):
                             dir_clean = get_series_name(folderDir)
                             dir_clean = re.sub(r"([A-Za-z])(_)", r"\1 ", dir_clean)
                             # replace : with - in dir_clean
                             dir_clean = re.sub(r"([A-Za-z])(\:)", r"\1 -", dir_clean)
-                            dir_clean = re.sub(r"([!?])", " ", dir_clean)
+                            dir_clean = re.sub(r"([?])", "", dir_clean)
                             # remove dual spaces from dir_clean
                             dir_clean = remove_dual_space(dir_clean).strip()
                             if not os.path.isdir(
@@ -2866,9 +2862,7 @@ def rename_files_in_download_folders():
                                     for extra in extras:
                                         replacement += " " + extra
                                     replacement += file.extension
-                                replacement = re.sub(
-                                    r"([!?])", " ", replacement
-                                ).strip()
+                                replacement = re.sub(r"([?])", "", replacement).strip()
                                 replacement = remove_dual_space(
                                     re.sub(r"_", " ", replacement)
                                 ).strip()
