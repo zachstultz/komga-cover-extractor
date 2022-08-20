@@ -1403,6 +1403,7 @@ def remove_common_words(s):
             "Edition",
             "Deluxe",
             "Omnibus",
+            "Digital",
             "LN",
             "wa",
             "o",
@@ -3079,6 +3080,7 @@ def find_and_extract_cover(file):
             zip_list = [
                 x for x in zip_list if not x.endswith("/") and re.search(r"\.", x)
             ]
+            zip_list.sort()
             if zip_list:
                 if not epub_cover_path:
                     for image_file in zip_list:
