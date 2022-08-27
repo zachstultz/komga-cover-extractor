@@ -1395,11 +1395,16 @@ def remove_common_words(s):
             "Novel",
             "Light Novel",
             "Manga",
+            "Comic",
             "Collection",
             "Edition",
+            "((\d+)([-_. ]+)?th)",
+            "Anniversary",
             "Deluxe",
             "Omnibus",
             "Digital",
+            "Official",
+            "Anthology",
             "LN",
             "wa",
             "o",
@@ -1429,7 +1434,10 @@ def remove_numbers(s):
 
 # Returns a string without punctuation.
 def remove_punctuation(s):
-    language = detect_language(s)
+    s = re.sub(r":", "", s)
+    language = ""
+    if not s.isdigit():
+        language = detect_language(s)
     if language and language != "en":
         return remove_dual_space(remove_common_words(re.sub(r"[^\w\s+]", " ", s)))
     else:
@@ -1440,7 +1448,15 @@ def remove_punctuation(s):
 
 # detect language of the passed string using langdetect
 def detect_language(s):
-    return detect(s)
+    language = ""
+    if s:
+        try:
+            language = detect(s)
+        except Exception as e:
+            send_error_message(e)
+            send_error_message("Attempted language detection on: " + s)
+            return language
+    return language
 
 
 # convert string to acsii
@@ -3400,10 +3416,20 @@ def delete_unacceptable_files():
 
 class BookwalkerBook:
     def __init__(
-        self, title, volume_number, date, is_released, price, url, thumbnail, book_type
+        self,
+        title,
+        volume_number,
+        part,
+        date,
+        is_released,
+        price,
+        url,
+        thumbnail,
+        book_type,
     ):
         self.title = title
         self.volume_number = volume_number
+        self.part = part
         self.date = date
         self.is_released = is_released
         self.price = price
@@ -3621,10 +3647,23 @@ def search_bookwalker(query, type, print_info=False):
                     book_type = "Unknown"
                 book_type = re.sub(r"\n|\t|\r", "", book_type).strip()
                 title = o_tile_book_info.find("h2", class_="a-tile-ttl").text
-                title = re.sub(r"[\n\t\r]", "", title)
+                title = re.sub(r"[\n\t\r]", " ", title)
+                # replace any unicode characters in the title with spaces
+                title = re.sub(r"[^\x00-\x7F]+", " ", title)
+                title = remove_dual_space(title).strip()
+                part = ""
+                part_search = get_volume_part(title)
+                if part_search:
+                    part_search = set_num_as_float_or_int(part_search)
+                    if part_search:
+                        part = set_num_as_float_or_int(part_search)
                 if a_tag_chapter or a_tag_simulpub:
                     chapter_releases.append(title)
                     continue
+                if part and re.search(r"(\b(Part)([-_. ]|)\b)", title):
+                    title = re.sub(r"(\b(Part)([-_. ]|)\b)", " ", title)
+                    title = re.sub(str(part), " ", title)
+                    title = remove_dual_space(title).strip()
                 volume_number = re.search(
                     r"([0-9]+(\.?[0-9]+)?([-_][0-9]+\.?[0-9]+)?)$", title
                 )
@@ -3719,6 +3758,7 @@ def search_bookwalker(query, type, print_info=False):
                 book = BookwalkerBook(
                     title,
                     volume_number,
+                    part,
                     date,
                     is_released,
                     0.00,
@@ -3889,18 +3929,14 @@ def check_for_new_volumes_on_bookwalker():
                 if type and dir:
                     bookwalker_volumes = search_bookwalker(dir, type, False)
                 if existing_dir_volumes and bookwalker_volumes:
-                    bk_volume_numbers = []
-                    ex_volume_numbers = []
-                    for bk_volume in bookwalker_volumes:
-                        bk_volume_numbers.append(bk_volume.volume_number)
-                    for ex_volume in existing_dir_volumes:
-                        ex_volume_numbers.append(ex_volume.volume_number)
-                    for num in ex_volume_numbers:
-                        if num in bk_volume_numbers:
-                            for v in bookwalker_volumes:
-                                if v.volume_number == num:
-                                    bookwalker_volumes.remove(v)
-                                    break
+                    for existing_vol in existing_dir_volumes:
+                        for bookwalker_vol in bookwalker_volumes[:]:
+                            if (
+                                existing_vol.volume_number
+                                == bookwalker_vol.volume_number
+                                and existing_vol.volume_part == bookwalker_vol.part
+                            ):
+                                bookwalker_volumes.remove(bookwalker_vol)
                     if len(bookwalker_volumes) > 0:
                         new_releases_on_bookwalker.extend(bookwalker_volumes)
                         for vol in bookwalker_volumes:
@@ -3922,7 +3958,7 @@ def check_for_new_volumes_on_bookwalker():
                 released.append(release)
             else:
                 pre_orders.append(release)
-    pre_orders.sort(key=lambda x: x.date, reverse=False)
+    pre_orders.sort(key=lambda x: x.date, reverse=True)
     released.sort(key=lambda x: x.date, reverse=False)
     # Get rid of the old released and pre-orders and replace them with new ones.
     if log_to_file:
