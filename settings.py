@@ -62,6 +62,12 @@ search_and_add_premium_to_file_name = False
 # AND YOU ARE USING IT
 match_through_isbn_or_series_id = False
 
+# True = Single volumes can match against multi-volumes and the reverse.
+#   EX: volume 3-4 can match to volume 3
+# False = Multi-volumes can only match against multi-volumes.
+#   EX: volume 3-4 can only match to another 3-4
+allow_matching_single_volumes_with_multi_volumes = False
+
 # The required file type matching percentage between
 # the download folder and the existing folder
 #
