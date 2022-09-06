@@ -1559,58 +1559,67 @@ class Result:
 
 # gets the user passed result from an epub file
 def get_meta_from_file(file, searches, parse_tags=False):
-    extension = get_file_extension(file)
-    results = []
-    if extension == ".epub":
-        with zipfile.ZipFile(file, "r") as zf:
-            for name in zf.namelist():
-                internal_file_extension = get_file_extension(name)
-                if internal_file_extension in internal_epub_extensions:
-                    internal_file = zf.open(name)
-                    internal_file_contents = internal_file.read()
-                    lines = internal_file_contents.decode("utf-8")
-                    for search in searches:
-                        search_result = None
-                        result = None
-                        search_result = re.search(search, lines, re.IGNORECASE)
-                        if search_result:
-                            result = search_result.group(0)
-                            result = re.sub(
-                                r"(isbn:|\"isbn\">)", "", result, flags=re.IGNORECASE
-                            ).strip()
-                            result = re.sub(r"<\/?.*>", "", result)
-                            if re.search(
-                                r"(series_id:?(\"\>)?NONE)", result, re.IGNORECASE
-                            ):
-                                result = ""
-                            if re.search(r"(series_id:.*,)", result, re.IGNORECASE):
-                                result = re.sub(r",.*", "", result).strip()
-                            elif re.search(r"(series_id\"\>.*)", result, re.IGNORECASE):
+    try:
+        extension = get_file_extension(file)
+        results = []
+        if extension == ".epub":
+            with zipfile.ZipFile(file, "r") as zf:
+                for name in zf.namelist():
+                    internal_file_extension = get_file_extension(name)
+                    if internal_file_extension in internal_epub_extensions:
+                        internal_file = zf.open(name)
+                        internal_file_contents = internal_file.read()
+                        lines = internal_file_contents.decode("utf-8")
+                        for search in searches:
+                            search_result = None
+                            result = None
+                            search_result = re.search(search, lines, re.IGNORECASE)
+                            if search_result:
+                                result = search_result.group(0)
                                 result = re.sub(
-                                    r"(series_id\"\>)",
-                                    "series_id:",
+                                    r"(isbn:|\"isbn\">)",
+                                    "",
                                     result,
                                     flags=re.IGNORECASE,
-                                )
-                            if result:
-                                results.append(result)
+                                ).strip()
+                                result = re.sub(r"<\/?.*>", "", result)
+                                if re.search(
+                                    r"(series_id:?(\"\>)?NONE)", result, re.IGNORECASE
+                                ):
+                                    result = ""
+                                if re.search(r"(series_id:.*,)", result, re.IGNORECASE):
+                                    result = re.sub(r",.*", "", result).strip()
+                                elif re.search(
+                                    r"(series_id\"\>.*)", result, re.IGNORECASE
+                                ):
+                                    result = re.sub(
+                                        r"(series_id\"\>)",
+                                        "series_id:",
+                                        result,
+                                        flags=re.IGNORECASE,
+                                    )
+                                if result:
+                                    results.append(result)
 
-    elif extension == ".cbz":
-        zip_comment = get_zip_comment(file)
-        if zip_comment:
-            for search in searches:
-                search_result = None
-                result = None
-                search_result = re.search(search, zip_comment, re.IGNORECASE)
-                if search_result:
-                    result = search_result.group(0)
-                    result = re.sub(
-                        r"(series_id:NONE)", "", result, flags=re.IGNORECASE
-                    )
-                    if re.search(r"(series_id:.*,)", result, re.IGNORECASE):
-                        result = re.sub(r",.*", "", result).strip()
-                    if result:
-                        results.append(result)
+        elif extension == ".cbz":
+            zip_comment = get_zip_comment(file)
+            if zip_comment:
+                for search in searches:
+                    search_result = None
+                    result = None
+                    search_result = re.search(search, zip_comment, re.IGNORECASE)
+                    if search_result:
+                        result = search_result.group(0)
+                        result = re.sub(
+                            r"(series_id:NONE)", "", result, flags=re.IGNORECASE
+                        )
+                        if re.search(r"(series_id:.*,)", result, re.IGNORECASE):
+                            result = re.sub(r",.*", "", result).strip()
+                        if result:
+                            results.append(result)
+    except Exception as e:
+        send_error_message(e)
+        return []
     return results
 
 
@@ -3525,7 +3534,7 @@ def scrape_url(url, strainer=None, headers=None, cookies=None):
         else:
             page_obj = session_object.get(url)
         if page_obj and page_obj.status_code == 403:
-            print("\nTOO MANY REQUESTS TO BOOKWALKER, WERE BEING RATE-LIMTIED!")
+            print("\nTOO MANY REQUESTS, WE'RE BEING RATE-LIMTIED!")
         soup = None
         if strainer and page_obj:
             soup = BeautifulSoup(page_obj.text, "lxml", parse_only=strainer)
