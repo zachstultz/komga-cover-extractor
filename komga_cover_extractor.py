@@ -1712,7 +1712,7 @@ def check_upgrade(existing_root, dir, file, cache=False):
             if isinstance(
                 volume.volume_number,
                 float,
-            ):
+            ) or isinstance(volume.volume_number, list):
                 send_change_message(
                     "\t\t\tVolume "
                     + str(volume.volume_number)
