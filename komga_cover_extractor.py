@@ -1804,10 +1804,10 @@ def check_for_duplicate_volumes(paths_to_search=[]):
                             if os.path.isfile(file.path):
                                 print("\n\tChecking: " + file.name)
                                 volume_series_name = (
-                                    (
-                                        remove_underscore_from_name(
+                                    remove_underscore_from_name(
+                                        remove_punctuation(
                                             remove_bracketed_info_from_name(
-                                                remove_punctuation(file.series_name)
+                                                file.series_name
                                             )
                                         )
                                     )
@@ -1838,8 +1838,8 @@ def check_for_duplicate_volumes(paths_to_search=[]):
                                                 compare_volume_series_name = (
                                                     (
                                                         remove_underscore_from_name(
-                                                            remove_bracketed_info_from_name(
-                                                                remove_punctuation(
+                                                            remove_punctuation(
+                                                                remove_bracketed_info_from_name(
                                                                     compare_file.series_name
                                                                 )
                                                             )
@@ -2035,8 +2035,10 @@ def check_for_existing_series():
                             ).strip()
                             downloaded_file_series_name = (
                                 remove_underscore_from_name(
-                                    remove_bracketed_info_from_name(
-                                        remove_punctuation(downloaded_file_series_name)
+                                    remove_punctuation(
+                                        remove_bracketed_info_from_name(
+                                            downloaded_file_series_name
+                                        )
                                     )
                                 )
                             ).lower()
@@ -2071,8 +2073,8 @@ def check_for_existing_series():
                                         ).strip()
                                         successful_file_series_name = (
                                             remove_underscore_from_name(
-                                                remove_bracketed_info_from_name(
-                                                    remove_punctuation(
+                                                remove_punctuation(
+                                                    remove_bracketed_info_from_name(
                                                         successful_file_series_name
                                                     )
                                                 )
@@ -2218,8 +2220,10 @@ def check_for_existing_series():
                                                 for dir in folder_accessor.dirs:
                                                     existing_series_folder_from_library = (
                                                         remove_underscore_from_name(
-                                                            remove_bracketed_info_from_name(
-                                                                remove_punctuation(dir)
+                                                            remove_punctuation(
+                                                                remove_bracketed_info_from_name(
+                                                                    dir
+                                                                )
                                                             )
                                                         )
                                                     ).lower()
