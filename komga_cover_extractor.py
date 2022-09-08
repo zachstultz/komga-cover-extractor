@@ -396,7 +396,7 @@ def send_discord_message(message, hook=None, random_order=True):
         elif discord_webhook_url and hook:
             webhook = DiscordWebhook(url=hook, content=message, rate_limit_retry=True)
             webhook.execute()
-    except TypeError as e:
+    except Exception as e:
         send_error_message(e, discord=False)
 
 
