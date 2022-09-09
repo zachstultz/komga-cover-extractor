@@ -2914,20 +2914,25 @@ def rename_files_in_download_folders():
                                     combined,
                                     flags=re.IGNORECASE,
                                 )
-                                if add_issue_number_to_cbz_file_name:
-                                    if file.extension == ".cbz":
-                                        combined += " " + "#" + without_keyword
-                                    elif file.extension == ".epub":
-                                        if not re.search(
-                                            r"\bPremium\b", file.name, re.IGNORECASE
-                                        ) and (
-                                            check_for_bonus_xhtml(file.path)
-                                            or get_toc_or_copyright(file.path)
-                                        ):
-                                            print(
-                                                "\nBonus content found inside epub, adding [Premium] to file name."
-                                            )
-                                            combined += " [Premium]"
+                                if (
+                                    file.extension == ".cbz"
+                                    and add_issue_number_to_cbz_file_name
+                                ):
+                                    combined += " " + "#" + without_keyword
+                                elif (
+                                    file.extension == ".epub"
+                                    and search_and_add_premium_to_file_name
+                                ):
+                                    if not re.search(
+                                        r"\bPremium\b", file.name, re.IGNORECASE
+                                    ) and (
+                                        check_for_bonus_xhtml(file.path)
+                                        or get_toc_or_copyright(file.path)
+                                    ):
+                                        print(
+                                            "\nBonus content found inside epub, adding [Premium] to file name."
+                                        )
+                                        combined += " [Premium]"
                                 if not file.is_one_shot:
                                     replacement = re.sub(
                                         r"((?<![A-Za-z]+)[-_. ]\s+|)(\[|\(|\{)?(LN|Light Novels?|Novels?|Books?|Volumes?|Vols?|V|第|Discs?)(\.|)([-_. ]|)(([0-9]+)((([-_.]|)([0-9]+))+|))(\s#(([0-9]+)((([-_.]|)([0-9]+))+|)))?(\]|\)|\})?",
