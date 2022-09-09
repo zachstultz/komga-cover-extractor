@@ -3156,6 +3156,11 @@ def find_and_extract_cover(file):
         epub_cover_path = ""
         if file.extension == ".epub":
             epub_cover_path = get_epub_cover(file.path)
+            epub_cover_extension = re.sub(
+                r"\.", "", get_file_extension(epub_cover_path)
+            )
+            if epub_cover_extension not in image_extensions:
+                epub_cover_path = ""
         with zipfile.ZipFile(file.path, "r") as zip_ref:
             zip_list = zip_ref.namelist()
             zip_list = [
@@ -3169,6 +3174,12 @@ def find_and_extract_cover(file):
             zip_list = [
                 x for x in zip_list if not x.endswith("/") and re.search(r"\.", x)
             ]
+            # remove any non-supported image files from the list
+            for item in zip_list:
+                extension = get_file_extension(item)
+                extension = re.sub(r"\.", "", extension)
+                if extension not in image_extensions:
+                    zip_list.remove(item)
             zip_list.sort()
             if zip_list:
                 if not epub_cover_path:
