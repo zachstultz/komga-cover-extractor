@@ -1359,27 +1359,54 @@ def reorganize_and_rename(files, dir):
                 file.name,
                 re.IGNORECASE,
             ):
-                contains_comic_info = check_if_zip_file_contains_comic_info_xml(
-                    file.path
-                )
                 comic_info_xml = ""
-                if contains_comic_info:
-                    comicinfo = get_file_from_zip(file.path, "comicinfo.xml")
-                    tags = None
-                    if comicinfo:
-                        comicinfo = comicinfo.decode("utf-8")
-                        # not parsing pages correctly
-                        comic_info_xml = parse_comicinfo_xml(comicinfo)
-                comic_info_year = ""
-                comic_info_publisher = ""
+                epub_info_html = ""
+                if file.extension == ".cbz":
+                    contains_comic_info = check_if_zip_file_contains_comic_info_xml(
+                        file.path
+                    )
+                    if contains_comic_info:
+                        comicinfo = get_file_from_zip(file.path, "comicinfo.xml")
+                        tags = None
+                        if comicinfo:
+                            comicinfo = comicinfo.decode("utf-8")
+                            # not parsing pages correctly
+                            comic_info_xml = parse_comicinfo_xml(comicinfo)
+                elif file.extension == ".epub":
+                    epub_content_opf = get_file_from_zip(file.path, "content.opf")
+                    epub_package_opf = get_file_from_zip(file.path, "package.opf")
+                    if epub_content_opf:
+                        epub_info_html = parse_html_tags(epub_content_opf)
+                    elif epub_package_opf:
+                        epub_info_html = parse_html_tags(epub_package_opf)
+                release_year_from_file = ""
+                publisher = ""
                 if comic_info_xml:
                     if "Year" in comic_info_xml:
-                        comic_info_year = comic_info_xml["Year"]
-                        if comic_info_year and comic_info_year.isdigit():
-                            comic_info_year = int(comic_info_year)
+                        release_year_from_file = comic_info_xml["Year"]
+                        if release_year_from_file and release_year_from_file.isdigit():
+                            release_year_from_file = int(release_year_from_file)
                     if "Publisher" in comic_info_xml:
-                        comic_info_publisher = titlecase(comic_info_xml["Publisher"])
-                        comic_info_publisher = remove_dual_space(comic_info_publisher)
+                        publisher = titlecase(comic_info_xml["Publisher"])
+                        publisher = remove_dual_space(publisher)
+                        publisher = re.sub(r", LLC.*", "", publisher)
+                elif epub_info_html:
+                    if "dc:date" in epub_info_html:
+                        release_year_from_file = epub_info_html["dc:date"].strip()
+                        release_year_from_file = re.search(
+                            r"\d{4}", release_year_from_file
+                        )
+                        if release_year_from_file:
+                            release_year_from_file = release_year_from_file.group(0)
+                            if (
+                                release_year_from_file
+                                and release_year_from_file.isdigit()
+                            ):
+                                release_year_from_file = int(release_year_from_file)
+                    if "dc:publisher" in epub_info_html:
+                        publisher = titlecase(epub_info_html["dc:publisher"])
+                        publisher = remove_dual_space(publisher)
+                        publisher = re.sub(r", LLC.*", "", publisher).strip()
                 rename = ""
                 rename += base_dir
                 rename += " " + preferred_volume_renaming_format
@@ -1418,23 +1445,64 @@ def reorganize_and_rename(files, dir):
                     and file.extension == ".cbz"
                 ):
                     rename += " #" + number_string
-                if isinstance(file.volume_year, int):
-                    rename += " (" + str(file.volume_year) + ")"
-                elif comic_info_year and isinstance(comic_info_year, int):
-                    file.volume_year = comic_info_year
-                    rename += " (" + str(file.volume_year) + ")"
-                if comic_info_publisher:
-                    for item in file.extras:
-                        if re.search(
-                            remove_punctuation(comic_info_publisher),
-                            remove_punctuation(item),
-                            re.IGNORECASE,
+                if file.extension == ".cbz":
+                    if isinstance(file.volume_year, int):
+                        rename += " (" + str(file.volume_year) + ")"
+                    elif release_year_from_file and isinstance(
+                        release_year_from_file, int
+                    ):
+                        file.volume_year = release_year_from_file
+                        rename += " (" + str(file.volume_year) + ")"
+                elif file.extension == ".epub":
+                    if isinstance(file.volume_year, int):
+                        rename += " [" + str(file.volume_year) + "]"
+                    elif release_year_from_file and isinstance(
+                        release_year_from_file, int
+                    ):
+                        file.volume_year = release_year_from_file
+                        rename += " [" + str(file.volume_year) + "]"
+                if publisher:
+                    for item in file.extras[:]:
+                        score = similar(
+                            re.sub(
+                                r"(Entertainment|Comics?|Club|[-_.,\(\[\{\)\]\}])",
+                                "",
+                                item,
+                            ),
+                            re.sub(
+                                r"(Entertainment|Comics?|Club|[-_.,\(\[\{\)\]\}])",
+                                "",
+                                publisher,
+                            ),
+                        )
+                        if (
+                            re.search(
+                                publisher,
+                                item,
+                                re.IGNORECASE,
+                            )
+                            or score >= 0.90
                         ):
                             file.extras.remove(item)
                     if file.extension == ".cbz":
-                        rename += " (" + comic_info_publisher + ")"
+                        rename += " (" + publisher + ")"
                     elif file.extension == ".epub":
-                        rename += " [" + comic_info_publisher + "]"
+                        rename += " [" + publisher + "]"
+                if file.volume_year:
+                    for item in file.extras[:]:
+                        score = similar(
+                            item,
+                            str(file.volume_year),
+                        )
+                        if (
+                            re.search(
+                                str(file.volume_year),
+                                item,
+                                re.IGNORECASE,
+                            )
+                            or score >= required_similarity_score
+                        ):
+                            file.extras.remove(item)
                 if len(file.extras) != 0:
                     for extra in file.extras:
                         rename += " " + extra
@@ -1557,12 +1625,12 @@ def remove_numbers(s):
 
 
 # Returns a string without punctuation.
-def remove_punctuation(s):
+def remove_punctuation(s, disable_lang=False):
     s = re.sub(r":", "", s)
     language = ""
-    if not s.isdigit():
+    if not disable_lang and not s.isdigit():
         language = detect_language(s)
-    if language and language != "en":
+    if language and language != "en" and not disable_lang:
         return remove_dual_space(remove_common_words(re.sub(r"[^\w\s+]", " ", s)))
     else:
         return convert_to_ascii(
@@ -2870,6 +2938,15 @@ def parse_comicinfo_xml(xml_file):
             send_error_message(e)
             send_error_message("Attempted to parse comicinfo.xml")
             return tags
+    return tags
+
+
+# dynamically parse all html tags and values and return a dictionary of them
+def parse_html_tags(html):
+    soup = BeautifulSoup(html, "html.parser")
+    tags = {}
+    for tag in soup.find_all(True):
+        tags[tag.name] = tag.get_text()
     return tags
 
 
