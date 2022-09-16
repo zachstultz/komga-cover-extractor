@@ -13,6 +13,7 @@ import requests
 import time
 import scandir
 import random
+import xml.etree.ElementTree as ET
 from PIL import Image
 from PIL import ImageFile
 from lxml import etree
@@ -732,7 +733,7 @@ def get_cbz_percent_for_folder(files):
 def check_for_multi_volume_file(file_name):
     if re.search(
         r"(\b(LN|Light Novels?|Novels?|Books?|Volumes?|Vols?|V|第|Discs?)(\.)?(\s+)?([0-9]+(\.[0-9]+)?)([-_]([0-9]+(\.[0-9]+)?))+\b)",
-        file_name,
+        remove_bracketed_info_from_name(file_name),
         re.IGNORECASE,
     ):
         return True
@@ -768,6 +769,7 @@ def remove_everything_but_volume_num(files):
     is_multi_volume = False
     for file in files[:]:
         is_multi_volume = check_for_multi_volume_file(file)
+        file = remove_bracketed_info_from_name(file)
         result = re.search(
             r"\b(LN|Light Novels?|Novels?|Books?|Volumes?|Vols?|V|第|Discs?)((\.)|)(\s+)?([0-9]+)(([-_.])([0-9]+)|)+\b",
             file,
@@ -1327,7 +1329,7 @@ def rename_file(
     src, dest, root, extensionless_filename_src, extenionless_filename_dest
 ):
     if os.path.isfile(src):
-        print("\t\tRenaming " + src)
+        print("\n\t\tRenaming " + src)
         os.rename(src, dest)
         if os.path.isfile(dest):
             send_change_message(
@@ -1358,6 +1360,26 @@ def reorganize_and_rename(files, dir):
                 file.name,
                 re.IGNORECASE,
             ):
+                contains_comic_info = check_if_zip_file_contains_comic_info_xml(
+                    file.path
+                )
+                comic_info_xml = ""
+                if contains_comic_info:
+                    comicinfo = get_file_from_zip(file.path, "comicinfo.xml")
+                    tags = None
+                    if comicinfo:
+                        comicinfo = comicinfo.decode("utf-8")
+                        # not parsing pages correctly
+                        comic_info_xml = parse_comicinfo_xml(comicinfo)
+                comic_info_year = ""
+                comic_info_publisher = ""
+                if comic_info_xml:
+                    if "Year" in comic_info_xml:
+                        comic_info_year = comic_info_xml["Year"]
+                        if comic_info_year and comic_info_year.isdigit():
+                            comic_info_year = int(comic_info_year)
+                    if "Publisher" in comic_info_xml:
+                        comic_info_publisher = comic_info_xml["Publisher"]
                 rename = ""
                 rename += base_dir
                 rename += " " + preferred_volume_renaming_format
@@ -1398,6 +1420,21 @@ def reorganize_and_rename(files, dir):
                     rename += " #" + number_string
                 if isinstance(file.volume_year, int):
                     rename += " (" + str(file.volume_year) + ")"
+                elif comic_info_year and isinstance(comic_info_year, int):
+                    file.volume_year = comic_info_year
+                    rename += " (" + str(file.volume_year) + ")"
+                if comic_info_publisher:
+                    for item in file.extras:
+                        if re.search(
+                            remove_punctuation(comic_info_publisher),
+                            remove_punctuation(item),
+                            re.IGNORECASE,
+                        ):
+                            file.extras.remove(item)
+                    if file.extension == ".cbz":
+                        rename += " (" + comic_info_publisher + ")"
+                    elif file.extension == ".epub":
+                        rename += " [" + comic_info_publisher + "]"
                 if len(file.extras) != 0:
                     for extra in file.extras:
                         rename += " " + extra
@@ -2657,6 +2694,7 @@ def add_to_list(item, list):
 
 
 def get_extras(file_name, root):
+    extension = get_file_extension(file_name)
     series_name = get_series_name_from_file_name(file_name, root)
     if (
         re.search(re.escape(series_name), file_name, re.IGNORECASE)
@@ -2706,7 +2744,10 @@ def get_extras(file_name, root):
             modified.remove(item)
     for keyword in keywords:
         if re.search(rf"\b{keyword}\b", file_name, re.IGNORECASE):
-            add_to_list("[" + keyword.strip() + "]", modified)
+            if extension == ".epub":
+                add_to_list("[" + keyword.strip() + "]", modified)
+            elif extension == ".cbz":
+                add_to_list("(" + keyword.strip() + ")", modified)
     for keyword_two in keywords_two:
         if re.search(
             rf"(([A-Za-z]|[0-9]+)|)+ {keyword_two}([-_ ]|)([0-9]+|([A-Za-z]|[0-9]+)+|)",
@@ -2721,17 +2762,26 @@ def get_extras(file_name, root):
             if result != "Episode " or (
                 result != "Arc " | result != "arc " | result != "ARC "
             ):
-                add_to_list("[" + result.strip() + "]", modified)
+                if extension == ".epub":
+                    add_to_list("[" + result.strip() + "]", modified)
+                elif extension == ".cbz":
+                    add_to_list("(" + result.strip() + ")", modified)
     if re.search(r"(\s|\b)Part([-_. ]|)([0-9]+)", file_name, re.IGNORECASE):
         result = re.search(
             r"(\s|\b)Part([-_. ]|)([0-9]+)", file_name, re.IGNORECASE
         ).group()
-        add_to_list("[" + result.strip() + "]", modified)
+        if extension == ".epub":
+            add_to_list("[" + result.strip() + "]", modified)
+        elif extension == ".cbz":
+            add_to_list("(" + result.strip() + ")", modified)
     if re.search(r"(\s|\b)Season([-_. ]|)([0-9]+)", file_name, re.IGNORECASE):
         result = re.search(
             r"(\s|\b)Season([-_. ]|)([0-9]+)", file_name, re.IGNORECASE
         ).group()
-        add_to_list("[" + result.strip() + "]", modified)
+        if extension == ".epub":
+            add_to_list("[" + result.strip() + "]", modified)
+        elif extension == ".cbz":
+            add_to_list("(" + result.strip() + ")", modified)
     if re.search(
         r"(\s|\b)(Chapter|Ch|Chpt|Chpter|C)([-_. ]|)([0-9]+)(\.[0-9]+|)(([-_. ]|)([0-9]+)(\.[0-9]+|)|)(\s|\b)",
         file_name,
@@ -2742,7 +2792,10 @@ def get_extras(file_name, root):
             file_name,
             re.IGNORECASE,
         ).group()
-        add_to_list("[" + result.strip() + "]", modified)
+        if extension == ".epub":
+            add_to_list("[" + result.strip() + "]", modified)
+        elif extension == ".cbz":
+            add_to_list("(" + result.strip() + ")", modified)
     # Move Premium to the beginning
     for item in modified:
         if re.search(r"Premium", item, re.IGNORECASE):
@@ -2777,6 +2830,47 @@ def contains_issue_number(file_name, volume_number):
         return True
     else:
         return False
+
+
+# check if zip file contains ComicInfo.xml
+def check_if_zip_file_contains_comic_info_xml(zip_file):
+    with zipfile.ZipFile(zip_file, "r") as zip_ref:
+        list = zip_ref.namelist()
+        for name in list:
+            if os.path.basename(name).lower() == "ComicInfo.xml".lower():
+                return True
+    return False
+
+
+# retrieve the file specified from the zip file and return the data for it
+def get_file_from_zip(zip_file, file_name):
+    result = None
+    try:
+        with zipfile.ZipFile(zip_file, "r") as z:
+            list = z.namelist()
+            for file in list:
+                if os.path.basename(file).lower() == file_name.lower():
+                    result = z.read(file)
+                    break
+    except Exception as e:
+        send_error_message(e)
+        send_error_message("Attempted to read file: " + file_name)
+    return result
+
+
+# dynamically parse all tags from comicinfo.xml and return a dictionary of the tags
+def parse_comicinfo_xml(xml_file):
+    tags = {}
+    if xml_file:
+        try:
+            tree = ET.fromstring(xml_file)
+            for child in tree:
+                tags[child.tag] = child.text
+        except Exception as e:
+            send_error_message(e)
+            send_error_message("Attempted to parse comicinfo.xml")
+            return tags
+    return tags
 
 
 # Renames files.
