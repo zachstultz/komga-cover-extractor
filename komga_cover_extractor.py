@@ -769,7 +769,6 @@ def remove_everything_but_volume_num(files):
     is_multi_volume = False
     for file in files[:]:
         is_multi_volume = check_for_multi_volume_file(file)
-        file = remove_bracketed_info_from_name(file)
         result = re.search(
             r"\b(LN|Light Novels?|Novels?|Books?|Volumes?|Vols?|V|第|Discs?)((\.)|)(\s+)?([0-9]+)(([-_.])([0-9]+)|)+\b",
             file,
@@ -1380,6 +1379,7 @@ def reorganize_and_rename(files, dir):
                             comic_info_year = int(comic_info_year)
                     if "Publisher" in comic_info_xml:
                         comic_info_publisher = titlecase(comic_info_xml["Publisher"])
+                        comic_info_publisher = remove_dual_space(comic_info_publisher)
                 rename = ""
                 rename += base_dir
                 rename += " " + preferred_volume_renaming_format
