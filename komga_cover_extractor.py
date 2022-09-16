@@ -25,7 +25,7 @@ from discord_webhook import DiscordWebhook
 from bs4 import BeautifulSoup, SoupStrainer
 from settings import *
 from langdetect import detect
-
+from titlecase import titlecase
 
 # Paths = existing library
 # Download_folders = newly aquired manga/novels
@@ -1379,7 +1379,7 @@ def reorganize_and_rename(files, dir):
                         if comic_info_year and comic_info_year.isdigit():
                             comic_info_year = int(comic_info_year)
                     if "Publisher" in comic_info_xml:
-                        comic_info_publisher = comic_info_xml["Publisher"]
+                        comic_info_publisher = titlecase(comic_info_xml["Publisher"])
                 rename = ""
                 rename += base_dir
                 rename += " " + preferred_volume_renaming_format
