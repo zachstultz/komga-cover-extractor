@@ -1037,13 +1037,14 @@ def replace_file(old_file, new_file):
         send_error_message("Failed file replacement.")
 
 
-# execute terminal command
+# execute command with subprocess and reutrn the output
 def execute_command(command):
-    if command != "":
-        try:
-            subprocess.call(command, shell=True)
-        except Exception as e:
-            send_error_message(e)
+    try:
+        process = subprocess.Popen(command, stdout=subprocess.PIPE)
+        output, error = process.communicate()
+        return output.decode("utf-8")
+    except Exception as e:
+        send_error_message(e)
 
 
 # Removes the duplicate after determining it's upgrade status, otherwise, it upgrades
@@ -1465,12 +1466,12 @@ def reorganize_and_rename(files, dir):
                     for item in file.extras[:]:
                         score = similar(
                             re.sub(
-                                r"(Entertainment|Comics?|Club|[-_.,\(\[\{\)\]\}])",
+                                r"(Entertainment|Pictures|LLC|Americas?|USA?|International|Books|Comics?|Media|Club|[-_.,\(\[\{\)\]\}])",
                                 "",
                                 item,
                             ),
                             re.sub(
-                                r"(Entertainment|Comics?|Club|[-_.,\(\[\{\)\]\}])",
+                                r"(Entertainment|Pictures|LLC|Americas?|USA?|International|Books|Comics?|Media|Club|[-_.,\(\[\{\)\]\}])",
                                 "",
                                 publisher,
                             ),
@@ -4339,6 +4340,8 @@ def main():
         delete_unacceptable_files()
     if delete_chapters_from_downloads_toggle and download_folders:
         delete_chapters_from_downloads()
+    if extract_covers_toggle and paths:
+        extract_covers()
     if rename_files_in_download_folders_toggle and download_folders:
         rename_files_in_download_folders()
     if create_folders_for_items_in_download_folder_toggle and download_folders:
@@ -4347,8 +4350,6 @@ def main():
         rename_dirs_in_download_folder()
     if check_for_duplicate_volumes_toggle:
         check_for_duplicate_volumes(download_folders)
-    if extract_covers_toggle and paths:
-        extract_covers()
     if check_for_existing_series_toggle and download_folders and paths:
         check_for_existing_series()
     if check_for_missing_volumes_toggle and paths:
