@@ -1408,6 +1408,7 @@ def reorganize_and_rename(files, dir):
                         publisher = titlecase(epub_info_html["dc:publisher"])
                         publisher = remove_dual_space(publisher)
                         publisher = re.sub(r", LLC.*", "", publisher).strip()
+                        publisher = re.sub(r"LLC", "", publisher).strip()
                 rename = ""
                 rename += base_dir
                 rename += " " + preferred_volume_renaming_format
@@ -1466,15 +1467,15 @@ def reorganize_and_rename(files, dir):
                     for item in file.extras[:]:
                         score = similar(
                             re.sub(
-                                r"(Entertainment|Pictures|LLC|Americas?|USA?|International|Books|Comics?|Media|Club|[-_.,\(\[\{\)\]\}])",
+                                r"(Entertainment|Pictures?|LLC|Americas?|USA?|International|Books?|Comics?|Media|Club|[-_.,\(\[\{\)\]\}])",
                                 "",
                                 item,
-                            ),
+                            ).strip(),
                             re.sub(
-                                r"(Entertainment|Pictures|LLC|Americas?|USA?|International|Books|Comics?|Media|Club|[-_.,\(\[\{\)\]\}])",
+                                r"(Entertainment|Pictures?|LLC|Americas?|USA?|International|Books?|Comics?|Media|Club|[-_.,\(\[\{\)\]\}])",
                                 "",
                                 publisher,
-                            ),
+                            ).strip(),
                         )
                         if (
                             re.search(
@@ -4319,6 +4320,7 @@ def cache_paths():
 def main():
     global bookwalker_check
     global cached_paths
+    global processed_files
     parse_my_args()  # parses the user's arguments
     if (
         os.path.isfile(os.path.join(ROOT_DIR, "cached_paths.txt"))
@@ -4340,10 +4342,10 @@ def main():
         delete_unacceptable_files()
     if delete_chapters_from_downloads_toggle and download_folders:
         delete_chapters_from_downloads()
-    if extract_covers_toggle and paths:
-        extract_covers()
     if rename_files_in_download_folders_toggle and download_folders:
         rename_files_in_download_folders()
+    if extract_covers_toggle and paths:
+        extract_covers()
     if create_folders_for_items_in_download_folder_toggle and download_folders:
         create_folders_for_items_in_download_folder()
     if rename_dirs_in_download_folder_toggle and download_folders:
