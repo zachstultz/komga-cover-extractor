@@ -298,30 +298,37 @@ def parse_my_args():
                     bookwalker_webhook_urls.append(hook)
 
 
-def set_num_as_float_or_int(num):
-    if num:
-        if isinstance(num, str) and not isinstance(num, list):
-            num = float(num)
-        if isinstance(num, list):
-            result = ""
-            for num in num:
-                if float(num) == float(int(num)):
-                    if num == num[-1]:
-                        result += str(int(num))
+def set_num_as_float_or_int(volume_number):
+    try:
+        if volume_number != "":
+            if isinstance(volume_number, list):
+                result = ""
+                for num in volume_number:
+                    if float(num) == int(num):
+                        if num == volume_number[-1]:
+                            result += str(int(num))
+                        else:
+                            result += str(int(num)) + "-"
                     else:
-                        result += str(int(num)) + "-"
-                else:
-                    if num == num[-1]:
-                        result += str(float(num))
-                    else:
-                        result += str(float(num)) + "-"
-            return result
-        else:
-            if float(num) == int(num):
-                num = int(num)
+                        if num == volume_number[-1]:
+                            result += str(float(num))
+                        else:
+                            result += str(float(num)) + "-"
+                return result
+            elif isinstance(volume_number, str) and re.search(r"\.", volume_number):
+                volume_number = float(volume_number)
             else:
-                num = float(num)
-    return num
+                if float(volume_number) == int(volume_number):
+                    volume_number = int(volume_number)
+                else:
+                    volume_number = float(volume_number)
+    except Exception as e:
+        send_error_message(
+            "Failed to convert volume number to float or int: " + str(volume_number)
+        )
+        send_error_message(e)
+        return ""
+    return volume_number
 
 
 # Handles image compression
@@ -1850,8 +1857,17 @@ def remove_duplicates(items):
 
 # Return the zip comment for the passed zip file
 def get_zip_comment(zip_file):
-    with zipfile.ZipFile(zip_file, "r") as zip_ref:
-        return zip_ref.comment.decode("utf-8")
+    try:
+        with zipfile.ZipFile(zip_file, "r") as zip_ref:
+            return zip_ref.comment.decode("utf-8")
+    except Exception as e:
+        send_error_message(str(e))
+        send_error_message("\tFailed to get zip comment for: " + zip_file)
+        write_to_file("errors.txt", str(e))
+        exc_type, exc_obj, exc_tb = sys.exc_info()
+        fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+        print(exc_type, fname, exc_tb.tb_lineno)
+        return ""
 
 
 # Removes bracket info from the end of a string.
@@ -3365,6 +3381,9 @@ def find_and_extract_cover(file):
                             )
                             or re.search(
                                 r"(\b(p000|page_000)\b)", image_file, re.IGNORECASE
+                            )
+                            or re.search(
+                                r"((\s+)0+\.(.{2,}))", image_file, re.IGNORECASE
                             )
                             or re.search(
                                 r"(\bindex[-_. ]1[-_. ]1\b)", image_file, re.IGNORECASE
