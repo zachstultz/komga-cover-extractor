@@ -20,7 +20,7 @@ Detection is based on various scene releases, if none are detected, it will defa
 3. Read usage below and enjoy!
 
 ## Goals
-1. Transform script into media manager with many features that includes cover extraction, but is not exclusive to it.
+1. Transform script into media manager with many features that includes cover extraction, but is not exclusive to it. (in-progress)
 2. Modularize volume keyword regexes across the script.
 3. Better documentation.
 
