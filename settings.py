@@ -97,7 +97,7 @@ ranked_keywords = []
 # Folder names to be ignored
 ignored_folder_names = [""]
 # List of file types used throughout the program
-file_extensions = ["epub", "cbz", "cbr"]  # (cbr is only used for the stat printout)
+file_extensions = ["epub", "cbz"]
 image_extensions = ["jpg", "jpeg", "png", "tbn", "jxl"]
 # file extensions deleted from the download folders in an optional method. [".example"]
 unaccepted_file_extensions = []
