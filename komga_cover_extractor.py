@@ -3360,11 +3360,13 @@ def find_and_extract_cover(file):
         epub_cover_path = ""
         if file.extension == ".epub":
             epub_cover_path = get_epub_cover(file.path)
-            epub_cover_extension = re.sub(
-                r"\.", "", get_file_extension(epub_cover_path)
-            )
-            if epub_cover_extension not in image_extensions:
-                epub_cover_path = ""
+            if epub_cover_path:
+                epub_cover_path = os.path.basename(epub_cover_path)
+                epub_cover_extension = re.sub(
+                    r"\.", "", get_file_extension(epub_cover_path)
+                )
+                if epub_cover_extension not in image_extensions:
+                    epub_cover_path = ""
         with zipfile.ZipFile(file.path, "r") as zip_ref:
             zip_list = zip_ref.namelist()
             zip_list = [
@@ -3385,55 +3387,61 @@ def find_and_extract_cover(file):
                 if extension not in image_extensions:
                     zip_list.remove(item)
             zip_list.sort()
+            # parse zip_list and check each os.path.basename for epub_cover_path if epub_cover_path exists, then put it at the front of the list
+            if epub_cover_path:
+                for item in zip_list:
+                    if os.path.basename(item) == epub_cover_path:
+                        zip_list.remove(item)
+                        zip_list.insert(0, item)
+                        break
             if zip_list:
-                if not epub_cover_path:
-                    for image_file in zip_list:
-                        if (
-                            re.search(
-                                r"(\b(Cover([0-9]+|)|CoverDesign)\b)",
-                                image_file,
-                                re.IGNORECASE,
-                            )
-                            or re.search(
-                                r"(\b(p000|page_000)\b)", image_file, re.IGNORECASE
-                            )
-                            or re.search(
-                                r"((\s+)0+\.(.{2,}))", image_file, re.IGNORECASE
-                            )
-                            or re.search(
-                                r"(\bindex[-_. ]1[-_. ]1\b)", image_file, re.IGNORECASE
-                            )
-                            or re.search(
-                                r"(9([-_. :]+)?7([-_. :]+)?(8|9)(([-_. :]+)?[0-9]){10})",
-                                image_file,
-                                re.IGNORECASE,
-                            )
-                        ):
-                            print("\t\tCover Found: " + image_file)
-                            image_extension = get_file_extension(
-                                os.path.basename(image_file)
-                            )
-                            if image_extension == ".jpeg":
-                                image_extension = ".jpg"
-                            with zip_ref.open(image_file) as image_file_ref:
-                                # save image_file_ref as file.extensionless_name + image_extension to file.root
-                                with open(
-                                    os.path.join(
-                                        file.root,
-                                        file.extensionless_name + image_extension,
-                                    ),
-                                    "wb",
-                                ) as image_file_ref_out:
-                                    image_file_ref_out.write(image_file_ref.read())
-                            if compress_image_option:
-                                compress_image(
-                                    os.path.join(
-                                        file.root,
-                                        file.extensionless_name + image_extension,
-                                    )
+                for image_file in zip_list:
+                    if (
+                        epub_cover_path
+                        and os.path.basename(image_file) == epub_cover_path
+                        or re.search(
+                            r"(\b(Cover([0-9]+|)|CoverDesign)\b)",
+                            image_file,
+                            re.IGNORECASE,
+                        )
+                        or re.search(
+                            r"(\b(p000|page_000)\b)", image_file, re.IGNORECASE
+                        )
+                        or re.search(r"((\s+)0+\.(.{2,}))", image_file, re.IGNORECASE)
+                        or re.search(
+                            r"(\bindex[-_. ]1[-_. ]1\b)", image_file, re.IGNORECASE
+                        )
+                        or re.search(
+                            r"(9([-_. :]+)?7([-_. :]+)?(8|9)(([-_. :]+)?[0-9]){10})",
+                            image_file,
+                            re.IGNORECASE,
+                        )
+                    ):
+                        print("\t\tCover Found: " + image_file)
+                        image_extension = get_file_extension(
+                            os.path.basename(image_file)
+                        )
+                        if image_extension == ".jpeg":
+                            image_extension = ".jpg"
+                        with zip_ref.open(image_file) as image_file_ref:
+                            # save image_file_ref as file.extensionless_name + image_extension to file.root
+                            with open(
+                                os.path.join(
+                                    file.root,
+                                    file.extensionless_name + image_extension,
+                                ),
+                                "wb",
+                            ) as image_file_ref_out:
+                                image_file_ref_out.write(image_file_ref.read())
+                        if compress_image_option:
+                            compress_image(
+                                os.path.join(
+                                    file.root,
+                                    file.extensionless_name + image_extension,
                                 )
-                                image_extension = ".jpg"
-                            return file.extensionless_name + image_extension
+                            )
+                            image_extension = ".jpg"
+                        return file.extensionless_name + image_extension
                     print(
                         "\t\tNo cover found, defaulting to first image: " + zip_list[0]
                     )
@@ -3462,32 +3470,6 @@ def find_and_extract_cover(file):
                         )
                         image_extension = ".jpg"
                     return file.extensionless_name + image_extension
-                else:
-                    print("\t\tCover Found: " + epub_cover_path)
-                    epub_path_extension = get_file_extension(
-                        os.path.basename(epub_cover_path)
-                    )
-                    if epub_path_extension == ".jpeg":
-                        epub_path_extension = ".jpg"
-                    with zip_ref.open(epub_cover_path) as epub_cover_ref:
-                        # save image_file_ref as file.extensionless_name + image_extension to file.root
-                        with open(
-                            os.path.join(
-                                file.root,
-                                file.extensionless_name + epub_path_extension,
-                            ),
-                            "wb",
-                        ) as epub_cover_ref_out:
-                            epub_cover_ref_out.write(epub_cover_ref.read())
-                    if compress_image_option:
-                        compress_image(
-                            os.path.join(
-                                file.root,
-                                file.extensionless_name + epub_path_extension,
-                            )
-                        )
-                        epub_path_extension = ".jpg"
-                    return file.extensionless_name + epub_path_extension
 
     else:
         send_error_message("\nFile: " + file.name + " is not a valid zip file.")
