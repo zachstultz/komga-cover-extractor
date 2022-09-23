@@ -46,7 +46,6 @@ image_quality = 60
 file_count = 0
 cbz_count = 0
 epub_count = 0
-cbr_count = 0
 image_count = 0
 cbz_internal_covers_found = 0
 poster_found = 0
@@ -499,10 +498,6 @@ def update_stats(file):
         global epub_count
         file_count += 1
         epub_count += 1
-    if (file.name).endswith(".cbr") and os.path.isfile(file.path):
-        global cbr_count
-        file_count += 1
-        cbr_count += 1
 
 
 # Gets and returns the basename
@@ -1474,12 +1469,12 @@ def reorganize_and_rename(files, dir):
                     for item in file.extras[:]:
                         score = similar(
                             re.sub(
-                                r"(Entertainment|Pictures?|LLC|Americas?|USA?|International|Books?|Comics?|Media|Club|[-_.,\(\[\{\)\]\}])",
+                                r"(Entertainment|Pictures?|LLC|Americas?|USA?|International|Books?|Comics?|Media|Club|On|Press|Enix Manga|Enix|[-_.,\(\[\{\)\]\}])",
                                 "",
                                 item,
                             ).strip(),
                             re.sub(
-                                r"(Entertainment|Pictures?|LLC|Americas?|USA?|International|Books?|Comics?|Media|Club|[-_.,\(\[\{\)\]\}])",
+                                r"(Entertainment|Pictures?|LLC|Americas?|USA?|International|Books?|Comics?|Media|Club|On|Press|Enix Manga|Enix|[-_.,\(\[\{\)\]\}])",
                                 "",
                                 publisher,
                             ).strip(),
@@ -1510,6 +1505,23 @@ def reorganize_and_rename(files, dir):
                                 re.IGNORECASE,
                             )
                             or score >= required_similarity_score
+                            or re.search(r"([\[\(\{]\d{4}[\]\)\}])", item)
+                        ):
+                            file.extras.remove(item)
+                if release_year_from_file:
+                    for item in file.extras[:]:
+                        score = similar(
+                            item,
+                            str(release_year_from_file),
+                        )
+                        if (
+                            re.search(
+                                str(release_year_from_file),
+                                item,
+                                re.IGNORECASE,
+                            )
+                            or score >= required_similarity_score
+                            or re.search(r"([\[\(\{]\d{4}[\]\)\}])", item)
                         ):
                             file.extras.remove(item)
                 if len(file.extras) != 0:
@@ -1859,7 +1871,10 @@ def remove_duplicates(items):
 def get_zip_comment(zip_file):
     try:
         with zipfile.ZipFile(zip_file, "r") as zip_ref:
-            return zip_ref.comment.decode("utf-8")
+            if zip_ref.comment:
+                return zip_ref.comment.decode("utf-8")
+            else:
+                return ""
     except Exception as e:
         send_error_message(str(e))
         send_error_message("\tFailed to get zip comment for: " + zip_file)
@@ -3607,7 +3622,6 @@ def print_stats():
     print("\nFor all paths.")
     print("Total Files Found: " + str(file_count))
     print("\t" + str(cbz_count) + " were cbz files")
-    print("\t" + str(cbr_count) + " were cbr files")
     print("\t" + str(epub_count) + " were epub files")
     print("\tof those we found that " + str(image_count) + " had a cover image file.")
     if len(errors) != 0:
@@ -4363,12 +4377,12 @@ def main():
         delete_chapters_from_downloads()
     if rename_files_in_download_folders_toggle and download_folders:
         rename_files_in_download_folders()
-    if extract_covers_toggle and paths:
-        extract_covers()
     if create_folders_for_items_in_download_folder_toggle and download_folders:
         create_folders_for_items_in_download_folder()
     if rename_dirs_in_download_folder_toggle and download_folders:
         rename_dirs_in_download_folder()
+    if extract_covers_toggle and paths:
+        extract_covers()
     if check_for_duplicate_volumes_toggle:
         check_for_duplicate_volumes(download_folders)
     if check_for_existing_series_toggle and download_folders and paths:
