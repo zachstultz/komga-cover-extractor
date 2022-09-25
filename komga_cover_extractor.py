@@ -2173,11 +2173,7 @@ def check_for_existing_series():
                             ).strip()
                             downloaded_file_series_name = (
                                 remove_underscore_from_name(
-                                    remove_punctuation(
-                                        remove_bracketed_info_from_name(
-                                            downloaded_file_series_name
-                                        )
-                                    )
+                                    remove_punctuation(downloaded_file_series_name)
                                 )
                             ).lower()
                             if (
@@ -2212,9 +2208,7 @@ def check_for_existing_series():
                                         successful_file_series_name = (
                                             remove_underscore_from_name(
                                                 remove_punctuation(
-                                                    remove_bracketed_info_from_name(
-                                                        successful_file_series_name
-                                                    )
+                                                    successful_file_series_name
                                                 )
                                             )
                                         ).lower()
@@ -3400,7 +3394,7 @@ def find_and_extract_cover(file):
                         epub_cover_path
                         and os.path.basename(image_file) == epub_cover_path
                         or re.search(
-                            r"(\b(Cover([0-9]+|)|CoverDesign)\b)",
+                            r"(\b(Cover([0-9]+|)|CoverDesign|page([-_. ]+)?cover)\b)",
                             image_file,
                             re.IGNORECASE,
                         )
