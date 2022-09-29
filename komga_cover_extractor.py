@@ -21,7 +21,7 @@ from genericpath import isfile
 from posixpath import join
 from difflib import SequenceMatcher
 from datetime import datetime
-from discord_webhook import DiscordWebhook
+from discord_webhook import DiscordWebhook, DiscordEmbed
 from bs4 import BeautifulSoup, SoupStrainer
 from settings import *
 from langdetect import detect
@@ -382,27 +382,53 @@ def send_change_message(message):
     write_to_file("changes.txt", message)
 
 
+last_hook_index = None
+
 # Sends a discord message using the users webhook url
-def send_discord_message(message, hook=None, random_order=True):
+def send_discord_message(message, title=None, url=None, rate_limit=True, color=None):
+    global discord_webhook_url
+    global last_hook_index
+    if discord_webhook_url:
+        if not last_hook_index and last_hook_index != 0:
+            hook = discord_webhook_url[0]
+        else:
+            if last_hook_index == len(discord_webhook_url) - 1:
+                hook = discord_webhook_url[0]
+            else:
+                hook = discord_webhook_url[last_hook_index + 1]
+    if url:
+        hook = url
+    else:
+        last_hook_index = discord_webhook_url.index(hook)
+    webhook = DiscordWebhook()
+    embed = None
     try:
-        if discord_webhook_url and not hook:
-            if random_order:
-                webhook = DiscordWebhook(
-                    url=random.choice(discord_webhook_url),
-                    content=str(message),
-                    rate_limit_retry=True,
-                )
-                webhook.execute()
-            elif not random_order and hook:
-                webhook = DiscordWebhook(
-                    url=hook,
-                    content=str(message),
-                    rate_limit_retry=True,
-                )
-                webhook.execute()
-        elif discord_webhook_url and hook:
-            webhook = DiscordWebhook(url=hook, content=message, rate_limit_retry=True)
-            webhook.execute()
+        if hook:
+            if message:
+                if color and not embed:
+                    embed = DiscordEmbed()
+                    embed.color = color
+                elif color and embed:
+                    embed.color = color
+                if title and not embed:
+                    embed = DiscordEmbed()
+                    embed.title = title
+                elif title and embed:
+                    embed.title = title
+                if not embed:
+                    webhook.content = message
+                else:
+                    embed.description = message
+                webhook.url = hook
+                if rate_limit:
+                    webhook.rate_limit_retry = rate_limit
+                if embed:
+                    webhook.add_embed(embed)
+                response = webhook.execute()
+            else:
+                print("No message was passed to send_discord_message()")
+        else:
+            print("No discord webhook available to send message.")
     except Exception as e:
         send_error_message(e, discord=False)
 
@@ -974,7 +1000,9 @@ def remove_file(full_file_path, silent=False):
             if not silent:
                 print("\t\t\tFile Removed: " + full_file_path)
                 send_discord_message(
-                    "> **File Removed**\n> ```" + full_file_path + "```"
+                    "File: " + "```" + full_file_path + "```",
+                    "Removed File",
+                    color=16711680,
                 )
             remove_images(full_file_path)
             return True
@@ -994,11 +1022,16 @@ def move_file(file, new_location, silent=False):
                 if not silent:
                     print("\t\tMoved File: " + file.name + " to " + new_location)
                     send_discord_message(
-                        "> **Moved File**\n> ```"
-                        + file.name
-                        + "```\t\tto\n> ```"
-                        + new_location
+                        "File: "
                         + "```"
+                        + file.name
+                        + "```"
+                        + "To:"
+                        + "```"
+                        + new_location
+                        + "```",
+                        "Moved File",
+                        color=8421504,
                     )
                 move_images(file, new_location)
             else:
@@ -1024,11 +1057,16 @@ def replace_file(old_file, new_file):
                         "\t\tFile: " + old_file.name + " was moved to: " + new_file.root
                     )
                     send_discord_message(
-                        "> **Moved File**\n> ```"
-                        + old_file.name
-                        + "```\t\tto\n> ```"
-                        + new_file.root
+                        "File: "
                         + "```"
+                        + old_file.name
+                        + "```"
+                        + "To:"
+                        + "```"
+                        + new_file.root
+                        + "```",
+                        "Moved File",
+                        color=8421504,
                     )
                 else:
                     send_error_message(
@@ -1134,11 +1172,16 @@ def remove_duplicate_releases_from_download(original_releases, downloaded_releas
                                 + " from download folder."
                             )
                             send_discord_message(
-                                "> **Not Upgrade**\n> ```"
-                                + download.name
-                                + "```\t\tto\n> ```"
-                                + original.name
+                                "From:"
                                 + "```"
+                                + download.name
+                                + "```"
+                                + "To:"
+                                + "```"
+                                + original.name
+                                + "```",
+                                "Not Upgrade",
+                                color=16776960,
                             )
                             if download in downloaded_releases:
                                 downloaded_releases.remove(download)
@@ -1153,11 +1196,16 @@ def remove_duplicate_releases_from_download(original_releases, downloaded_releas
                                 + original.name
                             )
                             send_discord_message(
-                                "> **Upgrade**\n> ```"
-                                + download.name
-                                + "```\t\tto\n> ```"
-                                + original.name
+                                "From:"
                                 + "```"
+                                + download.name
+                                + "```"
+                                + "To:"
+                                + "```"
+                                + original.name
+                                + "```",
+                                "Upgrade",
+                                color=65280,
                             )
                             replace_file(original, download)
                             if download in downloaded_releases:
@@ -1177,11 +1225,16 @@ def remove_duplicate_releases_from_download(original_releases, downloaded_releas
                                 + " from download folder."
                             )
                             send_discord_message(
-                                "> **Not Upgrade**\n> ```"
-                                + download.name
-                                + "```\t\tto\n> ```"
-                                + original.name
+                                "From:"
                                 + "```"
+                                + download.name
+                                + "```"
+                                + "To:"
+                                + "```"
+                                + original.name
+                                + "```",
+                                "Not Upgrade",
+                                color=16776960,
                             )
                             if download in downloaded_releases:
                                 downloaded_releases.remove(download)
@@ -1196,11 +1249,16 @@ def remove_duplicate_releases_from_download(original_releases, downloaded_releas
                                 + original.name
                             )
                             send_discord_message(
-                                "> **Upgrade**\n> ```"
-                                + download.name
-                                + "```\t\tto\n> ```"
-                                + original.name
+                                "From:"
                                 + "```"
+                                + download.name
+                                + "```"
+                                + "To:"
+                                + "```"
+                                + original.name
+                                + "```",
+                                "Upgrade",
+                                color=65280,
                             )
                             send_change_message(
                                 "\t\tRemoving remaining part files with matching volume numbers:"
@@ -1383,13 +1441,18 @@ def rename_file(
                 + " was renamed to "
                 + extensionless_filename_dst
             )
-            send_discord_message(
-                "> **Renamed File**\n> ```"
-                + extensionless_filename_src
-                + "```\t\tto\n> ```"
-                + extensionless_filename_dst
-                + "```"
-            )
+            # send_discord_message(
+            #     "From: "
+            #     + "```"
+            #     + extensionless_filename_src
+            #     + "```"
+            #     + "To:"
+            #     + "```"
+            #     + extensionless_filename_dst
+            #     + "```",
+            #     "Renamed File",
+            #     color=8421504,
+            # )
             for image_extension in image_extensions:
                 image_file = extensionless_filename_src + "." + image_extension
                 image_file_rename = extensionless_filename_dst + "." + image_extension
@@ -1594,11 +1657,16 @@ def reorganize_and_rename(files, dir):
                             )
                             print("\n\t\tRenamed: " + file.name + " to \n\t\t" + rename)
                             send_discord_message(
-                                "> **Renamed File**\n> ```"
-                                + file.name
-                                + "```\t\tto\n> ```"
-                                + rename
+                                "From: "
                                 + "```"
+                                + file.name
+                                + "```"
+                                + "To:"
+                                + "```"
+                                + rename
+                                + "```",
+                                "Renamed File",
+                                color=8421504,
                             )
                         else:
                             user_input = input("\tRename (y or n): ")
@@ -1620,11 +1688,16 @@ def reorganize_and_rename(files, dir):
                                     + rename
                                 )
                                 send_discord_message(
-                                    "> **Renamed File**\n> ```"
-                                    + file.name
-                                    + "```\t\tto\n> ```"
-                                    + rename
+                                    "From: "
                                     + "```"
+                                    + file.name
+                                    + "```"
+                                    + "To:"
+                                    + "```"
+                                    + rename
+                                    + "```",
+                                    "Renamed File",
+                                    color=8421504,
                                 )
                         file.series_name = get_series_name_from_file_name(
                             rename, file.root
@@ -1889,11 +1962,17 @@ def check_upgrade(existing_root, dir, file, cache=False):
         if cache:
             print("\n\t\tFound existing series from cache: " + existing_dir)
             send_discord_message(
-                "> **Matched Series (CACHE)**\n> ```" + existing_dir + "```"
+                "Location: " + "```" + existing_dir + "```",
+                "Found Series Match (CACHE)",
+                color=8421504,
             )
         else:
             print("\n\t\tFound existing series: " + existing_dir)
-            send_discord_message("> **Matched Series**\n> ```" + existing_dir + "```")
+            send_discord_message(
+                "Location: " + "```" + existing_dir + "```",
+                "Found Series Match",
+                color=8421504,
+            )
         remove_duplicate_releases_from_download(
             existing_dir_volumes,
             download_dir_volumes,
@@ -1917,20 +1996,28 @@ def check_upgrade(existing_root, dir, file, cache=False):
                     + existing_dir
                 )
                 send_discord_message(
-                    "> **New Release**\n"
-                    + "> \tVolume Number: ```"
-                    + str(volume.volume_number)
-                    + "```\tSeries Name: ```"
-                    + volume.name
+                    "Volume Number: "
                     + "```"
+                    + str(volume.volume_number)
+                    + "```"
+                    + "Volume Name: "
+                    + "```"
+                    + volume.name
+                    + "```",
+                    "New Volume Release",
+                    color=65280,
                 )
                 send_discord_message(
-                    "> **Moving Volume**\n"
-                    + "> \tFile: \t```"
-                    + volume.name
-                    + "```\tTo: \t```"
-                    + existing_dir
+                    "File: "
                     + "```"
+                    + volume.name
+                    + "```"
+                    + "To: "
+                    + "```"
+                    + existing_dir
+                    + "```",
+                    "Moving File",
+                    color=8421504,
                 )
                 move_file(volume, existing_dir)
                 check_and_delete_empty_folder(volume.root)
@@ -2109,22 +2196,32 @@ def check_for_duplicate_volumes(paths_to_search=[]):
                                                             + compare_file.root
                                                         )
                                                         send_discord_message(
-                                                            "> **Duplicate Volume (NOT UPGRADE)**\n"
-                                                            + "> \tLocation: \t```"
+                                                            "Location: "
+                                                            + "```"
                                                             + file.root
-                                                            + "```\tDuplicate: \t```"
+                                                            + "```"
+                                                            + "Duplicate: "
+                                                            + "```"
                                                             + compare_file.name
                                                             + "```"
-                                                            + "\t\thas a lower score than ```"
-                                                            + file.name
+                                                            + "has a lower score than: "
                                                             + "```"
+                                                            + file.name
+                                                            + "```",
+                                                            "Duplicate Volume (NOT UPGRADE)",
+                                                            color=16776960,
                                                         )
                                                         send_discord_message(
-                                                            "> **Deleting File**\n> ```"
-                                                            + compare_file.name
-                                                            + "```\t\tin ```"
-                                                            + compare_file.root
+                                                            "File: "
                                                             + "```"
+                                                            + compare_file.name
+                                                            + "```"
+                                                            + "Location: "
+                                                            + "```"
+                                                            + compare_file.root
+                                                            + "```",
+                                                            "Deleting File",
+                                                            color=16711680,
                                                         )
                                                         if not manual_delete:
                                                             remove_file(
@@ -2163,15 +2260,20 @@ def check_for_duplicate_volumes(paths_to_search=[]):
                                                             + file.root
                                                         )
                                                         send_discord_message(
-                                                            "> **Duplicate Volume (NOT UPGRADE)**\n"
-                                                            + "> \tLocation: \t```"
+                                                            "Location: "
+                                                            + "```"
                                                             + compare_file.root
-                                                            + "```\tDuplicate: \t```"
+                                                            + "```"
+                                                            + "Duplicate: "
+                                                            + "```"
                                                             + file.name
                                                             + "```"
-                                                            + "\t\thas a lower score than ```"
-                                                            + compare_file.name
+                                                            + "has a lower score than: "
                                                             + "```"
+                                                            + compare_file.name
+                                                            + "```",
+                                                            "Duplicate Volume (NOT UPGRADE)",
+                                                            color=16776960,
                                                         )
                                                         if not manual_delete:
                                                             remove_file(file.path)
@@ -2203,15 +2305,20 @@ def check_for_duplicate_volumes(paths_to_search=[]):
                                                             + "\n\t\t\t\tRanking scores are equal, REQUIRES MANUAL DECISION."
                                                         )
                                                         send_discord_message(
-                                                            "> **Duplicate Volume (REQUIRES MANUAL DECISION)**\n"
-                                                            + "> \tLocation: \t```"
+                                                            "Location: "
+                                                            + "```"
                                                             + compare_file.root
-                                                            + "```\tDuplicate: \t```"
+                                                            + "```"
+                                                            + "Duplicate: "
+                                                            + "```"
                                                             + file.name
                                                             + "```"
-                                                            + "\t\thas an equal score to ```"
-                                                            + compare_file.name
+                                                            + "has an equal score to: "
                                                             + "```"
+                                                            + compare_file.name
+                                                            + "```",
+                                                            "Duplicate Volume (REQUIRES MANUAL DECISION)",
+                                                            color=16776960,
                                                         )
                                                         print("\t\t\t\tSkipping...")
                                         except Exception as e:
@@ -2697,9 +2804,12 @@ def check_for_existing_series():
                                             + directories_found[0]
                                         )
                                         send_discord_message(
-                                            "> **Matched Series (ISBN/SERIES_ID)**\n> ```"
-                                            + directories_found[0]
+                                            "Location: "
                                             + "```"
+                                            + directories_found[0]
+                                            + "```",
+                                            "Matched Series (ISBN/Series ID)",
+                                            color=8421504,
                                         )
                                         base = os.path.basename(directories_found[0])
                                         done = check_upgrade(
@@ -3322,11 +3432,16 @@ def rename_files_in_download_folders():
                                                         + replacement
                                                     )
                                                     send_discord_message(
-                                                        "> **Renamed File**\n> ```"
-                                                        + file.name
-                                                        + "```\t\tto\n> ```"
-                                                        + replacement
+                                                        "From: "
                                                         + "```"
+                                                        + file.name
+                                                        + "```"
+                                                        + "To: "
+                                                        + "```"
+                                                        + replacement
+                                                        + "```",
+                                                        "Renamed File",
+                                                        color=8421504,
                                                     )
                                                     for (
                                                         image_extension
@@ -3457,13 +3572,21 @@ def delete_chapters_from_downloads():
                                     + "\n\t\tDeleting chapter release."
                                 )
                                 send_discord_message(
-                                    "> **Chapter Release Found**\n"
-                                    + "> \tFile: \t```"
+                                    "File: "
+                                    + "```"
                                     + file
-                                    + "```\tLocation: \t```"
+                                    + "```"
+                                    + "Location: "
+                                    + "```"
                                     + root
-                                    + "```\tContains chapter keywords/lone numbers ✓\n"
-                                    + "> \tDoes not contain volume keywords ✓"
+                                    + "```"
+                                    + "Checks: "
+                                    + "```"
+                                    + "Contains Chapter keywords/lone numbers ✓\n"
+                                    + "Does not contain volume keywords ✓"
+                                    + "```",
+                                    "Chapter Release Found",
+                                    color=8421504,
                                 )
                                 remove_file(os.path.join(root, file))
                 for root, dirs, files in scandir.walk(path):
@@ -3804,14 +3927,20 @@ def delete_unacceptable_files():
                                             + root
                                         )
                                         send_discord_message(
-                                            "> **Unacceptable Match**\n"
-                                            + "> \tKeyword/Regex: \t```"
-                                            + keyword
-                                            + "```\tFile: \t```"
-                                            + file
-                                            + "```\tLocation: \t```"
-                                            + root
+                                            "Keyword/Regex: "
                                             + "```"
+                                            + keyword
+                                            + "```"
+                                            + "File: "
+                                            + "```"
+                                            + file
+                                            + "```"
+                                            + "Location: "
+                                            + "```"
+                                            + root
+                                            + "```",
+                                            "Unacceptable File Found",
+                                            color=16711680,
                                         )
                                         remove_file(os.path.join(root, file))
                                         if not os.path.isfile(os.path.join(root, file)):
