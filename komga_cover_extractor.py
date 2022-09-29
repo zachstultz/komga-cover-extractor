@@ -1488,10 +1488,11 @@ def reorganize_and_rename(files, dir):
                             or score >= 0.90
                         ):
                             file.extras.remove(item)
-                    if file.extension == ".cbz":
-                        rename += " (" + publisher + ")"
-                    elif file.extension == ".epub":
-                        rename += " [" + publisher + "]"
+                    if add_publisher_name_to_file_name_when_renaming:
+                        if file.extension == ".cbz":
+                            rename += " (" + publisher + ")"
+                        elif file.extension == ".epub":
+                            rename += " [" + publisher + "]"
                 if file.volume_year:
                     for item in file.extras[:]:
                         score = similar(
@@ -3923,6 +3924,8 @@ def search_bookwalker(query, type, print_info=False):
                 # replace any unicode characters in the title with spaces
                 title = re.sub(r"[^\x00-\x7F]+", " ", title)
                 title = remove_dual_space(title).strip()
+                if title and contains_chapter_keywords(title):
+                    continue
                 part = ""
                 part_search = get_volume_part(title)
                 if part_search:
