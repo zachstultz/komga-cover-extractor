@@ -52,6 +52,10 @@ resturcture_when_renaming = False
 # Whether or not to search an epub file for premium content if no
 # premium keyword is found, and add it into the file name.
 search_and_add_premium_to_file_name = False
+
+# Whether or not to add the pulled publisher from the cbz or epub file to the
+# file name when renmaing.
+add_publisher_name_to_file_name_when_renaming = False
 ################################################################
 
 ########################### UPGRADING ###########################
