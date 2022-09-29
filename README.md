@@ -41,11 +41,11 @@ optional arguments:
   -cq COMPRESS_QUALITY, --compress_quality COMPRESS_QUALITY
                         The quality of the compressed cover images.
 ```
-with compression:
+with compression example:
   
-  ```EX: python3 komga_cover_extractor.py -p "/path/to/manga" -p "/path/to/novels" -wh "WEBHOOK_URL" -c "True" -cq "60"```
+  ```python3 komga_cover_extractor.py -p "/path/to/manga" -p "/path/to/novels" -wh "WEBHOOK_URL" -c "True" -cq "60"```
 
-without compression:
+without compression example:
   
-  ```EX: python3 komga_cover_extractor.py -p "/path/to/manga" -p "/path/to/novels" -wh "WEBHOOK_URL"```
+  ```python3 komga_cover_extractor.py -p "/path/to/manga" -p "/path/to/novels" -wh "WEBHOOK_URL"```
 
