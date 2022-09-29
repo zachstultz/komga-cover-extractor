@@ -972,7 +972,10 @@ def remove_file(full_file_path, silent=False):
         os.remove(full_file_path)
         if not os.path.isfile(full_file_path):
             if not silent:
-                send_change_message("\t\t\tFile Removed: " + full_file_path)
+                print("\t\t\tFile Removed: " + full_file_path)
+                send_discord_message(
+                    "> **File Removed**\n> ```" + full_file_path + "```"
+                )
             remove_images(full_file_path)
             return True
         else:
@@ -989,8 +992,13 @@ def move_file(file, new_location, silent=False):
             shutil.move(file.path, new_location)
             if os.path.isfile(os.path.join(new_location, file.name)):
                 if not silent:
-                    send_change_message(
-                        "\t\tMoved File: " + file.name + " to " + new_location
+                    print("\t\tMoved File: " + file.name + " to " + new_location)
+                    send_discord_message(
+                        "> **Moved File**\n> ```"
+                        + file.name
+                        + "```\t\tto\n> ```"
+                        + new_location
+                        + "```"
                     )
                 move_images(file, new_location)
             else:
@@ -1012,8 +1020,15 @@ def replace_file(old_file, new_file):
             if not os.path.isfile(old_file.path) and file_removal_status:
                 move_file(new_file, old_file.root, silent=True)
                 if os.path.isfile(os.path.join(old_file.root, new_file.name)):
-                    send_change_message(
+                    print(
                         "\t\tFile: " + old_file.name + " was moved to: " + new_file.root
+                    )
+                    send_discord_message(
+                        "> **Moved File**\n> ```"
+                        + old_file.name
+                        + "```\t\tto\n> ```"
+                        + new_file.root
+                        + "```"
                     )
                 else:
                     send_error_message(
@@ -1109,7 +1124,7 @@ def remove_duplicate_releases_from_download(original_releases, downloaded_releas
                                 "\n\t\tallow_matching_single_volumes_with_multi_volumes=True"
                             )
                         if not is_upgradeable(download, original):
-                            send_change_message(
+                            print(
                                 "\t\tNOT UPGRADE: "
                                 + download.name
                                 + " is not an upgrade to: "
@@ -1118,17 +1133,31 @@ def remove_duplicate_releases_from_download(original_releases, downloaded_releas
                                 + download.name
                                 + " from download folder."
                             )
+                            send_discord_message(
+                                "> **Not Upgrade**\n> ```"
+                                + download.name
+                                + "```\t\tto\n> ```"
+                                + original.name
+                                + "```"
+                            )
                             if download in downloaded_releases:
                                 downloaded_releases.remove(download)
                             remove_file(download.path)
                         else:
-                            send_change_message(
+                            print(
                                 "\t\tUPGRADE: "
                                 + download.name
                                 + " is an upgrade to: "
                                 + original.name
                                 + "\n\tUpgrading "
                                 + original.name
+                            )
+                            send_discord_message(
+                                "> **Upgrade**\n> ```"
+                                + download.name
+                                + "```\t\tto\n> ```"
+                                + original.name
+                                + "```"
                             )
                             replace_file(original, download)
                             if download in downloaded_releases:
@@ -1138,7 +1167,7 @@ def remove_duplicate_releases_from_download(original_releases, downloaded_releas
                         and (not download.volume_part and original.volume_part)
                     ):
                         if not is_upgradeable(download, original):
-                            send_change_message(
+                            print(
                                 "\t\tNOT UPGRADE: "
                                 + download.name
                                 + " is not an upgrade to: "
@@ -1147,17 +1176,31 @@ def remove_duplicate_releases_from_download(original_releases, downloaded_releas
                                 + download.name
                                 + " from download folder."
                             )
+                            send_discord_message(
+                                "> **Not Upgrade**\n> ```"
+                                + download.name
+                                + "```\t\tto\n> ```"
+                                + original.name
+                                + "```"
+                            )
                             if download in downloaded_releases:
                                 downloaded_releases.remove(download)
                             remove_file(download.path)
                         else:
-                            send_change_message(
+                            print(
                                 "\t\tUPGRADE: "
                                 + download.name
                                 + " is an upgrade to: "
                                 + original.name
                                 + "\n\tUpgrading "
                                 + original.name
+                            )
+                            send_discord_message(
+                                "> **Upgrade**\n> ```"
+                                + download.name
+                                + "```\t\tto\n> ```"
+                                + original.name
+                                + "```"
                             )
                             send_change_message(
                                 "\t\tRemoving remaining part files with matching volume numbers:"
@@ -1328,21 +1371,28 @@ def check_for_missing_volumes():
 
 # Renames the file.
 def rename_file(
-    src, dest, root, extensionless_filename_src, extenionless_filename_dest
+    src, dest, root, extensionless_filename_src, extensionless_filename_dst
 ):
     if os.path.isfile(src):
         print("\n\t\tRenaming " + src)
         os.rename(src, dest)
         if os.path.isfile(dest):
-            send_change_message(
+            print(
                 "\t\t"
                 + extensionless_filename_src
                 + " was renamed to "
-                + extenionless_filename_dest
+                + extensionless_filename_dst
+            )
+            send_discord_message(
+                "> **Renamed File**\n> ```"
+                + extensionless_filename_src
+                + "```\t\tto\n> ```"
+                + extensionless_filename_dst
+                + "```"
             )
             for image_extension in image_extensions:
                 image_file = extensionless_filename_src + "." + image_extension
-                image_file_rename = extenionless_filename_dest + "." + image_extension
+                image_file_rename = extensionless_filename_dst + "." + image_extension
                 if os.path.isfile(os.path.join(root, image_file)):
                     os.rename(
                         os.path.join(root, image_file),
@@ -1542,8 +1592,13 @@ def reorganize_and_rename(files, dir):
                                 file.extensionless_name,
                                 get_extensionless_name(rename),
                             )
-                            send_change_message(
-                                "\n\t\tRenamed: " + file.name + " to \n\t\t" + rename
+                            print("\n\t\tRenamed: " + file.name + " to \n\t\t" + rename)
+                            send_discord_message(
+                                "> **Renamed File**\n> ```"
+                                + file.name
+                                + "```\t\tto\n> ```"
+                                + rename
+                                + "```"
                             )
                         else:
                             user_input = input("\tRename (y or n): ")
@@ -1558,11 +1613,18 @@ def reorganize_and_rename(files, dir):
                                     file.extensionless_name,
                                     get_extensionless_name(rename),
                                 )
-                                send_change_message(
+                                print(
                                     "\n\t\tRenamed: "
                                     + file.name
                                     + " to \n\t\t"
                                     + rename
+                                )
+                                send_discord_message(
+                                    "> **Renamed File**\n> ```"
+                                    + file.name
+                                    + "```\t\tto\n> ```"
+                                    + rename
+                                    + "```"
                                 )
                         file.series_name = get_series_name_from_file_name(
                             rename, file.root
@@ -1825,11 +1887,13 @@ def check_upgrade(existing_root, dir, file, cache=False):
             )
         )
         if cache:
-            send_change_message(
-                "\n\t\tFound existing series from cache: " + existing_dir
+            print("\n\t\tFound existing series from cache: " + existing_dir)
+            send_discord_message(
+                "> **Matched Series (CACHE)**\n> ```" + existing_dir + "```"
             )
         else:
-            send_change_message("\n\t\tFound existing series: " + existing_dir)
+            print("\n\t\tFound existing series: " + existing_dir)
+            send_discord_message("> **Matched Series**\n> ```" + existing_dir + "```")
         remove_duplicate_releases_from_download(
             existing_dir_volumes,
             download_dir_volumes,
@@ -1840,7 +1904,7 @@ def check_upgrade(existing_root, dir, file, cache=False):
                 volume.volume_number,
                 float,
             ) or isinstance(volume.volume_number, list):
-                send_change_message(
+                print(
                     "\t\t\tVolume "
                     + str(volume.volume_number)
                     + ": "
@@ -1851,6 +1915,22 @@ def check_upgrade(existing_root, dir, file, cache=False):
                     + volume.name
                     + " to "
                     + existing_dir
+                )
+                send_discord_message(
+                    "> **New Release**\n"
+                    + "> \tVolume Number: ```"
+                    + str(volume.volume_number)
+                    + "```\tSeries Name: ```"
+                    + volume.name
+                    + "```"
+                )
+                send_discord_message(
+                    "> **Moving Volume**\n"
+                    + "> \tFile: \t```"
+                    + volume.name
+                    + "```\tTo: \t```"
+                    + existing_dir
+                    + "```"
                 )
                 move_file(volume, existing_dir)
                 check_and_delete_empty_folder(volume.root)
@@ -2016,7 +2096,7 @@ def check_for_duplicate_volumes(paths_to_search=[]):
                                                         )
                                                     )
                                                     if main_file_upgrade_status:
-                                                        send_change_message(
+                                                        print(
                                                             "\n\t\tDuplicate volume found in: "
                                                             + file.root
                                                             + "\n\t\tDuplicate: "
@@ -2027,6 +2107,24 @@ def check_for_duplicate_volumes(paths_to_search=[]):
                                                             + compare_file.name
                                                             + " inside of "
                                                             + compare_file.root
+                                                        )
+                                                        send_discord_message(
+                                                            "> **Duplicate Volume (NOT UPGRADE)**\n"
+                                                            + "> \tLocation: \t```"
+                                                            + file.root
+                                                            + "```\tDuplicate: \t```"
+                                                            + compare_file.name
+                                                            + "```"
+                                                            + "\t\thas a lower score than ```"
+                                                            + file.name
+                                                            + "```"
+                                                        )
+                                                        send_discord_message(
+                                                            "> **Deleting File**\n> ```"
+                                                            + compare_file.name
+                                                            + "```\t\tin ```"
+                                                            + compare_file.root
+                                                            + "```"
                                                         )
                                                         if not manual_delete:
                                                             remove_file(
@@ -2052,7 +2150,7 @@ def check_for_duplicate_volumes(paths_to_search=[]):
                                                             compare_file.root
                                                         )
                                                     elif compare_file_upgrade_status:
-                                                        send_change_message(
+                                                        print(
                                                             "\n\t\tDuplicate volume found in: "
                                                             + compare_file.root
                                                             + "\n\t\tDuplicate: "
@@ -2063,6 +2161,17 @@ def check_for_duplicate_volumes(paths_to_search=[]):
                                                             + file.name
                                                             + " inside of "
                                                             + file.root
+                                                        )
+                                                        send_discord_message(
+                                                            "> **Duplicate Volume (NOT UPGRADE)**\n"
+                                                            + "> \tLocation: \t```"
+                                                            + compare_file.root
+                                                            + "```\tDuplicate: \t```"
+                                                            + file.name
+                                                            + "```"
+                                                            + "\t\thas a lower score than ```"
+                                                            + compare_file.name
+                                                            + "```"
                                                         )
                                                         if not manual_delete:
                                                             remove_file(file.path)
@@ -2084,7 +2193,7 @@ def check_for_duplicate_volumes(paths_to_search=[]):
                                                             file.root
                                                         )
                                                     else:
-                                                        send_error_message(
+                                                        print(
                                                             "\n\t\tDuplicate found in: "
                                                             + compare_file.root
                                                             + "\n\t\t\t"
@@ -2092,6 +2201,17 @@ def check_for_duplicate_volumes(paths_to_search=[]):
                                                             + "\n\t\t\t"
                                                             + compare_file.name
                                                             + "\n\t\t\t\tRanking scores are equal, REQUIRES MANUAL DECISION."
+                                                        )
+                                                        send_discord_message(
+                                                            "> **Duplicate Volume (REQUIRES MANUAL DECISION)**\n"
+                                                            + "> \tLocation: \t```"
+                                                            + compare_file.root
+                                                            + "```\tDuplicate: \t```"
+                                                            + file.name
+                                                            + "```"
+                                                            + "\t\thas an equal score to ```"
+                                                            + compare_file.name
+                                                            + "```"
                                                         )
                                                         print("\t\t\t\tSkipping...")
                                         except Exception as e:
@@ -2572,9 +2692,14 @@ def check_for_existing_series():
                                         directories_found
                                     )
                                     if len(directories_found) == 1:
-                                        send_change_message(
+                                        print(
                                             "\t\t\tMach found in: "
                                             + directories_found[0]
+                                        )
+                                        send_discord_message(
+                                            "> **Matched Series (ISBN/SERIES_ID)**\n> ```"
+                                            + directories_found[0]
+                                            + "```"
                                         )
                                         base = os.path.basename(directories_found[0])
                                         done = check_upgrade(
@@ -3190,11 +3315,18 @@ def rename_files_in_download_folders():
                                                 if os.path.isfile(
                                                     os.path.join(root, replacement)
                                                 ):
-                                                    send_change_message(
+                                                    print(
                                                         "\tSuccessfully renamed file: \n\t\t"
                                                         + file.name
                                                         + " to "
                                                         + replacement
+                                                    )
+                                                    send_discord_message(
+                                                        "> **Renamed File**\n> ```"
+                                                        + file.name
+                                                        + "```\t\tto\n> ```"
+                                                        + replacement
+                                                        + "```"
                                                     )
                                                     for (
                                                         image_extension
@@ -3316,13 +3448,22 @@ def delete_chapters_from_downloads():
                             and not contains_volume_keywords(file)
                         ) and not (check_for_exception_keywords(file)):
                             if file.endswith(".cbz") or file.endswith(".zip"):
-                                send_change_message(
+                                print(
                                     "\n\t\tFile: "
                                     + file
                                     + "\n\t\tLocation: "
                                     + root
                                     + "\n\t\tContains chapter keywords/lone numbers and does not contain any volume keywords"
                                     + "\n\t\tDeleting chapter release."
+                                )
+                                send_discord_message(
+                                    "> **Chapter Release Found**\n"
+                                    + "> \tFile: \t```"
+                                    + file
+                                    + "```\tLocation: \t```"
+                                    + root
+                                    + "```\tContains chapter keywords/lone numbers ✓\n"
+                                    + "> \tDoes not contain volume keywords ✓"
                                 )
                                 remove_file(os.path.join(root, file))
                 for root, dirs, files in scandir.walk(path):
@@ -3642,7 +3783,7 @@ def delete_unacceptable_files():
                             ):
                                 remove_file(os.path.join(root, file))
                                 if not os.path.isfile(os.path.join(root, file)):
-                                    send_change_message(
+                                    print(
                                         "\t\tSuccessfully removed unacceptable file: "
                                         + os.path.join(root, file)
                                     )
@@ -3654,7 +3795,7 @@ def delete_unacceptable_files():
                             elif unacceptable_keywords:
                                 for keyword in unacceptable_keywords:
                                     if re.search(keyword, file, re.IGNORECASE):
-                                        send_change_message(
+                                        print(
                                             "\tUnacceptable: "
                                             + keyword
                                             + " match found in "
@@ -3662,9 +3803,19 @@ def delete_unacceptable_files():
                                             + "\n\t\tDeleting file from: "
                                             + root
                                         )
+                                        send_discord_message(
+                                            "> **Unacceptable Match**\n"
+                                            + "> \tKeyword/Regex: \t```"
+                                            + keyword
+                                            + "```\tFile: \t```"
+                                            + file
+                                            + "```\tLocation: \t```"
+                                            + root
+                                            + "```"
+                                        )
                                         remove_file(os.path.join(root, file))
                                         if not os.path.isfile(os.path.join(root, file)):
-                                            send_change_message(
+                                            print(
                                                 "\t\t\tSuccessfully removed unacceptable file: "
                                                 + os.path.join(root, file)
                                             )
