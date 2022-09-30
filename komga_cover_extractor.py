@@ -589,7 +589,7 @@ def is_volume_one(volume_name):
 # Checks if the passed string contains volume keywords
 def contains_volume_keywords(file):
     return re.search(
-        r"((\s(\s-\s|)(Part|)+(LN|Light Novels?|Novels?|Books?|Volumes?|Vols?|V|第|Discs?)(\.|)([-_. ]|)([0-9]+)\b)|\s(\s-\s|)(Part|)(LN|Light Novels?|Novels?|Books?|Volumes?|Vols?|V|第|Discs?)(\.|)([-_. ]|)([0-9]+)([-_.])(\s-\s|)(Part|)(LN|Light Novels?|Novels?|Books?|Volumes?|Vols?|V|第|Discs?)([0-9]+)\s|\s(\s-\s|)(Part|)(LN|Light Novels?|Novels?|Books?|Volumes?|Vols?|V|第|Discs?)(\.|)([-_. ]|)([0-9]+)([-_.])(\s-\s|)(Part|)(LN|Light Novels?|Novels?|Books?|Volumes?|Vols?|V|第|Discs?)([0-9]+)\s)",
+        r"((\s?(\s-\s|)(Part|)+(LN|Light Novels?|Novels?|Books?|Volumes?|Vols?|V|第|Discs?)(\.|)([-_. ]|)([0-9]+)\b)|\s?(\s-\s|)(Part|)(LN|Light Novels?|Novels?|Books?|Volumes?|Vols?|V|第|Discs?)(\.|)([-_. ]|)([0-9]+)([-_.])(\s-\s|)(Part|)(LN|Light Novels?|Novels?|Books?|Volumes?|Vols?|V|第|Discs?)([0-9]+)\s|\s?(\s-\s|)(Part|)(LN|Light Novels?|Novels?|Books?|Volumes?|Vols?|V|第|Discs?)(\.|)([-_. ]|)([0-9]+)([-_.])(\s-\s|)(Part|)(LN|Light Novels?|Novels?|Books?|Volumes?|Vols?|V|第|Discs?)([0-9]+)\s)",
         remove_underscore_from_name(file),
         re.IGNORECASE,
     )
@@ -1665,7 +1665,7 @@ def reorganize_and_rename(files, dir):
                                 + "```"
                                 + rename
                                 + "```",
-                                "Renamed File",
+                                "Reorganized & Renamed File",
                                 color=8421504,
                             )
                         else:
@@ -1962,14 +1962,28 @@ def check_upgrade(existing_root, dir, file, cache=False):
         if cache:
             print("\n\t\tFound existing series from cache: " + existing_dir)
             send_discord_message(
-                "Location: " + "```" + existing_dir + "```",
+                "Location: "
+                + "```"
+                + existing_dir
+                + "```"
+                + "Series: "
+                + "```"
+                + file.series_name
+                + "```",
                 "Found Series Match (CACHE)",
                 color=8421504,
             )
         else:
             print("\n\t\tFound existing series: " + existing_dir)
             send_discord_message(
-                "Location: " + "```" + existing_dir + "```",
+                "Location: "
+                + "```"
+                + existing_dir
+                + "```"
+                + "Series: "
+                + "```"
+                + file.series_name
+                + "```",
                 "Found Series Match",
                 color=8421504,
             )
@@ -2007,18 +2021,18 @@ def check_upgrade(existing_root, dir, file, cache=False):
                     "New Volume Release",
                     color=65280,
                 )
-                send_discord_message(
-                    "File: "
-                    + "```"
-                    + volume.name
-                    + "```"
-                    + "To: "
-                    + "```"
-                    + existing_dir
-                    + "```",
-                    "Moving File",
-                    color=8421504,
-                )
+                # send_discord_message(
+                #     "File: "
+                #     + "```"
+                #     + volume.name
+                #     + "```"
+                #     + "To: "
+                #     + "```"
+                #     + existing_dir
+                #     + "```",
+                #     "Moving File",
+                #     color=8421504,
+                # )
                 move_file(volume, existing_dir)
                 check_and_delete_empty_folder(volume.root)
                 return True
@@ -3582,7 +3596,7 @@ def delete_chapters_from_downloads():
                                     + "```"
                                     + "Checks: "
                                     + "```"
-                                    + "Contains Chapter keywords/lone numbers ✓\n"
+                                    + "Contains chapter keywords/lone numbers ✓\n"
                                     + "Does not contain volume keywords ✓"
                                     + "```",
                                     "Chapter Release Found",
@@ -4204,7 +4218,7 @@ def search_bookwalker(query, type, print_info=False):
                 # replace any unicode characters in the title with spaces
                 title = re.sub(r"[^\x00-\x7F]+", " ", title)
                 title = remove_dual_space(title).strip()
-                if title and contains_chapter_keywords(title):
+                if title and re.search(r"Chapter", title, re.IGNORECASE):
                     continue
                 part = ""
                 part_search = get_volume_part(title)
