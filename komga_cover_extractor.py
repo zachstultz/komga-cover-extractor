@@ -385,7 +385,16 @@ def send_change_message(message):
 last_hook_index = None
 
 # Sends a discord message using the users webhook url
-def send_discord_message(message, title=None, url=None, rate_limit=True, color=None):
+def send_discord_message(
+    message,
+    title,
+    url=None,
+    rate_limit=True,
+    color=None,
+    proxies={},
+    fields=[],
+    timestamp=True,
+):
     global discord_webhook_url
     global last_hook_index
     if discord_webhook_url:
@@ -404,29 +413,37 @@ def send_discord_message(message, title=None, url=None, rate_limit=True, color=N
     embed = None
     try:
         if hook:
-            if message:
-                if color and not embed:
-                    embed = DiscordEmbed()
-                    embed.color = color
-                elif color and embed:
-                    embed.color = color
-                if title and not embed:
-                    embed = DiscordEmbed()
-                    embed.title = title
-                elif title and embed:
-                    embed.title = title
-                if not embed:
-                    webhook.content = message
-                else:
-                    embed.description = message
-                webhook.url = hook
-                if rate_limit:
-                    webhook.rate_limit_retry = rate_limit
-                if embed:
-                    webhook.add_embed(embed)
-                response = webhook.execute()
-            else:
-                print("No message was passed to send_discord_message()")
+            if color and not embed:
+                embed = DiscordEmbed()
+                embed.color = color
+            elif color and embed:
+                embed.color = color
+            if title and not embed:
+                embed = DiscordEmbed()
+                embed.title = title
+            elif title and embed:
+                embed.title = title
+            if message and not embed:
+                webhook.content = message
+            elif message and embed:
+                embed.description = message
+            webhook.url = hook
+            if rate_limit:
+                webhook.rate_limit_retry = rate_limit
+            if embed:
+                if fields:
+                    for field in fields:
+                        embed.add_embed_field(
+                            name=field["name"],
+                            value=field["value"],
+                            inline=field["inline"],
+                        )
+                if timestamp:
+                    embed.set_timestamp()
+                webhook.add_embed(embed)
+            if proxies:
+                webhook.proxies = proxies
+            response = webhook.execute()
         else:
             print("No discord webhook available to send message.")
     except Exception as e:
@@ -949,23 +966,43 @@ def upgrade_to_volume_class(files):
     return results
 
 
+# The RankedKeywordResult class is a container for the total score and the keywords
+class RankedKeywordResult:
+    def __init__(self, total_score, keywords):
+        self.total_score = total_score
+        self.keywords = keywords
+
+
+# > This class represents the result of an upgrade check
+class UpgradeResult:
+    def __init__(self, is_upgrade, downloaded_ranked_result, current_ranked_result):
+        self.is_upgrade = is_upgrade
+        self.downloaded_ranked_result = downloaded_ranked_result
+        self.current_ranked_result = current_ranked_result
+
+
 # Retrieves the release_group score from the list, using a high similarity
 def get_keyword_score(name, download_folder=False):
+    tags = []
     score = 0.0
     for keyword in ranked_keywords:
-        if re.search(keyword.name, name, re.IGNORECASE):
+        search = re.search(keyword.name, name, re.IGNORECASE)
+        if search:
+            tags.append(Keyword(search.group(0), keyword.score))
             score += keyword.score
-    return score
+    return RankedKeywordResult(score, tags)
 
 
 # Checks if the downloaded release is an upgrade for the current release.
 def is_upgradeable(downloaded_release, current_release):
-    downloaded_release_score = get_keyword_score(downloaded_release.name)
-    current_release_score = get_keyword_score(current_release.name)
-    if downloaded_release_score > current_release_score:
-        return True
-    else:
-        return False
+    downloaded_release_result = get_keyword_score(downloaded_release.name)
+    current_release_result = get_keyword_score(current_release.name)
+    upgrade_result = UpgradeResult(
+        downloaded_release_result.total_score > current_release_result.total_score,
+        downloaded_release_result,
+        current_release_result,
+    )
+    return upgrade_result
 
 
 # Deletes hidden files, used when checking if a folder is empty.
@@ -1161,7 +1198,55 @@ def remove_duplicate_releases_from_download(original_releases, downloaded_releas
                             send_change_message(
                                 "\n\t\tallow_matching_single_volumes_with_multi_volumes=True"
                             )
-                        if not is_upgradeable(download, original):
+                        upgrade_status = is_upgradeable(download, original)
+                        tags = upgrade_status.current_ranked_result.keywords
+                        fields = [
+                            {
+                                "name": "From:",
+                                "value": "```" + original.name + "```",
+                                "inline": False,
+                            },
+                            {
+                                "name": "Score:",
+                                "value": str(
+                                    upgrade_status.current_ranked_result.total_score
+                                ),
+                                "inline": True,
+                            },
+                            {
+                                "name": "Tags:",
+                                "value": ", ".join(
+                                    [
+                                        tag.name + " (" + str(tag.score) + ")"
+                                        for tag in upgrade_status.current_ranked_result.keywords
+                                    ]
+                                ),
+                                "inline": True,
+                            },
+                            {
+                                "name": "To:",
+                                "value": "```" + download.name + "```",
+                                "inline": False,
+                            },
+                            {
+                                "name": "Score:",
+                                "value": str(
+                                    upgrade_status.downloaded_ranked_result.total_score
+                                ),
+                                "inline": True,
+                            },
+                            {
+                                "name": "Tags:",
+                                "value": ", ".join(
+                                    [
+                                        tag.name + " (" + str(tag.score) + ")"
+                                        for tag in upgrade_status.downloaded_ranked_result.keywords
+                                    ]
+                                ),
+                                "inline": True,
+                            },
+                        ]
+                        if not upgrade_status.is_upgrade:
                             print(
                                 "\t\tNOT UPGRADE: "
                                 + download.name
@@ -1172,16 +1257,10 @@ def remove_duplicate_releases_from_download(original_releases, downloaded_releas
                                 + " from download folder."
                             )
                             send_discord_message(
-                                "From:"
-                                + "```"
-                                + download.name
-                                + "```"
-                                + "To:"
-                                + "```"
-                                + original.name
-                                + "```",
-                                "Not Upgrade",
+                                None,
+                                "Upgrade Process (Not Upgrade)",
                                 color=16776960,
+                                fields=fields,
                             )
                             if download in downloaded_releases:
                                 downloaded_releases.remove(download)
@@ -1196,16 +1275,10 @@ def remove_duplicate_releases_from_download(original_releases, downloaded_releas
                                 + original.name
                             )
                             send_discord_message(
-                                "From:"
-                                + "```"
-                                + download.name
-                                + "```"
-                                + "To:"
-                                + "```"
-                                + original.name
-                                + "```",
-                                "Upgrade",
+                                None,
+                                "Upgrade Process (Upgrade)",
                                 color=65280,
+                                fields=fields,
                             )
                             replace_file(original, download)
                             if download in downloaded_releases:
@@ -1214,7 +1287,8 @@ def remove_duplicate_releases_from_download(original_releases, downloaded_releas
                         (download.volume_number != "" and original.volume_number != "")
                         and (not download.volume_part and original.volume_part)
                     ):
-                        if not is_upgradeable(download, original):
+                        upgrade_status = is_upgradeable(download, original)
+                        if not upgrade_status.is_upgrade:
                             print(
                                 "\t\tNOT UPGRADE: "
                                 + download.name
@@ -1225,16 +1299,10 @@ def remove_duplicate_releases_from_download(original_releases, downloaded_releas
                                 + " from download folder."
                             )
                             send_discord_message(
-                                "From:"
-                                + "```"
-                                + download.name
-                                + "```"
-                                + "To:"
-                                + "```"
-                                + original.name
-                                + "```",
-                                "Not Upgrade",
+                                None,
+                                "Upgrade Process (Not Upgrade)",
                                 color=16776960,
+                                fields=fields,
                             )
                             if download in downloaded_releases:
                                 downloaded_releases.remove(download)
@@ -1249,16 +1317,10 @@ def remove_duplicate_releases_from_download(original_releases, downloaded_releas
                                 + original.name
                             )
                             send_discord_message(
-                                "From:"
-                                + "```"
-                                + download.name
-                                + "```"
-                                + "To:"
-                                + "```"
-                                + original.name
-                                + "```",
-                                "Upgrade",
+                                None,
+                                "Upgrade Process (Upgrade)",
                                 color=65280,
+                                fields=fields,
                             )
                             send_change_message(
                                 "\t\tRemoving remaining part files with matching volume numbers:"
@@ -2189,12 +2251,12 @@ def check_for_duplicate_volumes(paths_to_search=[]):
                                                     main_file_upgrade_status = (
                                                         is_upgradeable(
                                                             file, compare_file
-                                                        )
+                                                        ).is_upgrade
                                                     )
                                                     compare_file_upgrade_status = (
                                                         is_upgradeable(
                                                             compare_file, file
-                                                        )
+                                                        ).is_upgrade
                                                     )
                                                     if main_file_upgrade_status:
                                                         print(
