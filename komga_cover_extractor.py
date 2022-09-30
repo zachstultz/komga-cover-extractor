@@ -387,7 +387,7 @@ last_hook_index = None
 # Sends a discord message using the users webhook url
 def send_discord_message(
     message,
-    title,
+    title=None,
     url=None,
     rate_limit=True,
     color=None,
@@ -1976,7 +1976,9 @@ def get_toc_or_copyright(file):
     return bonus_content_found
 
 
-def check_upgrade(existing_root, dir, file, cache=False):
+def check_upgrade(
+    existing_root, dir, file, similarity_strings=None, cache=False, isbn=False
+):
     existing_dir = os.path.join(existing_root, dir)
     clean_existing = os.listdir(existing_dir)
     clean_and_sort(existing_dir, clean_existing)
@@ -2021,33 +2023,84 @@ def check_upgrade(existing_root, dir, file, cache=False):
                 existing_dir,
             )
         )
+        if similarity_strings:
+            if not isbn:
+                fields = [
+                    {
+                        "name": "Existing Series Location:",
+                        "value": "```" + existing_dir + "```",
+                        "inline": False,
+                    },
+                    {
+                        "name": "Downloaded File Series Name:",
+                        "value": "```" + similarity_strings[0] + "```",
+                        "inline": True,
+                    },
+                    {
+                        "name": "Existing Library Folder Name:",
+                        "value": "```" + similarity_strings[1] + "```",
+                        "inline": False,
+                    },
+                    {
+                        "name": "Similarity Score:",
+                        "value": "```" + str(similarity_strings[2]) + "```",
+                        "inline": True,
+                    },
+                    {
+                        "name": "Required Score:",
+                        "value": "```>=" + str(similarity_strings[3]) + "```",
+                        "inline": True,
+                    },
+                ]
+            else:
+                fields = [
+                    {
+                        "name": "Existing Series Location:",
+                        "value": "```" + existing_dir + "```",
+                        "inline": False,
+                    },
+                    {
+                        "name": "ISBNs:",
+                        "value": "Downloaded File:"
+                        + "```"
+                        + str(similarity_strings[0])
+                        + "```"
+                        + "Existing Library:"
+                        + "```"
+                        + str(similarity_strings[1])
+                        + "```",
+                        "inline": True,
+                    },
+                    {
+                        "name": "Series_IDs:",
+                        "value": "Downloaded File:"
+                        + "```"
+                        + str(similarity_strings[2])
+                        + "```"
+                        + "Existing Library:"
+                        + "```"
+                        + str(similarity_strings[3])
+                        + "```",
+                        "inline": True,
+                    },
+                ]
         if cache:
             print("\n\t\tFound existing series from cache: " + existing_dir)
             send_discord_message(
-                "Location: "
-                + "```"
-                + existing_dir
-                + "```"
-                + "Series: "
-                + "```"
-                + file.series_name
-                + "```",
-                "Found Series Match (CACHE)",
+                None, "Found Series Match (CACHE)", color=8421504, fields=fields
+            )
+        elif isbn:
+            print("\n\t\tFound existing series: " + existing_dir)
+            send_discord_message(
+                None,
+                "Found Series Match (ISBN/Series ID)",
                 color=8421504,
+                fields=fields,
             )
         else:
             print("\n\t\tFound existing series: " + existing_dir)
             send_discord_message(
-                "Location: "
-                + "```"
-                + existing_dir
-                + "```"
-                + "Series: "
-                + "```"
-                + file.series_name
-                + "```",
-                "Found Series Match",
-                color=8421504,
+                None, "Found Series Match", color=8421504, fields=fields
             )
         remove_duplicate_releases_from_download(
             existing_dir_volumes,
@@ -2564,6 +2617,12 @@ def check_for_existing_series():
                                                 os.path.dirname(p),
                                                 os.path.basename(p),
                                                 file,
+                                                similarity_strings=[
+                                                    downloaded_file_series_name,
+                                                    downloaded_file_series_name,
+                                                    successful_similarity_score,
+                                                    required_similarity_score,
+                                                ],
                                                 cache=True,
                                             )
                                             if done:
@@ -2599,6 +2658,7 @@ def check_for_existing_series():
                                     searches,
                                 )
                             directories_found = []
+                            matched_ids = []
                             for path in paths:
                                 if (
                                     os.path.exists(path)
@@ -2711,6 +2771,12 @@ def check_for_existing_series():
                                                             folder_accessor.root,
                                                             dir,
                                                             file,
+                                                            similarity_strings=[
+                                                                downloaded_file_series_name,
+                                                                existing_series_folder_from_library,
+                                                                similarity_score,
+                                                                required_similarity_score,
+                                                            ],
                                                         )
                                                         if done:
                                                             if (
@@ -2867,6 +2933,19 @@ def check_for_existing_series():
                                                                     directories_found.append(
                                                                         f.root
                                                                     )
+                                                                    matched_ids.append(
+                                                                        download_file_isbn
+                                                                    )
+                                                                    matched_ids.append(
+                                                                        existing_file_isbn
+                                                                    )
+                                                                    matched_ids.append(
+                                                                        download_file_series_id
+                                                                    )
+                                                                    matched_ids.append(
+                                                                        existing_file_series_id
+                                                                    )
+
                                     except Exception as e:
                                         send_error_message(e)
                             if not done and match_through_isbn_or_series_id:
@@ -2879,19 +2958,18 @@ def check_for_existing_series():
                                             "\t\t\tMach found in: "
                                             + directories_found[0]
                                         )
-                                        send_discord_message(
-                                            "Location: "
-                                            + "```"
-                                            + directories_found[0]
-                                            + "```",
-                                            "Matched Series (ISBN/Series ID)",
-                                            color=8421504,
-                                        )
                                         base = os.path.basename(directories_found[0])
                                         done = check_upgrade(
                                             os.path.dirname(directories_found[0]),
                                             base,
                                             file,
+                                            similarity_strings=[
+                                                matched_ids[0],
+                                                matched_ids[1],
+                                                matched_ids[2],
+                                                matched_ids[3],
+                                            ],
+                                            isbn=True,
                                         )
                                         if done:
                                             if directories_found[0] not in cached_paths:
