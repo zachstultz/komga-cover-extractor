@@ -395,6 +395,7 @@ def send_discord_message(
     fields=[],
     timestamp=True,
 ):
+    hook = None
     global discord_webhook_url
     global last_hook_index
     if discord_webhook_url:
@@ -407,8 +408,9 @@ def send_discord_message(
                 hook = discord_webhook_url[last_hook_index + 1]
     if url:
         hook = url
-    else:
+    elif hook:
         last_hook_index = discord_webhook_url.index(hook)
+
     webhook = DiscordWebhook()
     embed = None
     try:
@@ -445,7 +447,7 @@ def send_discord_message(
                 webhook.proxies = proxies
             response = webhook.execute()
         else:
-            print("No discord webhook available to send message.")
+            return
     except Exception as e:
         send_error_message(e, discord=False)
 
