@@ -1201,7 +1201,30 @@ def remove_duplicate_releases_from_download(original_releases, downloaded_releas
                                 "\n\t\tallow_matching_single_volumes_with_multi_volumes=True"
                             )
                         upgrade_status = is_upgradeable(download, original)
-                        tags = upgrade_status.current_ranked_result.keywords
+                        original_file_tags = (
+                            upgrade_status.current_ranked_result.keywords
+                        )
+                        if original_file_tags:
+                            original_file_tags = ", ".join(
+                                [
+                                    tag.name + " (" + str(tag.score) + ")"
+                                    for tag in upgrade_status.current_ranked_result.keywords
+                                ]
+                            )
+                        else:
+                            original_file_tags = "None"
+                        downloaded_file_tags = (
+                            upgrade_status.downloaded_ranked_result.keywords
+                        )
+                        if downloaded_file_tags:
+                            downloaded_file_tags = ", ".join(
+                                [
+                                    tag.name + " (" + str(tag.score) + ")"
+                                    for tag in upgrade_status.downloaded_ranked_result.keywords
+                                ]
+                            )
+                        else:
+                            downloaded_file_tags = "None"
                         fields = [
                             {
                                 "name": "From:",
@@ -1217,12 +1240,7 @@ def remove_duplicate_releases_from_download(original_releases, downloaded_releas
                             },
                             {
                                 "name": "Tags:",
-                                "value": ", ".join(
-                                    [
-                                        tag.name + " (" + str(tag.score) + ")"
-                                        for tag in upgrade_status.current_ranked_result.keywords
-                                    ]
-                                ),
+                                "value": str(original_file_tags),
                                 "inline": True,
                             },
                             {
@@ -1239,12 +1257,7 @@ def remove_duplicate_releases_from_download(original_releases, downloaded_releas
                             },
                             {
                                 "name": "Tags:",
-                                "value": ", ".join(
-                                    [
-                                        tag.name + " (" + str(tag.score) + ")"
-                                        for tag in upgrade_status.downloaded_ranked_result.keywords
-                                    ]
-                                ),
+                                "value": str(downloaded_file_tags),
                                 "inline": True,
                             },
                         ]
@@ -1827,7 +1840,6 @@ def remove_common_words(s):
             "de",
             "ga",
             "kara",
-            "made",
             "to",
             "ya",
             "no",
@@ -2531,10 +2543,14 @@ def check_for_existing_series():
                                 (str(file.series_name)).lower()
                             ).strip()
                             downloaded_file_series_name = (
-                                remove_underscore_from_name(
-                                    remove_punctuation(downloaded_file_series_name)
+                                (
+                                    remove_underscore_from_name(
+                                        remove_punctuation(downloaded_file_series_name)
+                                    )
                                 )
-                            ).lower()
+                                .strip()
+                                .lower()
+                            )
                             if (
                                 cached_paths
                                 and file.name != downloaded_file_series_name
@@ -2565,12 +2581,16 @@ def check_for_existing_series():
                                             (str(os.path.basename(p))).lower()
                                         ).strip()
                                         successful_file_series_name = (
-                                            remove_underscore_from_name(
-                                                remove_punctuation(
-                                                    successful_file_series_name
+                                            (
+                                                remove_underscore_from_name(
+                                                    remove_punctuation(
+                                                        successful_file_series_name
+                                                    )
                                                 )
                                             )
-                                        ).lower()
+                                            .strip()
+                                            .lower()
+                                        )
                                         successful_similarity_score = similar(
                                             successful_file_series_name,
                                             downloaded_file_series_name,
@@ -2717,14 +2737,18 @@ def check_for_existing_series():
                                                 )
                                                 for dir in folder_accessor.dirs:
                                                     existing_series_folder_from_library = (
-                                                        remove_underscore_from_name(
-                                                            remove_punctuation(
-                                                                remove_bracketed_info_from_name(
-                                                                    dir
+                                                        (
+                                                            remove_underscore_from_name(
+                                                                remove_punctuation(
+                                                                    remove_bracketed_info_from_name(
+                                                                        dir
+                                                                    )
                                                                 )
                                                             )
                                                         )
-                                                    ).lower()
+                                                        .strip()
+                                                        .lower()
+                                                    )
                                                     similarity_score = similar(
                                                         existing_series_folder_from_library,
                                                         downloaded_file_series_name,
