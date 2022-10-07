@@ -115,6 +115,6 @@ bookwalker_check = False
 manual_delete = True  # for testing, verify the results
 # Any keywords/regexes within this array that are found within a file name,
 # will be automatically deleted from the download_folders by delete_unacceptable_files()
-# EX: Keyword(r"Keyword or Regex")
+# EX: r"Keyword or Regex"
 unacceptable_keywords = []
 ################################################################
