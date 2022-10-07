@@ -1093,16 +1093,16 @@ def replace_file(old_file, new_file):
                 move_file(new_file, old_file.root, silent=True)
                 if os.path.isfile(os.path.join(old_file.root, new_file.name)):
                     print(
-                        "\t\tFile: " + old_file.name + " was moved to: " + new_file.root
+                        "\t\tFile: " + new_file.name + " was moved to: " + old_file.root
                     )
                     send_discord_message(
                         "File: "
                         + "```"
-                        + old_file.name
+                        + new_file.name
                         + "```"
                         + "To:"
                         + "```"
-                        + new_file.root
+                        + old_file.root
                         + "```",
                         "Moved File",
                         color=8421504,
