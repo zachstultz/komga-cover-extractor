@@ -394,23 +394,26 @@ def send_discord_message(
     proxies={},
     fields=[],
     timestamp=True,
+    passed_webhook=None,
 ):
     hook = None
     global discord_webhook_url
     global last_hook_index
-    if discord_webhook_url:
-        if not last_hook_index and last_hook_index != 0:
-            hook = discord_webhook_url[0]
-        else:
-            if last_hook_index == len(discord_webhook_url) - 1:
+    if not passed_webhook:
+        if discord_webhook_url:
+            if not last_hook_index and last_hook_index != 0:
                 hook = discord_webhook_url[0]
             else:
-                hook = discord_webhook_url[last_hook_index + 1]
-    if url:
-        hook = url
-    elif hook:
-        last_hook_index = discord_webhook_url.index(hook)
-
+                if last_hook_index == len(discord_webhook_url) - 1:
+                    hook = discord_webhook_url[0]
+                else:
+                    hook = discord_webhook_url[last_hook_index + 1]
+        if url:
+            hook = url
+        elif hook:
+            last_hook_index = discord_webhook_url.index(hook)
+    else:
+        hook = passed_webhook
     webhook = DiscordWebhook()
     embed = None
     try:
@@ -1559,7 +1562,9 @@ def reorganize_and_rename(files, dir):
                         file.path
                     )
                     if contains_comic_info:
-                        comicinfo = get_file_from_zip(file.path, "comicinfo.xml")
+                        comicinfo = get_file_from_zip(
+                            file.path, "comicinfo.xml", allow_base=False
+                        )
                         tags = None
                         if comicinfo:
                             comicinfo = comicinfo.decode("utf-8")
@@ -2495,17 +2500,24 @@ def remove_underscore_from_name(name):
 def organize_array_list_by_first_letter(
     array_list, string, position_to_insert_at, exclude=None
 ):
-    first_letter_of_file_name = string[0]
-    for item in array_list:
-        if item != exclude or not exclude:
-            name = os.path.basename(item)
-            first_letter_of_dir = name[0]
-            if (
-                first_letter_of_dir.lower() == first_letter_of_file_name.lower()
-                and item != array_list[position_to_insert_at]
-            ):
-                array_list.remove(item)
-                array_list.insert(position_to_insert_at, item)
+    if string:
+        first_letter_of_file_name = string[0]
+        for item in array_list:
+            if item != exclude or not exclude:
+                name = os.path.basename(item)
+                first_letter_of_dir = name[0]
+                if (
+                    first_letter_of_dir.lower() == first_letter_of_file_name.lower()
+                    and item != array_list[position_to_insert_at]
+                ):
+                    array_list.remove(item)
+                    array_list.insert(position_to_insert_at, item)
+    else:
+        send_error_message(
+            "First letter of file name was not found, skipping reorganization of array list."
+            + "\nString: "
+            + str(string)
+        )
     return array_list
 
 
@@ -3358,15 +3370,20 @@ def check_if_zip_file_contains_comic_info_xml(zip_file):
 
 
 # retrieve the file specified from the zip file and return the data for it
-def get_file_from_zip(zip_file, file_name):
+def get_file_from_zip(zip_file, file_name, allow_base=True):
     result = None
     try:
         with zipfile.ZipFile(zip_file, "r") as z:
             list = z.namelist()
             for file in list:
-                if os.path.basename(file).lower() == file_name.lower():
-                    result = z.read(file)
-                    break
+                if allow_base:
+                    if os.path.basename(file).lower() == file_name.lower():
+                        result = z.read(file)
+                        break
+                else:
+                    if file.lower() == file_name.lower():
+                        result = z.read(file)
+                        break
     except Exception as e:
         send_error_message(e)
         send_error_message("Attempted to read file: " + file_name)
@@ -4688,7 +4705,8 @@ def check_for_new_volumes_on_bookwalker():
                     >= 70
                 ):
                     type = "l"
-
+                # if len(new_releases_on_bookwalker) >= 10:  # used for quick testing
+                #     break
                 if type and dir:
                     bookwalker_volumes = search_bookwalker(dir, type, False)
                 if existing_dir_volumes and bookwalker_volumes:
@@ -4742,7 +4760,7 @@ def check_for_new_volumes_on_bookwalker():
             )
             write_to_file("released.txt", message, without_date=True, overwrite=False)
             if bookwalker_webhook_urls and len(bookwalker_webhook_urls) == 2:
-                send_discord_message(message, bookwalker_webhook_urls[0], False)
+                send_discord_message(message, passed_webhook=bookwalker_webhook_urls[0])
     if len(pre_orders) > 0:
         print("\nPre-orders:")
         for p in pre_orders:
@@ -4756,9 +4774,9 @@ def check_for_new_volumes_on_bookwalker():
             )
             write_to_file("pre-orders.txt", message, without_date=True, overwrite=False)
             if bookwalker_webhook_urls and len(bookwalker_webhook_urls) == 2:
-                send_discord_message(message, bookwalker_webhook_urls[1], False)
+                send_discord_message(message, passed_webhook=bookwalker_webhook_urls[1])
             elif bookwalker_webhook_urls and len(bookwalker_webhook_urls) == 1:
-                send_discord_message(message, bookwalker_webhook_urls[0], False)
+                send_discord_message(message, passed_webhook=bookwalker_webhook_urls[0])
 
 
 # Checks the epub for bonus.xhtml or bonus[0-9].xhtml
