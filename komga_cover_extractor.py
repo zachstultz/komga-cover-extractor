@@ -3146,9 +3146,10 @@ def get_series_name(dir):
 
 
 # Renames the folders in our download directory.
-# EX: You have a folder named "I Was Reincarnated as the 7th Prince so I Can Take My Time Perfecting My Magical Ability (Digital) (release-group)"
-# Said folder would be renamed to "I Was Reincarnated as the 7th Prince so I Can Take My Time Perfecting My Magical Ability"
+# If volume releases are available, it will rename based on those.
+# Otherwise it will fallback to just cleaning the name of any brackets.
 def rename_dirs_in_download_folder():
+    print("\nLooking for folders to rename...")
     for download_folder in download_folders:
         if os.path.exists(download_folder):
             try:
@@ -3189,15 +3190,51 @@ def rename_dirs_in_download_folder():
                         )
                     )
                     volume_one = None
-                    count = 0
+                    matching = []
                     if volumes:
-                        # find volume with a volume number of 1 and make sure there's only one volume with a volume number of 1
-                        for v in volumes:
-                            if v.volume_number == 1 or v.is_one_shot:
-                                volume_one = v
-                                count += 1
-                        if count > 1:
-                            volume_one = None
+                        # sort by name
+                        if len(volumes) > 1:
+                            volumes = sorted(volumes, key=lambda x: x.name)
+                        first_series_name = volumes[0].series_name
+                        if first_series_name:
+                            # clone volumes list and remove the first reslut
+                            clone_list = volumes[:]
+                            if clone_list and len(clone_list) > 1:
+                                clone_list.remove(volumes[0])
+                            # check that at least 90% of the volumes have similar series_names
+                            for v in clone_list:
+                                if (
+                                    similar(v.series_name, first_series_name)
+                                    >= required_similarity_score
+                                ):
+                                    matching.append(v)
+                                else:
+                                    print(
+                                        "\t\t"
+                                        + v.series_name
+                                        + " does not match "
+                                        + first_series_name
+                                    )
+                            if (len(matching) >= len(volumes) * 0.9) and len(
+                                volumes
+                            ) == 1:
+                                volume_one = matching[0]
+                            elif (len(matching) + 1 >= len(volumes) * 0.9) and len(
+                                volumes
+                            ) > 1:
+                                volume_one = matching[0]
+                            else:
+                                print(
+                                    "\t\t"
+                                    + str(len(matching))
+                                    + " out of "
+                                    + str(len(volumes))
+                                    + " volumes match the first volume's series name."
+                                )
+                        else:
+                            print(
+                                "\t\tCould not find series name for: " + volumes[0].path
+                            )
                         if volume_one:
                             # rename folder to the series name
                             if (
@@ -3205,10 +3242,16 @@ def rename_dirs_in_download_folder():
                                 and similar(volume_one.series_name, folderDir) >= 0.25
                             ):
                                 print("\n\tBEFORE: " + folderDir)
-                                print("\tAFTER: " + volume_one.series_name)
+                                print("\tAFTER:  " + volume_one.series_name)
+                                if volumes:
+                                    print("\t\tVOLUMES:")
+                                    for v in volumes:
+                                        print("\t\t\t" + v.name)
                                 user_input = ""
                                 if manual_rename:
-                                    user_input = input("Rename (y or n): ")
+                                    user_input = input(
+                                        "\nRename (y or n or i (input rename all volumes' series names and folder) ): "
+                                    )
                                 else:
                                     user_input = "y"
                                 try:
@@ -3227,13 +3270,87 @@ def rename_dirs_in_download_folder():
                                             send_error_message(
                                                 "Error renaming folder: " + str(e)
                                             )
+                                    elif user_input.lower() == "i":
+                                        print("\tInput mode selected.")
+                                        print(
+                                            "\n\tWARNING: This will rename all voluems with similar series names and the folder name to the user inputted series name"
+                                        )
+                                        print(
+                                            "\tONLY USE IF YOU KNOW WHAT YOU ARE DOING, otherwise enter nothing or 'q' to quit"
+                                        )
+                                        print(
+                                            "\n\tCurrent Series Name: "
+                                            + volume_one.series_name
+                                        )
+                                        series_user_input = input(
+                                            "\tReplacement Series Name: "
+                                        )
+                                        if (
+                                            series_user_input != ""
+                                            and series_user_input != "q"
+                                        ):
+                                            if len(volumes) > 1:
+                                                matching.append(volumes[0])
+                                            for v in matching:
+                                                new_file_name = re.sub(
+                                                    v.series_name,
+                                                    series_user_input,
+                                                    v.name,
+                                                )
+                                                new_file_path = os.path.join(
+                                                    v.root, new_file_name
+                                                )
+                                                if not os.path.isfile(new_file_path):
+                                                    rename_file(
+                                                        v.path,
+                                                        new_file_path,
+                                                        v.root,
+                                                        v.extensionless_name,
+                                                        get_extensionless_name(
+                                                            new_file_name
+                                                        ),
+                                                    )
+                                                else:
+                                                    print(
+                                                        "\t\t"
+                                                        + new_file_name
+                                                        + " already exists."
+                                                    )
+                                            # if the folder doesn't already exist, rename it to series_user_input
+                                            if volume_one.root != os.path.join(
+                                                download_folder, series_user_input
+                                            ):
+                                                if not os.path.isdir(
+                                                    os.path.join(
+                                                        download_folder,
+                                                        series_user_input,
+                                                    )
+                                                ):
+                                                    os.rename(
+                                                        volume_one.root,
+                                                        os.path.join(
+                                                            download_folder,
+                                                            series_user_input,
+                                                        ),
+                                                    )
+                                                else:
+                                                    print(
+                                                        "\t\tFolder: "
+                                                        + os.path.join(
+                                                            download_folder,
+                                                            series_user_input,
+                                                        )
+                                                        + " already exists."
+                                                    )
                                     else:
                                         print("Skipping...")
                                 except Exception as e:
                                     print(e)
                                     print("Skipping...")
                         else:
-                            print("No volume 1 found for: " + folderDir)
+                            send_error_message(
+                                "\n\tNo volumes found in: " + full_file_path
+                            )
                             download_folder_basename = os.path.basename(download_folder)
                             if re.search(
                                 download_folder_basename, full_file_path, re.IGNORECASE
