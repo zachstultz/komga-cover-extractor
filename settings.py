@@ -115,6 +115,14 @@ bookwalker_check = False
 manual_delete = True  # for testing, verify the results
 # Any keywords/regexes within this array that are found within a file name,
 # will be automatically deleted from the download_folders by delete_unacceptable_files()
+# Case is ignored.
 # EX: r"Keyword or Regex"
 unacceptable_keywords = []
+
+# When creating a folder for a lone file, if enabled, it will first check if any existing folders
+# are similar enough, and instead use that.
+# (Fixes multiple folders for the same series where the file name did or did not include punctuation)
+move_lone_files_to_similar_folder = True
+# Replaces the series name in the file name with the similar folders name.
+replace_series_name_in_file_name_with_similar_folder_name = True
 ################################################################
