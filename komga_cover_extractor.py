@@ -1037,7 +1037,7 @@ def upgrade_to_volume_class(files):
             file.path,
             file.extensionless_path,
             get_extras(file.name, file.root),
-            None,  # get_meta_from_file(file.path, [r"(<.>Ebook edition.*<\/.>)"]),
+            None,
             check_for_multi_volume_file(file.name),
             is_one_shot=is_one_shot(file.name, file.root),
         )
@@ -1625,7 +1625,9 @@ def rename_file(
                     except Exception as e:
                         send_error_message(e)
         else:
-            send_error_message("Failed to rename " + src + " to " + dest)
+            send_error_message(
+                "Failed to rename " + src + " to " + dest + "\n\tERROR: " + str(e)
+            )
 
 
 def reorganize_and_rename(files, dir):
@@ -1983,72 +1985,6 @@ class Result:
         self.score = score
 
 
-# gets the user passed result from an epub file
-def get_meta_from_file(file, searches, parse_tags=False):
-    try:
-        extension = get_file_extension(file)
-        results = []
-        if extension == ".epub":
-            with zipfile.ZipFile(file, "r") as zf:
-                for name in zf.namelist():
-                    internal_file_extension = get_file_extension(name)
-                    if internal_file_extension in internal_epub_extensions:
-                        internal_file = zf.open(name)
-                        internal_file_contents = internal_file.read()
-                        lines = internal_file_contents.decode("utf-8")
-                        for search in searches:
-                            search_result = None
-                            result = None
-                            search_result = re.search(search, lines, re.IGNORECASE)
-                            if search_result:
-                                result = search_result.group(0)
-                                result = re.sub(
-                                    r"(isbn:|\"isbn\">)",
-                                    "",
-                                    result,
-                                    flags=re.IGNORECASE,
-                                ).strip()
-                                result = re.sub(r"<\/?.*>", "", result)
-                                if re.search(
-                                    r"(series_id:?(\"\>)?NONE)", result, re.IGNORECASE
-                                ):
-                                    result = ""
-                                if re.search(r"(series_id:.*,)", result, re.IGNORECASE):
-                                    result = re.sub(r",.*", "", result).strip()
-                                elif re.search(
-                                    r"(series_id\"\>.*)", result, re.IGNORECASE
-                                ):
-                                    result = re.sub(
-                                        r"(series_id\"\>)",
-                                        "series_id:",
-                                        result,
-                                        flags=re.IGNORECASE,
-                                    )
-                                if result:
-                                    results.append(result)
-
-        elif extension == ".cbz":
-            zip_comment = get_zip_comment(file)
-            if zip_comment:
-                for search in searches:
-                    search_result = None
-                    result = None
-                    search_result = re.search(search, zip_comment, re.IGNORECASE)
-                    if search_result:
-                        result = search_result.group(0)
-                        result = re.sub(
-                            r"(series_id:NONE)", "", result, flags=re.IGNORECASE
-                        )
-                        if re.search(r"(series_id:.*,)", result, re.IGNORECASE):
-                            result = re.sub(r",.*", "", result).strip()
-                        if result:
-                            results.append(result)
-    except Exception as e:
-        send_error_message(e)
-        return []
-    return results
-
-
 # gets the toc.xhtml or copyright.xhtml file from the epub file and checks for premium content
 def get_toc_or_copyright(file):
     bonus_content_found = False
@@ -2125,6 +2061,7 @@ def check_upgrade(
                 existing_dir,
             )
         )
+        fields = []
         if similarity_strings:
             if not isbn:
                 fields = [
@@ -2155,55 +2092,54 @@ def check_upgrade(
                     },
                 ]
             else:
-                fields = [
-                    {
-                        "name": "Existing Series Location:",
-                        "value": "```" + existing_dir + "```",
-                        "inline": False,
-                    },
-                    {
-                        "name": "ISBNs:",
-                        "value": "Downloaded File:"
-                        + "```"
-                        + str(similarity_strings[0])
-                        + "```"
-                        + "Existing Library:"
-                        + "```"
-                        + str(similarity_strings[1])
-                        + "```",
-                        "inline": True,
-                    },
-                    {
-                        "name": "Series_IDs:",
-                        "value": "Downloaded File:"
-                        + "```"
-                        + str(similarity_strings[2])
-                        + "```"
-                        + "Existing Library:"
-                        + "```"
-                        + str(similarity_strings[3])
-                        + "```",
-                        "inline": True,
-                    },
-                ]
+                if similarity_strings and len(similarity_strings) >= 2:
+                    fields = [
+                        {
+                            "name": "Existing Series Location:",
+                            "value": "```" + existing_dir + "```",
+                            "inline": False,
+                        },
+                        {
+                            "name": "Identifiers:",
+                            "value": "Downloaded File:"
+                            + "```"
+                            + str(similarity_strings[0])
+                            + "```"
+                            + "Existing Library:"
+                            + "```"
+                            + str(similarity_strings[1])
+                            + "```",
+                            "inline": True,
+                        },
+                    ]
+                else:
+                    send_error_message(
+                        "Error: similarity_strings is not long enough to be valid."
+                        + str(similarity_strings)
+                        + " File: "
+                        + file.name
+                    )
         if cache:
             print("\n\t\tFound existing series from cache: " + existing_dir)
-            send_discord_message(
-                None, "Found Series Match (CACHE)", color=8421504, fields=fields
-            )
+            if fields:
+                send_discord_message(
+                    None, "Found Series Match (CACHE)", color=8421504, fields=fields
+                )
         elif isbn:
             print("\n\t\tFound existing series: " + existing_dir)
-            send_discord_message(
-                None,
-                "Found Series Match (ISBN/Series ID)",
-                color=8421504,
-                fields=fields,
-            )
+            if fields:
+                send_discord_message(
+                    None,
+                    "Found Series Match (Matching Identifier)",
+                    color=8421504,
+                    fields=fields,
+                )
         else:
             print("\n\t\tFound existing series: " + existing_dir)
-            send_discord_message(
-                None, "Found Series Match", color=8421504, fields=fields
-            )
+            if fields:
+                send_discord_message(
+                    None, "Found Series Match", color=8421504, fields=fields
+                )
         remove_duplicate_releases_from_download(
             existing_dir_volumes,
             download_dir_volumes,
@@ -2762,18 +2698,33 @@ def check_for_existing_series():
                                                 break
                             if done:
                                 continue
+                            download_file_zip_comment = get_zip_comment(file.path)
                             download_file_meta = None
-                            download_file_isbn = None
-                            download_file_series_id = None
-                            searches = [
-                                r"((isbn:|\"isbn\">)9([-_. :]+)?7([-_. :]+)?(8|9)(([-_. :]+)?[0-9]){10})",
-                                r"(SERIES_ID:?.*(\<\/dc:identifier\>))",
-                            ]
-                            if match_through_isbn_or_series_id:
-                                download_file_meta = get_meta_from_file(
-                                    file.path,
-                                    searches,
-                                )
+                            if download_file_zip_comment and re.search(
+                                r"Identifiers", download_file_zip_comment, re.IGNORECASE
+                            ):
+                                # split on Identifiers: and only keep the second half
+                                download_file_zip_comment = (
+                                    download_file_zip_comment.split("Identifiers:")[1]
+                                ).strip()
+                                if re.search(r",", download_file_zip_comment):
+                                    download_file_meta = (
+                                        download_file_zip_comment.split(",")
+                                    )
+                                else:
+                                    download_file_meta = [
+                                        download_file_zip_comment,
+                                    ]
+                                if download_file_meta:
+                                    download_file_meta = [
+                                        x
+                                        for x in download_file_meta
+                                        if not re.search(r"NONE", x, re.IGNORECASE)
+                                    ]
+                                # strip whitespace from each item in the list
+                                download_file_meta = [
+                                    x.strip() for x in download_file_meta
+                                ]
                             directories_found = []
                             matched_ids = []
                             for path in paths:
@@ -2937,26 +2888,7 @@ def check_for_existing_series():
                                                 and root not in download_folders
                                                 and download_file_meta
                                             ):
-                                                for meta in download_file_meta:
-                                                    if re.search(
-                                                        r"(9([-_. :]+)?7([-_. :]+)?(8|9)(([-_. :]+)?[0-9]){10})",
-                                                        meta,
-                                                        re.IGNORECASE,
-                                                    ):
-                                                        download_file_isbn = meta
-                                                    elif re.search(
-                                                        "series_id",
-                                                        meta,
-                                                        re.IGNORECASE,
-                                                    ):
-                                                        download_file_series_id = meta
-                                                if (
-                                                    download_file_isbn
-                                                    or download_file_series_id
-                                                ) and folder_accessor.files:
-                                                    print(
-                                                        "\t\tChecking existing library for a matching ISBN or Series ID... (may take awhile depending on library size)"
-                                                    )
+                                                if folder_accessor.files:
                                                     if done:
                                                         break
                                                     for f in folder_accessor.files:
@@ -2964,113 +2896,94 @@ def check_for_existing_series():
                                                             f.extension
                                                             == file.extension
                                                         ):
-                                                            existing_file_isbn = None
-                                                            existing_file_series_id = (
-                                                                None
+                                                            existing_file_zip_comment = get_zip_comment(
+                                                                f.path
                                                             )
-                                                            existing_file_meta = (
-                                                                get_meta_from_file(
-                                                                    f.path,
-                                                                    searches,
-                                                                )
-                                                            )
-                                                            if existing_file_meta:
-                                                                for (
-                                                                    meta
-                                                                ) in existing_file_meta:
-                                                                    if re.search(
-                                                                        r"(9([-_. :]+)?7([-_. :]+)?(8|9)(([-_. :]+)?[0-9]){10})",
-                                                                        meta,
-                                                                    ):
-                                                                        existing_file_isbn = (
-                                                                            meta
-                                                                        )
-                                                                    elif re.search(
-                                                                        "series_id",
-                                                                        meta,
-                                                                    ):
-                                                                        existing_file_series_id = (
-                                                                            meta
-                                                                        )
+                                                            existing_file_meta = None
                                                             if (
-                                                                existing_file_isbn
-                                                                or existing_file_series_id
+                                                                existing_file_zip_comment
+                                                                and re.search(
+                                                                    r"Identifiers",
+                                                                    existing_file_zip_comment,
+                                                                    re.IGNORECASE,
+                                                                )
                                                             ):
-                                                                if (
-                                                                    download_file_isbn
-                                                                    and existing_file_isbn
+                                                                # split on Identifiers: and only keep the second half
+                                                                existing_file_zip_comment = (
+                                                                    existing_file_zip_comment.split(
+                                                                        "Identifiers:"
+                                                                    )[
+                                                                        1
+                                                                    ]
+                                                                ).strip()
+                                                                if re.search(
+                                                                    r",",
+                                                                    existing_file_zip_comment,
                                                                 ):
-                                                                    print(
-                                                                        (
-                                                                            "\t\t("
-                                                                            + str(
-                                                                                download_file_isbn
+                                                                    existing_file_meta = existing_file_zip_comment.split(
+                                                                        ","
+                                                                    )
+                                                                else:
+                                                                    existing_file_meta = [
+                                                                        existing_file_zip_comment
+                                                                    ]
+                                                            if existing_file_meta:
+                                                                existing_file_meta = [
+                                                                    x
+                                                                    for x in existing_file_meta
+                                                                    if not re.search(
+                                                                        r"NONE",
+                                                                        x,
+                                                                        re.IGNORECASE,
+                                                                    )
+                                                                ]
+                                                            if existing_file_meta:
+                                                                # strip whitespace from each item in the list
+                                                                existing_file_meta = [
+                                                                    x.strip()
+                                                                    for x in existing_file_meta
+                                                                ]
+                                                                for (
+                                                                    d_meta
+                                                                ) in download_file_meta:
+                                                                    for (
+                                                                        e_meta
+                                                                    ) in existing_file_meta:
+                                                                        print(
+                                                                            (
+                                                                                "\t\t("
+                                                                                + str(
+                                                                                    d_meta
+                                                                                )
+                                                                                + " - "
+                                                                                + str(
+                                                                                    e_meta
+                                                                                )
+                                                                                + ")"
+                                                                            ),
+                                                                            end="\r",
+                                                                        )
+                                                                        if (
+                                                                            d_meta
+                                                                            == e_meta
+                                                                        ):
+                                                                            directories_found.append(
+                                                                                f.root
                                                                             )
-                                                                            + " - "
-                                                                            + str(
-                                                                                existing_file_isbn
-                                                                            )
-                                                                            + ")"
-                                                                        ),
-                                                                        end="\r",
-                                                                    )
-                                                                if (
-                                                                    download_file_series_id
-                                                                    and existing_file_series_id
-                                                                ):
-                                                                    print(
-                                                                        (
-                                                                            "\t\t("
-                                                                            + str(
-                                                                                download_file_series_id
-                                                                            )
-                                                                            + " - "
-                                                                            + str(
-                                                                                existing_file_series_id
-                                                                            )
-                                                                            + ")"
-                                                                        ),
-                                                                        end="\r",
-                                                                    )
-                                                                if (
-                                                                    (
-                                                                        download_file_isbn
-                                                                        == existing_file_isbn
-                                                                    )
-                                                                    and (
-                                                                        download_file_isbn
-                                                                        and existing_file_isbn
-                                                                    )
-                                                                ) or (
-                                                                    (
-                                                                        str(
-                                                                            download_file_series_id
-                                                                        ).lower()
-                                                                        == str(
-                                                                            existing_file_series_id
-                                                                        ).lower()
-                                                                    )
-                                                                    and (
-                                                                        download_file_series_id
-                                                                        and existing_file_series_id
-                                                                    )
-                                                                ):
-                                                                    directories_found.append(
-                                                                        f.root
-                                                                    )
-                                                                    matched_ids.append(
-                                                                        download_file_isbn
-                                                                    )
-                                                                    matched_ids.append(
-                                                                        existing_file_isbn
-                                                                    )
-                                                                    matched_ids.append(
-                                                                        download_file_series_id
-                                                                    )
-                                                                    matched_ids.append(
-                                                                        existing_file_series_id
-                                                                    )
-
+                                                                            if (
+                                                                                download_file_meta
+                                                                                not in matched_ids
+                                                                            ):
+                                                                                matched_ids.append(
+                                                                                    download_file_meta
+                                                                                )
+                                                                            if (
+                                                                                existing_file_meta
+                                                                                not in matched_ids
+                                                                            ):
+                                                                                matched_ids.append(
+                                                                                    existing_file_meta
+                                                                                )
                                     except Exception as e:
                                         send_error_message(e)
                             if not done and match_through_isbn_or_series_id:
@@ -3080,7 +2993,7 @@ def check_for_existing_series():
                                     )
                                     if len(directories_found) == 1:
                                         print(
-                                            "\t\t\tMach found in: "
+                                            "\n\t\t\tMach found in: "
                                             + directories_found[0]
                                         )
                                         base = os.path.basename(directories_found[0])
@@ -3088,12 +3001,7 @@ def check_for_existing_series():
                                             os.path.dirname(directories_found[0]),
                                             base,
                                             file,
-                                            similarity_strings=[
-                                                matched_ids[0],
-                                                matched_ids[1],
-                                                matched_ids[2],
-                                                matched_ids[3],
-                                            ],
+                                            similarity_strings=matched_ids,
                                             isbn=True,
                                         )
                                         if done:
@@ -3256,20 +3164,64 @@ def rename_dirs_in_download_folder():
                                     user_input = "y"
                                 try:
                                     if user_input.lower() == "y":
-                                        try:
-                                            os.rename(
-                                                os.path.join(
-                                                    folder_accessor.root, folderDir
-                                                ),
-                                                os.path.join(
-                                                    folder_accessor.root,
-                                                    volume_one.series_name,
-                                                ),
+                                        # if the direcotry doesn't exist, then rename to it
+                                        if not os.path.exists(
+                                            os.path.join(
+                                                folder_accessor.root,
+                                                volume_one.series_name,
                                             )
-                                        except Exception as e:
-                                            send_error_message(
-                                                "Error renaming folder: " + str(e)
-                                            )
+                                        ):
+                                            try:
+                                                os.rename(
+                                                    os.path.join(
+                                                        folder_accessor.root, folderDir
+                                                    ),
+                                                    os.path.join(
+                                                        folder_accessor.root,
+                                                        volume_one.series_name,
+                                                    ),
+                                                )
+                                                print(
+                                                    "\t\tRenamed "
+                                                    + folderDir
+                                                    + " to "
+                                                    + volume_one.series_name
+                                                )
+                                            except Exception as e:
+                                                print(
+                                                    "\t\tCould not rename "
+                                                    + folderDir
+                                                    + " to "
+                                                    + volume_one.series_name
+                                                )
+                                                print(e)
+                                        else:
+                                            # move the files to the already existing directory if they don't already exist, otherwise delete them
+                                            for v in volumes:
+                                                if not os.path.isfile(
+                                                    os.path.join(
+                                                        folder_accessor.root,
+                                                        volume_one.series_name,
+                                                        v.name,
+                                                    )
+                                                ):
+                                                    move_file(
+                                                        v,
+                                                        os.path.join(
+                                                            folder_accessor.root,
+                                                            volume_one.series_name,
+                                                        ),
+                                                    )
+                                                else:
+                                                    print(
+                                                        "\t\t"
+                                                        + v.name
+                                                        + " already exists in "
+                                                        + volume_one.series_name
+                                                    )
+                                                    remove_file(v.path)
+                                            # check for an empty folder, and delete it if it is
+                                            check_and_delete_empty_folder(v.root)
                                     elif user_input.lower() == "i":
                                         print("\tInput mode selected.")
                                         print(
