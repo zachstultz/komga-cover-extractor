@@ -26,6 +26,8 @@ from bs4 import BeautifulSoup, SoupStrainer
 from settings import *
 from langdetect import detect
 from titlecase import titlecase
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
 
 # Paths = existing library
 # Download_folders = newly aquired manga/novels
@@ -83,6 +85,9 @@ ROOT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
 
 # Cached paths from the users existing library. Read from cached_paths.txt
 cached_paths = []
+
+# watchdog toggle
+watchdog_toggle = False
 
 
 # Folder Class
@@ -157,6 +162,61 @@ class Volume:
         self.revision_number = revision_number
         self.multi_volume = multi_volume
         self.is_one_shot = is_one_shot
+
+
+# It watches the download directory for any changes.
+class Watcher:
+    def __init__(self):
+        self.observer = Observer()
+
+    def run(self):
+        event_handler = Handler()
+        if download_folders:
+            self.observer.schedule(event_handler, download_folders[0], recursive=True)
+            self.observer.start()
+            try:
+                while True:
+                    time.sleep(5)
+            except:
+                self.observer.stop()
+                print("Observer Stopped")
+
+            self.observer.join()
+
+
+class Handler(FileSystemEventHandler):
+    @staticmethod
+    def on_any_event(event):
+        if (
+            not event.is_directory
+            and not os.path.basename(event.src_path).startswith(".")
+            and event.event_type == "created"
+            and os.path.isfile(event.src_path)
+            and re.sub("\.", "", get_file_extension(os.path.basename(event.src_path)))
+            in file_extensions
+            and get_creation_age(event.src_path) <= 1
+        ):
+            time.sleep(15)
+            if os.path.isfile(event.src_path):
+                fields = [
+                    {
+                        "name": "File Found:",
+                        "value": "```" + str(event.src_path) + "```",
+                        "inline": False,
+                    }
+                ]
+                send_discord_message(
+                    None,
+                    "Starting Script (WATCHDOG)",
+                    color=7615723,
+                    fields=fields,
+                )
+                main()
+
+
+# get age of file and return in minutes based on creation time
+def get_creation_age(file):
+    return int(time.time() - os.path.getctime(file)) / 60
 
 
 # return line count of a file
@@ -248,6 +308,12 @@ def parse_my_args():
         nargs="*",
         required=False,
     )
+    parser.add_argument(
+        "-wd",
+        "--watchdog",
+        help="Whether or not to use the watchdog library to watch for file changes in the download folders.",
+        required=False,
+    )
     parser = parser.parse_args()
     if not parser.paths and not parser.download_folders:
         print("No paths or download folders were passed to the script.")
@@ -295,6 +361,19 @@ def parse_my_args():
             for hook in item:
                 if hook not in bookwalker_webhook_urls:
                     bookwalker_webhook_urls.append(hook)
+    if parser.watchdog is not None:
+        if (
+            parser.watchdog == 1
+            or parser.watchdog.lower() == "true"
+            or parser.watchdog.lower() == "yes"
+        ):
+            if download_folders:
+                global watchdog_toggle
+                watchdog_toggle = True
+            else:
+                send_error_message(
+                    "Watchdog was enabled, but no download folders were passed to the script."
+                )
 
 
 def set_num_as_float_or_int(volume_number):
@@ -4016,7 +4095,7 @@ def delete_chapters_from_downloads():
                                     + file
                                     + "\n\t\tLocation: "
                                     + root
-                                    + "\n\t\tContains chapter keywords/lone numbers and does not contain any volume keywords"
+                                    + "\n\t\tContains chapter keywords/lone numbers and does not contain any volume/exclusion keywords"
                                     + "\n\t\tDeleting chapter release."
                                 )
                                 send_discord_message(
@@ -4031,7 +4110,8 @@ def delete_chapters_from_downloads():
                                     + "Checks: "
                                     + "```"
                                     + "Contains chapter keywords/lone numbers ✓\n"
-                                    + "Does not contain volume keywords ✓"
+                                    + "Does not contain volume keywords ✓\n"
+                                    + "Does not contain any exclusion keywords ✓"
                                     + "```",
                                     "Chapter Release Found",
                                     color=8421504,
@@ -5084,7 +5164,6 @@ def main():
     global bookwalker_check
     global cached_paths
     global processed_files
-    parse_my_args()  # parses the user's arguments
     if (
         os.path.isfile(os.path.join(ROOT_DIR, "cached_paths.txt"))
         and check_for_existing_series_toggle
@@ -5128,4 +5207,10 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    parse_my_args()  # parses the user's arguments
+    if watchdog_toggle:
+        print("\nWatchdog is enabled, watching for changes...\n")
+        watch = Watcher()
+        watch.run()
+    else:
+        main()
