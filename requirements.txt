@@ -14,4 +14,4 @@ scandir==1.10.0
 soupsieve==2.3.2.post1
 titlecase==2.4
 urllib3==1.26.9
-
+watchdog==2.1.9
