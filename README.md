@@ -1,4 +1,4 @@
-# Komga-Cover-Extractor
+# Komga Cover Extractor
 A python automation script that detects and extracts the cover from your cbz and epub files for each individal volume. 
 Then takes the cover from the first volume and copies that as a cover file for your overall collection.
 
