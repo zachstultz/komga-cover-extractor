@@ -28,6 +28,8 @@ from langdetect import detect
 from titlecase import titlecase
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
+from base64 import b64encode
+
 
 # Paths = existing library
 # Download_folders = newly aquired manga/novels
@@ -75,6 +77,10 @@ new_releases_on_bookwalker = []
 # A quick and dirty fix to avoid non-processed files from
 # being moved over to the existing library. Will be removed in the future.
 processed_files = []
+
+# Any files moved to the existing library.
+# Used when determining whether or not to trigger a library scan in komga.
+moved_files = []
 
 # All extensions that aren't in this list will be ignored when searching
 # an epubs internal contents.
@@ -1302,6 +1308,7 @@ def execute_command(command):
 
 # Removes the duplicate after determining it's upgrade status, otherwise, it upgrades
 def remove_duplicate_releases_from_download(original_releases, downloaded_releases):
+    global moved_files
     for download in downloaded_releases[:]:
         if (
             not isinstance(download.volume_number, int)
@@ -1455,6 +1462,7 @@ def remove_duplicate_releases_from_download(original_releases, downloaded_releas
                                 fields=fields,
                             )
                             replace_file(original, download)
+                            moved_files.append(download)
                             if download in downloaded_releases:
                                 downloaded_releases.remove(download)
                     elif (download.volume_number == original.volume_number) and (
@@ -1513,6 +1521,7 @@ def remove_duplicate_releases_from_download(original_releases, downloaded_releas
                                     remove_file(v.path)
                                     original_releases.remove(v)
                             replace_file(original, download)
+                            moved_files.append(download)
                             if download in downloaded_releases:
                                 downloaded_releases.remove(download)
 
@@ -2096,6 +2105,7 @@ def get_toc_or_copyright(file):
 def check_upgrade(
     existing_root, dir, file, similarity_strings=None, cache=False, isbn=False
 ):
+    global moved_files
     existing_dir = os.path.join(existing_root, dir)
     clean_existing = os.listdir(existing_dir)
     clean_and_sort(existing_dir, clean_existing)
@@ -2266,6 +2276,7 @@ def check_upgrade(
                 #     color=8421504,
                 # )
                 move_file(volume, existing_dir)
+                moved_files.append(volume)
                 check_and_delete_empty_folder(volume.root)
                 return True
         else:
@@ -5158,6 +5169,36 @@ def cache_paths():
                 print("\nERROR: " + path + " is an invalid path.\n")
 
 
+# Sends scan requests to komga for all libraries in komga_library_ids
+# Reqiores komga settings to be set in settings.py
+def scan_komga_libraries():
+    komga_url = f"{komga_ip}:{komga_port}"
+    if komga_library_ids and komga_url and komga_login_email and komga_login_password:
+        for library_id in komga_library_ids:
+            request = requests.post(
+                f"{komga_url}/api/v1/libraries/{library_id}/scan",
+                headers={
+                    "Authorization": "Basic %s"
+                    % b64encode(
+                        f"{komga_login_email}:{komga_login_password}".encode("utf-8")
+                    ).decode("utf-8"),
+                    "Accept": "*/*",
+                },
+            )
+            if request.status_code == 202:
+                print("Success Initiated Scan for: " + library_id + " Library")
+            else:
+                send_error_message(
+                    "Failed to Initiate Scan for: "
+                    + library_id
+                    + " Library"
+                    + " Status Code: "
+                    + str(request.status_code)
+                    + " Response: "
+                    + request.text
+                )
+
+
 # Optional features below, use at your own risk.
 # Activate them in settings.py
 def main():
@@ -5196,6 +5237,8 @@ def main():
         extract_covers()
     if check_for_existing_series_toggle and download_folders and paths:
         check_for_existing_series()
+        if send_scan_request_to_komga_libraries_toggle and moved_files:
+            scan_komga_libraries()
     if check_for_missing_volumes_toggle and paths:
         check_for_missing_volumes()
     if bookwalker_check:
