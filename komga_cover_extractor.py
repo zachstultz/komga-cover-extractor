@@ -5205,6 +5205,7 @@ def main():
     global bookwalker_check
     global cached_paths
     global processed_files
+    global moved_files
     if (
         os.path.isfile(os.path.join(ROOT_DIR, "cached_paths.txt"))
         and check_for_existing_series_toggle
