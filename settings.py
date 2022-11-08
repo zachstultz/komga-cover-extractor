@@ -20,6 +20,8 @@ check_for_missing_volumes_toggle = False
 # caches the roots of each item obtained through os.scandir at the beginning of the script,
 # used when matching a downloaded volume to an existing library
 cache_each_root_for_each_path_in_paths_at_beginning_toggle = False
+# sends a scan request to each komga library after check_for_existing_series is done, requires komga settings at the bottom
+send_scan_request_to_komga_libraries_toggle = False
 ################################################################
 
 ########################### RENAMING/PROCESSING ###########################
@@ -122,7 +124,21 @@ unacceptable_keywords = []
 # When creating a folder for a lone file, if enabled, it will first check if any existing folders
 # are similar enough, and instead use that.
 # (Fixes multiple folders for the same series where the file name did or did not include punctuation)
+# (Similarity check uses required_similarity_score)
 move_lone_files_to_similar_folder = True
+
 # Replaces the series name in the file name with the similar folders name.
 replace_series_name_in_file_name_with_similar_folder_name = True
+
+###### EXPERIMENTAL SETTINGS/FEATURES ######
+
+# KOMGA SCAN REQUEST - used to send a scan request to komga after files are moved
+komga_ip = ""  # ex: http://localhost
+komga_port = ""  # komga default is 8080
+komga_login_email = ""
+komga_login_password = ""  # your login password
+
+# ex: http://localhost:8080/libraries/0647PPYWAC6AX/series
+# ex: komga_library_ids = ["0647PPYWAC6AX"] separate by commas
+komga_library_ids = []
 ################################################################
