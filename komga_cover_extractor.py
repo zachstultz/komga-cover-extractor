@@ -182,7 +182,7 @@ class Watcher:
             self.observer.start()
             try:
                 while True:
-                    time.sleep(5)
+                    time.sleep(30)
             except:
                 self.observer.stop()
                 print("Observer Stopped")
@@ -202,7 +202,7 @@ class Handler(FileSystemEventHandler):
             in file_extensions
             and get_creation_age(event.src_path) <= 1
         ):
-            time.sleep(15)
+            time.sleep(30)
             if os.path.isfile(event.src_path):
                 fields = [
                     {
@@ -5175,28 +5175,33 @@ def scan_komga_libraries():
     komga_url = f"{komga_ip}:{komga_port}"
     if komga_library_ids and komga_url and komga_login_email and komga_login_password:
         for library_id in komga_library_ids:
-            request = requests.post(
-                f"{komga_url}/api/v1/libraries/{library_id}/scan",
-                headers={
-                    "Authorization": "Basic %s"
-                    % b64encode(
-                        f"{komga_login_email}:{komga_login_password}".encode("utf-8")
-                    ).decode("utf-8"),
-                    "Accept": "*/*",
-                },
-            )
-            if request.status_code == 202:
-                print("Success Initiated Scan for: " + library_id + " Library")
-            else:
-                send_error_message(
-                    "Failed to Initiate Scan for: "
-                    + library_id
-                    + " Library"
-                    + " Status Code: "
-                    + str(request.status_code)
-                    + " Response: "
-                    + request.text
+            try:
+                request = requests.post(
+                    f"{komga_url}/api/v1/libraries/{library_id}/scan",
+                    headers={
+                        "Authorization": "Basic %s"
+                        % b64encode(
+                            f"{komga_login_email}:{komga_login_password}".encode(
+                                "utf-8"
+                            )
+                        ).decode("utf-8"),
+                        "Accept": "*/*",
+                    },
                 )
+                if request.status_code == 202:
+                    print("Success Initiated Scan for: " + library_id + " Library")
+                else:
+                    send_error_message(
+                        "Failed to Initiate Scan for: "
+                        + library_id
+                        + " Library"
+                        + " Status Code: "
+                        + str(request.status_code)
+                        + " Response: "
+                        + request.text
+                    )
+            except Exception as e:
+                send_error_message(e + " Failed to Initiate Scan for: " + library_id)
 
 
 # Optional features below, use at your own risk.
@@ -5206,6 +5211,8 @@ def main():
     global cached_paths
     global processed_files
     global moved_files
+    processed_files = []
+    moved_files = []
     if (
         os.path.isfile(os.path.join(ROOT_DIR, "cached_paths.txt"))
         and check_for_existing_series_toggle
