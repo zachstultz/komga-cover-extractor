@@ -145,7 +145,7 @@ komga_library_ids = []
 # Whether or not to generate a release_groups.txt file in the logs folder or add to it
 # with the help of the user's input. (remember to disable afterwards!)
 # Used when renaming files with reorganize_and_rename.
-generate_release_group_list = False
+generate_release_group_list_toggle = False
 
 # The similarity score requirement when matching any brackted release group
 # within a file name. Used when rebuilding a file name in reorganize_and_rename.
