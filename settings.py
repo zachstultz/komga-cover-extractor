@@ -141,4 +141,13 @@ komga_login_password = ""  # your login password
 # ex: http://localhost:8080/libraries/0647PPYWAC6AX/series
 # ex: komga_library_ids = ["0647PPYWAC6AX"] separate by commas
 komga_library_ids = []
+
+# Whether or not to generate a release_groups.txt file in the logs folder or add to it
+# with the help of the user's input. (remember to disable afterwards!)
+# Used when renaming files with reorganize_and_rename.
+generate_release_group_list = False
+
+# The similarity score requirement when matching any brackted release group
+# within a file name. Used when rebuilding a file name in reorganize_and_rename.
+release_group_similarity_score = 0.8
 ################################################################
