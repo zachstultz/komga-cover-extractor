@@ -5476,7 +5476,7 @@ def main():
         delete_unacceptable_files()
     if delete_chapters_from_downloads_toggle and download_folders:
         delete_chapters_from_downloads()
-    if generate_release_group_list:
+    if generate_release_group_list_toggle and log_to_file and paths:
         generate_release_group_list_file()
     if rename_files_in_download_folders_toggle and download_folders:
         rename_files_in_download_folders()
