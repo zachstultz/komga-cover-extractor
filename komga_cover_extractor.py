@@ -210,6 +210,7 @@ class Handler(FileSystemEventHandler):
             and get_creation_age(event.src_path) <= 1
         ):
             time.sleep(180)
+            fields = []
             if os.path.isfile(event.src_path):
                 fields = [
                     {
@@ -1350,6 +1351,7 @@ def remove_duplicate_releases_from_download(original_releases, downloaded_releas
                         and isinstance(download.volume_number, list)
                     )
                 ) and os.path.isfile(original.path):
+                    fields = []
                     if (
                         download.volume_number != ""
                         and original.volume_number != ""
@@ -5249,7 +5251,7 @@ def scan_komga_libraries():
                         + request.text
                     )
             except Exception as e:
-                send_error_message(e + " Failed to Initiate Scan for: " + library_id)
+                send_error_message("Failed to Initiate Scan for: " + library_id)
 
 
 def generate_release_group_list_file():
