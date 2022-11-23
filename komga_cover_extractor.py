@@ -189,7 +189,7 @@ class Watcher:
             self.observer.start()
             try:
                 while True:
-                    time.sleep(180)
+                    time.sleep(5)
             except:
                 self.observer.stop()
                 print("Observer Stopped")
@@ -207,9 +207,8 @@ class Handler(FileSystemEventHandler):
             and os.path.isfile(event.src_path)
             and re.sub("\.", "", get_file_extension(os.path.basename(event.src_path)))
             in file_extensions
-            and get_creation_age(event.src_path) <= 1
         ):
-            time.sleep(180)
+            time.sleep(5)
             fields = []
             if os.path.isfile(event.src_path):
                 fields = [
@@ -2310,7 +2309,7 @@ def check_upgrade(
                     + "```"
                     + volume.name
                     + "```",
-                    "New Volume Release",
+                    "New Volume",
                     color=65280,
                 )
                 # send_discord_message(
@@ -3793,7 +3792,7 @@ def parse_html_tags(html):
 
 
 # Renames files.
-def rename_files_in_download_folders():
+def rename_files_in_download_folders(only_these_files=[]):
     # Set to True for user input renaming, otherwise False
     # Useful for testing
     global manual_rename
@@ -3821,6 +3820,8 @@ def rename_files_in_download_folders():
                 print("\nLocation: " + root)
                 print("Searching for files to rename...")
                 for file in volumes:
+                    if only_these_files and file.name not in only_these_files:
+                        continue
                     try:
                         result = re.search(
                             r"(\s+)?\-?(\s+)?(LN|Light Novels?|Novels?|Books?|Volumes?|Vols?|V|第|Discs?)(\.\s?|\s?|)(([0-9]+)((([-_.]|)([0-9]+))+|))(\]|\)|\})?(\s|巻?\.epub|巻?\.cbz)",
