@@ -150,4 +150,7 @@ generate_release_group_list_toggle = False
 # The similarity score requirement when matching any brackted release group
 # within a file name. Used when rebuilding a file name in reorganize_and_rename.
 release_group_similarity_score = 0.8
+
+# Will forgo sending any discord notifications related to renaming files.
+mute_discord_rename_notifications = False
 ################################################################
