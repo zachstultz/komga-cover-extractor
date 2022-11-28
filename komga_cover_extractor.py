@@ -29,6 +29,7 @@ from titlecase import titlecase
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from base64 import b64encode
+from unidecode import unidecode
 
 
 # Paths = existing library
@@ -1709,6 +1710,7 @@ def rename_file(
                 + " was renamed to "
                 + extensionless_filename_dst
             )
+            # if not mute_discord_rename_notifications:
             # send_discord_message(
             #     "From: "
             #     + "```"
@@ -1960,18 +1962,19 @@ def reorganize_and_rename(files, dir):
                                 get_extensionless_name(rename),
                             )
                             print("\n\t\tRenamed: " + file.name + " to \n\t\t" + rename)
-                            send_discord_message(
-                                "From: "
-                                + "```"
-                                + file.name
-                                + "```"
-                                + "To:"
-                                + "```"
-                                + rename
-                                + "```",
-                                "Reorganized & Renamed File",
-                                color=8421504,
-                            )
+                            if not mute_discord_rename_notifications:
+                                send_discord_message(
+                                    "From: "
+                                    + "```"
+                                    + file.name
+                                    + "```"
+                                    + "To:"
+                                    + "```"
+                                    + rename
+                                    + "```",
+                                    "Reorganized & Renamed File",
+                                    color=8421504,
+                                )
                         else:
                             user_input = input("\tRename (y or n): ")
                             if (
@@ -1991,18 +1994,19 @@ def reorganize_and_rename(files, dir):
                                     + " to \n\t\t"
                                     + rename
                                 )
-                                send_discord_message(
-                                    "From: "
-                                    + "```"
-                                    + file.name
-                                    + "```"
-                                    + "To:"
-                                    + "```"
-                                    + rename
-                                    + "```",
-                                    "Renamed File",
-                                    color=8421504,
-                                )
+                                if not mute_discord_rename_notifications:
+                                    send_discord_message(
+                                        "From: "
+                                        + "```"
+                                        + file.name
+                                        + "```"
+                                        + "To:"
+                                        + "```"
+                                        + rename
+                                        + "```",
+                                        "Renamed File",
+                                        color=8421504,
+                                    )
                         file.series_name = get_series_name_from_file_name(
                             rename, file.root
                         )
@@ -2094,7 +2098,9 @@ def remove_punctuation(s, disable_lang=False):
         return remove_dual_space(remove_common_words(re.sub(r"[^\w\s+]", " ", s)))
     else:
         return convert_to_ascii(
-            remove_dual_space(remove_common_words(re.sub(r"[^\w\s+]", " ", s)))
+            unidecode(
+                remove_dual_space(remove_common_words(re.sub(r"[^\w\s+]", " ", s)))
+            )
         )
 
 
@@ -3793,8 +3799,6 @@ def parse_html_tags(html):
 
 # Renames files.
 def rename_files_in_download_folders(only_these_files=[]):
-    # Set to True for user input renaming, otherwise False
-    # Useful for testing
     global manual_rename
     global cached_paths
     for path in download_folders:
@@ -4020,18 +4024,21 @@ def rename_files_in_download_folders(only_these_files=[]):
                                                         + " to "
                                                         + replacement
                                                     )
-                                                    send_discord_message(
-                                                        "From: "
-                                                        + "```"
-                                                        + file.name
-                                                        + "```"
-                                                        + "To: "
-                                                        + "```"
-                                                        + replacement
-                                                        + "```",
-                                                        "Renamed File",
-                                                        color=8421504,
-                                                    )
+                                                    if (
+                                                        not mute_discord_rename_notifications
+                                                    ):
+                                                        send_discord_message(
+                                                            "From: "
+                                                            + "```"
+                                                            + file.name
+                                                            + "```"
+                                                            + "To: "
+                                                            + "```"
+                                                            + replacement
+                                                            + "```",
+                                                            "Renamed File",
+                                                            color=8421504,
+                                                        )
                                                     for (
                                                         image_extension
                                                     ) in image_extensions:
