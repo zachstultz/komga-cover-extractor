@@ -5492,10 +5492,10 @@ def main():
         rename_files_in_download_folders()
     if create_folders_for_items_in_download_folder_toggle and download_folders:
         create_folders_for_items_in_download_folder()
-    if check_for_duplicate_volumes_toggle:
-        check_for_duplicate_volumes(download_folders)
     if rename_dirs_in_download_folder_toggle and download_folders:
         rename_dirs_in_download_folder()
+    if check_for_duplicate_volumes_toggle and download_folders:
+        check_for_duplicate_volumes(download_folders)
     if extract_covers_toggle and paths:
         extract_covers()
     if check_for_existing_series_toggle and download_folders and paths:
