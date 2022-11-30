@@ -2043,6 +2043,7 @@ def remove_common_words(s):
         common_words_to_remove = [
             "the",
             "a",
+            "à",
             "and",
             "&",
             "I",
@@ -2054,7 +2055,9 @@ def remove_common_words(s):
             "Manga",
             "Comic",
             "Collection",
+            "Master Edition",
             "Edition",
+            "Exclusive",
             "((\d+)([-_. ]+)?th)",
             "Anniversary",
             "Deluxe",
@@ -4681,7 +4684,7 @@ def combine_series(series_list):
     return combined_series
 
 
-def search_bookwalker(query, type, print_info=False):
+def search_bookwalker(query, type, print_info=False, alternative_search=False):
     sleep_timer = 8
     # The total amount of pages to scrape
     total_pages_to_scrape = 5
@@ -4701,6 +4704,7 @@ def search_bookwalker(query, type, print_info=False):
     errors = []
     bookwalker_manga_category = "&qcat=2"
     bookwalker_light_novel_category = "&qcat=3"
+    bookwalker_intll_manga_category = "&qcat=11"
     startTime = datetime.now()
     done = False
     search_type = type
@@ -4709,15 +4713,20 @@ def search_bookwalker(query, type, print_info=False):
     page_count_url = "&page=" + str(page_count)
     search = urllib.parse.quote(query)
     base_url = "https://global.bookwalker.jp/search/?word="
-    if search_type.lower() == "m":
-        print("\tChecking: " + query + " [MANGA]")
-    elif search_type.lower() == "l":
-        print("\tChecking: " + query + " [NOVEL]")
+    if not alternative_search:
+        if search_type.lower() == "m":
+            print("\tChecking: " + query + " [MANGA]")
+        elif search_type.lower() == "l":
+            print("\tChecking: " + query + " [NOVEL]")
     while page_count < total_pages_to_scrape + 1:
         page_count_url = "&page=" + str(page_count)
+        alternate_url = ""
         url = base_url + search + page_count_url
         if search_type.lower() == "m":
-            url += bookwalker_manga_category
+            if not alternative_search:
+                url += bookwalker_manga_category
+            else:
+                url += bookwalker_intll_manga_category
         elif search_type.lower() == "l":
             url += bookwalker_light_novel_category
         page_count += 1
@@ -4725,11 +4734,26 @@ def search_bookwalker(query, type, print_info=False):
         page = scrape_url(
             url,
             cookies={"glSafeSearch": "1", "safeSearch": "111"},
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.88 Safari/537.36"
+            },
         )
-        if page == "":
-            print("\t\tError: Empty page")
-            errors.append("Empty page")
-            continue
+        if not page:
+            alternate_page = None
+            if search_type.lower() == "m" and not alternative_search:
+                alternate_page = scrape_url(
+                    url,
+                    cookies={"glSafeSearch": "1", "safeSearch": "111"},
+                    headers={
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.88 Safari/537.36"
+                    },
+                )
+            if not alternate_page:
+                print("\t\tError: Empty page")
+                errors.append("Empty page")
+                continue
+            else:
+                page = alternate_page
         # parse page
         soup = page
         # get total pages
@@ -4760,7 +4784,16 @@ def search_bookwalker(query, type, print_info=False):
         )
         list_area_ul = soup.find("ul", class_="o-tile-list")
         if list_area_ul is None:
-            print("\t\t! NO BOOKS FOUND ON BOOKWALKER !")
+            alternate_result = None
+            if search_type.lower() == "m" and not alternative_search:
+                alternate_result = search_bookwalker(
+                    query, type, print_info, alternative_search=True
+                )
+                time.sleep(sleep_timer / 2)
+            if alternate_result:
+                return alternate_result
+            if not alternative_search:
+                print("\t\t! NO BOOKS FOUND ON BOOKWALKER !")
             no_book_result_searches.append(query)
             continue
         o_tile_list = list_area_ul.find_all("li", class_="o-tile")
@@ -4812,7 +4845,11 @@ def search_bookwalker(query, type, print_info=False):
                 # replace any unicode characters in the title with spaces
                 title = re.sub(r"[^\x00-\x7F]+", " ", title)
                 title = remove_dual_space(title).strip()
-                if title and re.search(r"Chapter", title, re.IGNORECASE):
+                if (
+                    title
+                    and re.search(r"Chapter", title, re.IGNORECASE)
+                    and not re.search(r"re([-_. :]+)?zero", title, re.IGNORECASE)
+                ):
                     continue
                 part = ""
                 part_search = get_volume_part(title)
@@ -4827,53 +4864,65 @@ def search_bookwalker(query, type, print_info=False):
                     title = re.sub(r"(\b(Part)([-_. ]|)\b)", " ", title)
                     title = re.sub(str(part), " ", title)
                     title = remove_dual_space(title).strip()
-                if not re.search(
-                    r"(([0-9]+)((([-_.]|)([0-9]+))+|))(\s+)?-(\s+)?(([0-9]+)((([-_.]|)([0-9]+))+|))",
-                    title,
-                ):
-                    volume_number = re.search(
-                        r"([0-9]+(\.?[0-9]+)?([-_][0-9]+\.?[0-9]+)?)$", title
-                    )
-                else:
-                    title_split = title.split("-")
-                    # remove anyting that isn't a number or a period
-                    title_split = [re.sub(r"[^0-9.]", "", x) for x in title_split]
-                    # clean any extra spaces in the volume_number and set_as_float_or_int
-                    title_split = [
-                        set_num_as_float_or_int(x.strip()) for x in title_split
-                    ]
-                    # remove empty results from the list
-                    title_split = [x for x in title_split if x]
-                    if title_split:
-                        volume_number = title_split
+                volume_number = ""
+                if not re.search(r"(\b(Vol)([-_. ]|)\b)", title):
+                    if not re.search(
+                        r"(([0-9]+)((([-_.]|)([0-9]+))+|))(\s+)?-(\s+)?(([0-9]+)((([-_.]|)([0-9]+))+|))",
+                        title,
+                    ):
+                        volume_number = re.search(
+                            r"([0-9]+(\.?[0-9]+)?([-_][0-9]+\.?[0-9]+)?)$", title
+                        )
                     else:
-                        volume_number = None
-                if volume_number and not isinstance(volume_number, list):
-                    if hasattr(volume_number, "group"):
-                        volume_number = volume_number.group(1)
-                        volume_number = set_num_as_float_or_int(volume_number)
-                    else:
+                        title_split = title.split("-")
+                        # remove anyting that isn't a number or a period
+                        title_split = [re.sub(r"[^0-9.]", "", x) for x in title_split]
+                        # clean any extra spaces in the volume_number and set_as_float_or_int
+                        title_split = [
+                            set_num_as_float_or_int(x.strip()) for x in title_split
+                        ]
+                        # remove empty results from the list
+                        title_split = [x for x in title_split if x]
+                        if title_split:
+                            volume_number = title_split
+                        else:
+                            volume_number = None
+                    if volume_number and not isinstance(volume_number, list):
+                        if hasattr(volume_number, "group"):
+                            volume_number = volume_number.group(1)
+                            volume_number = set_num_as_float_or_int(volume_number)
+                        else:
+                            if title not in no_volume_number:
+                                no_volume_number.append(title)
+                            continue
+                    elif title and is_one_shot_bk(title):
+                        volume_number = 1
+                    elif not volume_number and not isinstance(volume_number, list):
                         if title not in no_volume_number:
                             no_volume_number.append(title)
                         continue
-                elif title and is_one_shot_bk(title):
-                    volume_number = 1
-                elif not volume_number and not isinstance(volume_number, list):
-                    if title not in no_volume_number:
-                        no_volume_number.append(title)
-                    continue
-                title = re.sub(
-                    r"(\b|\s)((\s|)-(\s|)|)(Part|)(\[|\(|\{)?(LN|Light Novels?|Novels?|Books?|Volumes?|Vols?|V|第|Discs?|)(\.|)([-_. ]|)([0-9]+)(\b|\s).*",
-                    "",
-                    title,
-                    flags=re.IGNORECASE,
-                ).strip()
-                if re.search(r",$", title):
-                    title = re.sub(r",$", "", title).strip()
-                title = title.replace("\n", "").replace("\t", "")
-                title = re.sub(rf"\b{volume_number}\b", "", title)
-                title = re.sub(r"(\s{2,})", " ", title).strip()
-                title = re.sub(r"(\((.*)\)$)", "", title).strip()
+                else:
+                    volume_number = remove_everything_but_volume_num([title])
+                if not re.search(r"(\b(Vol)([-_. ]|)\b)", title):
+                    title = re.sub(
+                        r"(\b|\s)((\s|)-(\s|)|)(Part|)(\[|\(|\{)?(LN|Light Novels?|Novels?|Books?|Volumes?|Vols?|V|第|Discs?|)(\.|)([-_. ]|)(([0-9]+)(\b|\s))$.*",
+                        "",
+                        title,
+                        flags=re.IGNORECASE,
+                    ).strip()
+                    if re.search(r",$", title):
+                        title = re.sub(r",$", "", title).strip()
+                    title = title.replace("\n", "").replace("\t", "")
+                    title = re.sub(rf"\b{volume_number}\b", "", title)
+                    title = re.sub(r"(\s{2,})", " ", title).strip()
+                    title = re.sub(r"(\((.*)\)$)", "", title).strip()
+                else:
+                    title = re.sub(
+                        r"(\b|\s)((\s|)-(\s|)|)(Part|)(\[|\(|\{)?(LN|Light Novels?|Novels?|Books?|Volumes?|Vols?|V|第|Discs?)(\.|)([-_. ]|)([0-9]+)(\b|\s).*",
+                        "",
+                        title,
+                        flags=re.IGNORECASE,
+                    ).strip()
                 clean_title = remove_punctuation(title).lower().strip()
                 clean_query = remove_punctuation(query).lower().strip()
                 score = similar(clean_title, clean_query)
@@ -5048,7 +5097,8 @@ def search_bookwalker(query, type, print_info=False):
         print("\t\tNum: " + str(len(series_list)))
         return None
     else:
-        print("\t\tNo matching books found.")
+        if not alternative_search:
+            print("\t\tNo matching books found.")
         return None
 
 
@@ -5062,6 +5112,7 @@ def check_for_new_volumes_on_bookwalker():
             os.chdir(path)
             # get list of folders from path directory
             path_dirs = [f for f in os.listdir(path) if os.path.isdir(f)]
+            path_dirs.sort()
             clean_and_sort(path, dirs=path_dirs)
             global folder_accessor
             folder_accessor = Folder(
