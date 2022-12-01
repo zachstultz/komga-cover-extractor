@@ -31,6 +31,7 @@ from watchdog.events import FileSystemEventHandler
 from base64 import b64encode
 from unidecode import unidecode
 
+script_version = "1.1.0"
 
 # Paths = existing library
 # Download_folders = newly aquired manga/novels
@@ -488,8 +489,11 @@ def send_discord_message(
     fields=[],
     timestamp=True,
     passed_webhook=None,
+    image=None,
+    image_local=None,
 ):
     hook = None
+    global script_version
     global discord_webhook_url
     global last_hook_index
     if not passed_webhook:
@@ -536,8 +540,16 @@ def send_discord_message(
                             value=field["value"],
                             inline=field["inline"],
                         )
+                if script_version:
+                    embed.set_footer(text="v" + script_version)
                 if timestamp:
                     embed.set_timestamp()
+                if image and not image_local:
+                    embed.set_image(url=image)
+                elif image_local and not image:
+                    with open(image_local, "rb") as f:
+                        webhook.add_file(file=f.read(), filename="cover.jpg")
+                    embed.set_image(url="attachment://cover.jpg")
                 webhook.add_embed(embed)
             if proxies:
                 webhook.proxies = proxies
@@ -2160,6 +2172,21 @@ def get_toc_or_copyright(file):
     return bonus_content_found
 
 
+# Checks for and returns the path of an associated cover file
+def find_cover(file):
+    files = os.listdir(file.root)
+    remove_hidden_files(files, file.root)
+    # remove any files from files with list comprehension that don't start with file.extensionless_name
+    if files:
+        files = [f for f in files if f.startswith(file.extensionless_name)]
+        for f in files:
+            for extension in image_extensions:
+                search = file.extensionless_name + "." + extension
+                if f == search:
+                    return os.path.join(file.root, f)
+    return None
+
+
 def check_upgrade(
     existing_root, dir, file, similarity_strings=None, cache=False, isbn=False
 ):
@@ -2309,18 +2336,37 @@ def check_upgrade(
                     + " to "
                     + existing_dir
                 )
-                send_discord_message(
-                    "Volume Number: "
-                    + "```"
-                    + str(volume.volume_number)
-                    + "```"
-                    + "Volume Name: "
-                    + "```"
-                    + volume.name
-                    + "```",
-                    "New Volume",
-                    color=65280,
-                )
+                cover = find_cover(volume)
+                fields = [
+                    {
+                        "name": "Volume Number",
+                        "value": "```" + str(volume.volume_number) + "```",
+                        "inline": False,
+                    },
+                    {
+                        "name": "Volume Name",
+                        "value": "```" + volume.name + "```",
+                        "inline": False,
+                    },
+                ]
+                # Only send the cover if it exists externally and we can assume it's compressed.
+                # We don't want to send constant uncompressed 2MB images.
+                # Not only is that a waste of bandwidth, BUT, Depending on the discord client's server, 2MB or over could fail to send.
+                if cover and os.path.isfile(cover) and compress_image_option:
+                    send_discord_message(
+                        None,
+                        "New Volume Release",
+                        color=65280,
+                        fields=fields,
+                        image_local=cover,
+                    )
+                else:
+                    send_discord_message(
+                        None,
+                        "New Volume Release",
+                        color=65280,
+                        fields=fields,
+                    )
                 # send_discord_message(
                 #     "File: "
                 #     + "```"
@@ -5172,7 +5218,10 @@ def check_for_new_volumes_on_bookwalker():
                                 print("\n\t\t[RELEASED]")
                             else:
                                 print("\n\t\t[PRE-ORDER]")
-                            print("\t\tVolume Number: " + str(vol.volume_number))
+                            print(
+                                "\t\tVolume Number: "
+                                + str(set_num_as_float_or_int(vol.volume_number))
+                            )
                             print("\t\tDate: " + vol.date)
                             if vol == bookwalker_volumes[-1]:
                                 print("\t\tURL: " + vol.url + "\n")
@@ -5201,12 +5250,18 @@ def check_for_new_volumes_on_bookwalker():
         print("\nNew Releases:")
         for r in released:
             print("\t" + r.title)
-            print("\tVolume " + str(r.volume_number))
+            print("\tVolume " + str(set_num_as_float_or_int(r.volume_number)))
             print("\tDate: " + r.date)
             print("\tURL: " + r.url)
             print("\n")
             message = (
-                r.date + " " + r.title + " Volume " + str(r.volume_number) + " " + r.url
+                r.date
+                + " "
+                + r.title
+                + " Volume "
+                + str(set_num_as_float_or_int(r.volume_number))
+                + " "
+                + r.url
             )
             write_to_file("released.txt", message, without_date=True, overwrite=False)
             if bookwalker_webhook_urls and len(bookwalker_webhook_urls) == 2:
@@ -5223,12 +5278,18 @@ def check_for_new_volumes_on_bookwalker():
         print("\nPre-orders:")
         for p in pre_orders:
             print("\t" + p.title)
-            print("\tVolume: " + str(p.volume_number))
+            print("\tVolume: " + str(set_num_as_float_or_int(p.volume_number)))
             print("\tDate: " + p.date)
             print("\tURL: " + p.url)
             print("\n")
             message = (
-                p.date + " " + p.title + " Volume " + str(p.volume_number) + " " + p.url
+                p.date
+                + " "
+                + p.title
+                + " Volume "
+                + str(set_num_as_float_or_int(p.volume_number))
+                + " "
+                + p.url
             )
             write_to_file("pre-orders.txt", message, without_date=True, overwrite=False)
             if bookwalker_webhook_urls and len(bookwalker_webhook_urls) == 2:
@@ -5298,7 +5359,9 @@ def scan_komga_libraries():
                     },
                 )
                 if request.status_code == 202:
-                    print("Successfully Initiated Scan for: " + library_id + " Library")
+                    print(
+                        "Successfully Initiated Scan for: " + library_id + " Library."
+                    )
                 else:
                     send_error_message(
                         "Failed to Initiate Scan for: "
@@ -5310,7 +5373,9 @@ def scan_komga_libraries():
                         + request.text
                     )
             except Exception as e:
-                send_error_message("Failed to Initiate Scan for: " + library_id)
+                send_error_message(
+                    "Failed to Initiate Scan for: " + library_id + " Komga Library."
+                )
 
 
 def generate_release_group_list_file():
