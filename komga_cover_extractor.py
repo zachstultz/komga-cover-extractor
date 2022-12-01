@@ -14,6 +14,7 @@ import time
 import scandir
 import random
 import xml.etree.ElementTree as ET
+import io
 from PIL import Image
 from PIL import ImageFile
 from lxml import etree
@@ -30,8 +31,9 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from base64 import b64encode
 from unidecode import unidecode
+from io import BytesIO
 
-script_version = "1.1.0"
+script_version = "1.2.0"
 
 # Paths = existing library
 # Download_folders = newly aquired manga/novels
@@ -425,22 +427,37 @@ def set_num_as_float_or_int(volume_number):
 
 
 # Handles image compression
-def compress_image(image_path, quality=image_quality, to_jpg=False):
-    img = Image.open(image_path)
-    filename, ext = os.path.splitext(image_path)
-    extension = get_file_extension(image_path)
+def compress_image(image_path, quality=image_quality, to_jpg=False, raw_data=None):
+    img = None
+    filename = None
+    extension = None
+    new_filename = None
+    if not raw_data:
+        img = Image.open(image_path)
+    else:
+        img = Image.open(io.BytesIO(raw_data))
+    if not raw_data:
+        filename, ext = os.path.splitext(image_path)
+        extension = get_file_extension(image_path)
+        if extension == ".png" and not raw_data:
+            to_jpg = True
     if img.mode in ("RGBA", "P"):
         img = img.convert("RGB")
-    if extension == ".png":
-        to_jpg = True
-    if to_jpg:
+    if to_jpg and not raw_data:
         new_filename = f"{filename}.jpg"
-    else:
+    elif not raw_data:
         new_filename = f"{filename}" + extension
     try:
-        img.save(new_filename, quality=quality, optimize=True)
+        if not raw_data:
+            img.save(new_filename, quality=quality, optimize=True)
+        else:
+            # compress the image data using BytesIO and return the data
+            buffer = io.BytesIO()
+            img.save(buffer, format="JPEG", quality=50)
+            # return the compressed image data
+            return buffer.getvalue()
         if extension == ".png" and (
-            os.path.isfile(new_filename) and os.path.isfile(image_path)
+            os.path.isfile(new_filename) and os.path.isfile(image_path) and not raw_data
         ):
             os.remove(image_path)
             return image_path
@@ -547,8 +564,7 @@ def send_discord_message(
                 if image and not image_local:
                     embed.set_image(url=image)
                 elif image_local and not image:
-                    with open(image_local, "rb") as f:
-                        webhook.add_file(file=f.read(), filename="cover.jpg")
+                    webhook.add_file(file=image_local, filename="cover.jpg")
                     embed.set_image(url="attachment://cover.jpg")
                 webhook.add_embed(embed)
             if proxies:
@@ -2336,7 +2352,7 @@ def check_upgrade(
                     + " to "
                     + existing_dir
                 )
-                cover = find_cover(volume)
+                cover = find_and_extract_cover(volume, return_data_only=True)
                 fields = [
                     {
                         "name": "Volume Number",
@@ -2352,7 +2368,7 @@ def check_upgrade(
                 # Only send the cover if it exists externally and we can assume it's compressed.
                 # We don't want to send constant uncompressed 2MB images.
                 # Not only is that a waste of bandwidth, BUT, Depending on the discord client's server, 2MB or over could fail to send.
-                if cover and os.path.isfile(cover) and compress_image_option:
+                if cover:
                     send_discord_message(
                         None,
                         "New Volume Release",
@@ -4259,7 +4275,7 @@ def remove_non_images(files):
 
 
 # Finds and extracts the internal cover from a cbz or epub file
-def find_and_extract_cover(file):
+def find_and_extract_cover(file, return_data_only=False):
     # check if the file is a valid zip file
     if zipfile.is_zipfile(file.path):
         epub_cover_path = ""
@@ -4299,67 +4315,67 @@ def find_and_extract_cover(file):
                         zip_list.remove(item)
                         zip_list.insert(0, item)
                         break
-            if zip_list:
+            cover_searches = [
+                r"(cover\.([A-Za-z]+))$",
+                r"(\b(Cover([0-9]+|)|CoverDesign|page([-_. ]+)?cover)\b)",
+                r"(\b(p000|page_000)\b)",
+                r"((\s+)0+\.(.{2,}))",
+                r"(\bindex[-_. ]1[-_. ]1\b)",
+                r"(9([-_. :]+)?7([-_. :]+)?(8|9)(([-_. :]+)?[0-9]){10})",
+            ]
+            image_data = None
+            if zip_list and cover_searches:
                 for image_file in zip_list:
-                    if (
-                        epub_cover_path
-                        and os.path.basename(image_file) == epub_cover_path
-                        or re.search(
-                            r"(cover\.([A-Za-z]+))$",
-                            os.path.basename(image_file),
-                            re.IGNORECASE,
-                        )
-                        or re.search(
-                            r"(\b(Cover([0-9]+|)|CoverDesign|page([-_. ]+)?cover)\b)",
-                            os.path.basename(image_file),
-                            re.IGNORECASE,
-                        )
-                        or re.search(
-                            r"(\b(p000|page_000)\b)",
-                            os.path.basename(image_file),
-                            re.IGNORECASE,
-                        )
-                        or re.search(
-                            r"((\s+)0+\.(.{2,}))",
-                            os.path.basename(image_file),
-                            re.IGNORECASE,
-                        )
-                        or re.search(
-                            r"(\bindex[-_. ]1[-_. ]1\b)",
-                            os.path.basename(image_file),
-                            re.IGNORECASE,
-                        )
-                        or re.search(
-                            r"(9([-_. :]+)?7([-_. :]+)?(8|9)(([-_. :]+)?[0-9]){10})",
-                            os.path.basename(image_file),
-                            re.IGNORECASE,
-                        )
-                    ):
-                        print("\t\tCover Found: " + image_file)
-                        image_extension = get_file_extension(
-                            os.path.basename(image_file)
-                        )
-                        if image_extension == ".jpeg":
-                            image_extension = ".jpg"
-                        with zip_ref.open(image_file) as image_file_ref:
-                            # save image_file_ref as file.extensionless_name + image_extension to file.root
-                            with open(
-                                os.path.join(
-                                    file.root,
-                                    file.extensionless_name + image_extension,
-                                ),
-                                "wb",
-                            ) as image_file_ref_out:
-                                image_file_ref_out.write(image_file_ref.read())
-                        if compress_image_option:
-                            compress_image(
-                                os.path.join(
-                                    file.root,
-                                    file.extensionless_name + image_extension,
-                                )
+                    for search in cover_searches:
+                        if (
+                            epub_cover_path
+                            and os.path.basename(image_file) == epub_cover_path
+                        ) or re.search(
+                            search, os.path.basename(image_file), re.IGNORECASE
+                        ):
+                            print("\t\tCover Found: " + image_file)
+                            image_extension = get_file_extension(
+                                os.path.basename(image_file)
                             )
-                            image_extension = ".jpg"
-                        return file.extensionless_name + image_extension
+                            if image_extension == ".jpeg":
+                                image_extension = ".jpg"
+                            with zip_ref.open(image_file) as image_file_ref:
+                                # save image_file_ref as file.extensionless_name + image_extension to file.root
+                                if not return_data_only:
+                                    with open(
+                                        os.path.join(
+                                            file.root,
+                                            file.extensionless_name + image_extension,
+                                        ),
+                                        "wb",
+                                    ) as image_file_ref_out:
+                                        image_file_ref_out.write(image_file_ref.read())
+                                else:
+                                    image_data = image_file_ref.read()
+                            if compress_image_option or return_data_only:
+                                if not return_data_only:
+                                    compress_image(
+                                        os.path.join(
+                                            file.root,
+                                            file.extensionless_name + image_extension,
+                                        )
+                                    )
+                                    image_extension = ".jpg"
+                                    return file.extensionless_name + image_extension
+                                elif return_data_only and image_data:
+                                    compress_result_data = compress_image(
+                                        os.path.join(
+                                            file.root,
+                                            file.extensionless_name + image_extension,
+                                        ),
+                                        raw_data=image_data,
+                                    )
+                                    if compress_result_data:
+                                        return compress_result_data
+                                    else:
+                                        return image_data
+                                else:
+                                    return None
                 print("\t\tNo cover found, defaulting to first image: " + zip_list[0])
                 default_cover_path = zip_list[0]
                 image_extension = get_file_extension(
@@ -4369,24 +4385,41 @@ def find_and_extract_cover(file):
                     image_extension = ".jpg"
                 with zip_ref.open(default_cover_path) as default_cover_ref:
                     # save image_file_ref as file.extensionless_name + image_extension to file.root
-                    with open(
-                        os.path.join(
-                            file.root,
-                            file.extensionless_name + image_extension,
-                        ),
-                        "wb",
-                    ) as default_cover_ref_out:
-                        default_cover_ref_out.write(default_cover_ref.read())
-                if compress_image_option:
-                    compress_image(
-                        os.path.join(
-                            file.root,
-                            file.extensionless_name + image_extension,
+                    if not return_data_only:
+                        with open(
+                            os.path.join(
+                                file.root,
+                                file.extensionless_name + image_extension,
+                            ),
+                            "wb",
+                        ) as default_cover_ref_out:
+                            default_cover_ref_out.write(default_cover_ref.read())
+                    else:
+                        image_data = default_cover_ref.read()
+                if compress_image_option or return_data_only:
+                    if not return_data_only:
+                        compress_image(
+                            os.path.join(
+                                file.root,
+                                file.extensionless_name + image_extension,
+                            )
                         )
-                    )
-                    image_extension = ".jpg"
-                return file.extensionless_name + image_extension
-
+                        image_extension = ".jpg"
+                        return file.extensionless_name + image_extension
+                    elif return_data_only and image_data:
+                        compress_result_data = compress_image(
+                            os.path.join(
+                                file.root,
+                                file.extensionless_name + image_extension,
+                            ),
+                            raw_data=image_data,
+                        )
+                        if compress_result_data:
+                            return compress_result_data
+                        else:
+                            return image_data
+                    else:
+                        return None
     else:
         send_error_message("\nFile: " + file.name + " is not a valid zip file.")
     return False
