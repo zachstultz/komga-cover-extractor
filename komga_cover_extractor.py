@@ -2365,9 +2365,6 @@ def check_upgrade(
                         "inline": False,
                     },
                 ]
-                # Only send the cover if it exists externally and we can assume it's compressed.
-                # We don't want to send constant uncompressed 2MB images.
-                # Not only is that a waste of bandwidth, BUT, Depending on the discord client's server, 2MB or over could fail to send.
                 if cover:
                     send_discord_message(
                         None,
@@ -3355,10 +3352,7 @@ def rename_dirs_in_download_folder():
                             )
                         if volume_one:
                             # rename folder to the series name
-                            if (
-                                volume_one.series_name != folderDir
-                                and similar(volume_one.series_name, folderDir) >= 0.25
-                            ):
+                            if volume_one.series_name != folderDir:
                                 print("\n\tBEFORE: " + folderDir)
                                 print("\tAFTER:  " + volume_one.series_name)
                                 if volumes:
