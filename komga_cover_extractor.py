@@ -3350,172 +3350,166 @@ def rename_dirs_in_download_folder():
                             print(
                                 "\t\tCould not find series name for: " + volumes[0].path
                             )
-                        if volume_one:
-                            # rename folder to the series name
-                            if (
-                                volume_one.series_name != folderDir
-                                and similar(
-                                    remove_bracketed_info_from_name(
-                                        volume_one.series_name
-                                    ),
-                                    remove_bracketed_info_from_name(folderDir),
+                        if (
+                            volume_one
+                            and volume_one.series_name != folderDir
+                            and similar(
+                                remove_bracketed_info_from_name(volume_one.series_name),
+                                remove_bracketed_info_from_name(folderDir),
+                            )
+                            >= 0.25
+                        ):
+                            print("\n\tBEFORE: " + folderDir)
+                            print("\tAFTER:  " + volume_one.series_name)
+                            if volumes:
+                                print("\t\tVOLUMES:")
+                                for v in volumes:
+                                    print("\t\t\t" + v.name)
+                            user_input = ""
+                            if manual_rename:
+                                user_input = input(
+                                    "\nRename (y or n or i (input rename all volumes' series names and folder) ): "
                                 )
-                                >= 0.25
-                            ):
-                                print("\n\tBEFORE: " + folderDir)
-                                print("\tAFTER:  " + volume_one.series_name)
-                                if volumes:
-                                    print("\t\tVOLUMES:")
-                                    for v in volumes:
-                                        print("\t\t\t" + v.name)
-                                user_input = ""
-                                if manual_rename:
-                                    user_input = input(
-                                        "\nRename (y or n or i (input rename all volumes' series names and folder) ): "
-                                    )
-                                else:
-                                    user_input = "y"
-                                try:
-                                    if user_input.lower() == "y":
-                                        # if the direcotry doesn't exist, then rename to it
-                                        if not os.path.exists(
-                                            os.path.join(
-                                                folder_accessor.root,
-                                                volume_one.series_name,
+                            else:
+                                user_input = "y"
+                            try:
+                                if user_input.lower() == "y":
+                                    # if the direcotry doesn't exist, then rename to it
+                                    if not os.path.exists(
+                                        os.path.join(
+                                            folder_accessor.root,
+                                            volume_one.series_name,
+                                        )
+                                    ):
+                                        try:
+                                            os.rename(
+                                                os.path.join(
+                                                    folder_accessor.root, folderDir
+                                                ),
+                                                os.path.join(
+                                                    folder_accessor.root,
+                                                    volume_one.series_name,
+                                                ),
                                             )
-                                        ):
-                                            try:
-                                                os.rename(
-                                                    os.path.join(
-                                                        folder_accessor.root, folderDir
-                                                    ),
-                                                    os.path.join(
-                                                        folder_accessor.root,
-                                                        volume_one.series_name,
-                                                    ),
-                                                )
-                                                print(
-                                                    "\t\tRenamed "
-                                                    + folderDir
-                                                    + " to "
-                                                    + volume_one.series_name
-                                                )
-                                            except Exception as e:
-                                                print(
-                                                    "\t\tCould not rename "
-                                                    + folderDir
-                                                    + " to "
-                                                    + volume_one.series_name
-                                                )
-                                                print(e)
-                                        else:
-                                            # move the files to the already existing directory if they don't already exist, otherwise delete them
-                                            for v in volumes:
-                                                if not os.path.isfile(
-                                                    os.path.join(
-                                                        folder_accessor.root,
-                                                        volume_one.series_name,
-                                                        v.name,
-                                                    )
-                                                ):
-                                                    move_file(
-                                                        v,
-                                                        os.path.join(
-                                                            folder_accessor.root,
-                                                            volume_one.series_name,
-                                                        ),
-                                                    )
-                                                else:
-                                                    print(
-                                                        "\t\t"
-                                                        + v.name
-                                                        + " already exists in "
-                                                        + volume_one.series_name
-                                                    )
-                                                    remove_file(v.path)
-                                            # check for an empty folder, and delete it if it is
-                                            check_and_delete_empty_folder(v.root)
-                                    elif user_input.lower() == "i":
-                                        print("\tInput mode selected.")
-                                        print(
-                                            "\n\tWARNING: This will rename all voluems with similar series names and the folder name to the user inputted series name"
-                                        )
-                                        print(
-                                            "\tONLY USE IF YOU KNOW WHAT YOU ARE DOING, otherwise enter nothing or 'q' to quit"
-                                        )
-                                        print(
-                                            "\n\tCurrent Series Name: "
-                                            + volume_one.series_name
-                                        )
-                                        series_user_input = input(
-                                            "\tReplacement Series Name: "
-                                        )
-                                        if (
-                                            series_user_input != ""
-                                            and series_user_input != "q"
-                                        ):
-                                            if len(volumes) > 1:
-                                                matching.append(volumes[0])
-                                            for v in matching:
-                                                new_file_name = re.sub(
-                                                    v.series_name,
-                                                    series_user_input,
+                                            print(
+                                                "\t\tRenamed "
+                                                + folderDir
+                                                + " to "
+                                                + volume_one.series_name
+                                            )
+                                        except Exception as e:
+                                            print(
+                                                "\t\tCould not rename "
+                                                + folderDir
+                                                + " to "
+                                                + volume_one.series_name
+                                            )
+                                            print(e)
+                                    else:
+                                        # move the files to the already existing directory if they don't already exist, otherwise delete them
+                                        for v in volumes:
+                                            if not os.path.isfile(
+                                                os.path.join(
+                                                    folder_accessor.root,
+                                                    volume_one.series_name,
                                                     v.name,
                                                 )
-                                                new_file_path = os.path.join(
-                                                    v.root, new_file_name
-                                                )
-                                                if not os.path.isfile(new_file_path):
-                                                    rename_file(
-                                                        v.path,
-                                                        new_file_path,
-                                                        v.root,
-                                                        v.extensionless_name,
-                                                        get_extensionless_name(
-                                                            new_file_name
-                                                        ),
-                                                    )
-                                                else:
-                                                    print(
-                                                        "\t\t"
-                                                        + new_file_name
-                                                        + " already exists."
-                                                    )
-                                            # if the folder doesn't already exist, rename it to series_user_input
-                                            if volume_one.root != os.path.join(
-                                                download_folder, series_user_input
                                             ):
-                                                if not os.path.isdir(
+                                                move_file(
+                                                    v,
+                                                    os.path.join(
+                                                        folder_accessor.root,
+                                                        volume_one.series_name,
+                                                    ),
+                                                )
+                                            else:
+                                                print(
+                                                    "\t\t"
+                                                    + v.name
+                                                    + " already exists in "
+                                                    + volume_one.series_name
+                                                )
+                                                remove_file(v.path)
+                                        # check for an empty folder, and delete it if it is
+                                        check_and_delete_empty_folder(v.root)
+                                elif user_input.lower() == "i":
+                                    print("\tInput mode selected.")
+                                    print(
+                                        "\n\tWARNING: This will rename all voluems with similar series names and the folder name to the user inputted series name"
+                                    )
+                                    print(
+                                        "\tONLY USE IF YOU KNOW WHAT YOU ARE DOING, otherwise enter nothing or 'q' to quit"
+                                    )
+                                    print(
+                                        "\n\tCurrent Series Name: "
+                                        + volume_one.series_name
+                                    )
+                                    series_user_input = input(
+                                        "\tReplacement Series Name: "
+                                    )
+                                    if (
+                                        series_user_input != ""
+                                        and series_user_input != "q"
+                                    ):
+                                        if len(volumes) > 1:
+                                            matching.append(volumes[0])
+                                        for v in matching:
+                                            new_file_name = re.sub(
+                                                v.series_name,
+                                                series_user_input,
+                                                v.name,
+                                            )
+                                            new_file_path = os.path.join(
+                                                v.root, new_file_name
+                                            )
+                                            if not os.path.isfile(new_file_path):
+                                                rename_file(
+                                                    v.path,
+                                                    new_file_path,
+                                                    v.root,
+                                                    v.extensionless_name,
+                                                    get_extensionless_name(
+                                                        new_file_name
+                                                    ),
+                                                )
+                                            else:
+                                                print(
+                                                    "\t\t"
+                                                    + new_file_name
+                                                    + " already exists."
+                                                )
+                                        # if the folder doesn't already exist, rename it to series_user_input
+                                        if volume_one.root != os.path.join(
+                                            download_folder, series_user_input
+                                        ):
+                                            if not os.path.isdir(
+                                                os.path.join(
+                                                    download_folder,
+                                                    series_user_input,
+                                                )
+                                            ):
+                                                os.rename(
+                                                    volume_one.root,
                                                     os.path.join(
                                                         download_folder,
                                                         series_user_input,
+                                                    ),
+                                                )
+                                            else:
+                                                print(
+                                                    "\t\tFolder: "
+                                                    + os.path.join(
+                                                        download_folder,
+                                                        series_user_input,
                                                     )
-                                                ):
-                                                    os.rename(
-                                                        volume_one.root,
-                                                        os.path.join(
-                                                            download_folder,
-                                                            series_user_input,
-                                                        ),
-                                                    )
-                                                else:
-                                                    print(
-                                                        "\t\tFolder: "
-                                                        + os.path.join(
-                                                            download_folder,
-                                                            series_user_input,
-                                                        )
-                                                        + " already exists."
-                                                    )
-                                    else:
-                                        print("Skipping...")
-                                except Exception as e:
-                                    print(e)
+                                                    + " already exists."
+                                                )
+                                else:
                                     print("Skipping...")
+                            except Exception as e:
+                                print(e)
+                                print("Skipping...")
                         else:
-                            send_error_message(
-                                "\n\tNo volumes found in: " + full_file_path
-                            )
                             download_folder_basename = os.path.basename(download_folder)
                             if re.search(
                                 download_folder_basename, full_file_path, re.IGNORECASE
