@@ -3334,7 +3334,7 @@ def rename_dirs_in_download_folder():
                                 volumes
                             ) == 1:
                                 volume_one = matching[0]
-                            elif (len(matching) + 1 >= len(volumes) * 0.9) and len(
+                            elif (len(matching) + 1 >= len(volumes) * 0.8) and len(
                                 volumes
                             ) > 1:
                                 volume_one = matching[0]
@@ -3352,7 +3352,16 @@ def rename_dirs_in_download_folder():
                             )
                         if volume_one:
                             # rename folder to the series name
-                            if volume_one.series_name != folderDir:
+                            if (
+                                volume_one.series_name != folderDir
+                                and similar(
+                                    remove_bracketed_info_from_name(
+                                        volume_one.series_name
+                                    ),
+                                    remove_bracketed_info_from_name(folderDir),
+                                )
+                                >= 0.25
+                            ):
                                 print("\n\tBEFORE: " + folderDir)
                                 print("\tAFTER:  " + volume_one.series_name)
                                 if volumes:
