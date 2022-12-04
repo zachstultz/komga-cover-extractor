@@ -33,7 +33,7 @@ from base64 import b64encode
 from unidecode import unidecode
 from io import BytesIO
 
-script_version = "1.2.0"
+script_version = "1.2.1"
 
 # Paths = existing library
 # Download_folders = newly aquired manga/novels
