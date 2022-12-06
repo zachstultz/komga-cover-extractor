@@ -33,7 +33,7 @@ from base64 import b64encode
 from unidecode import unidecode
 from io import BytesIO
 
-script_version = "1.2.3"
+script_version = "1.3.0"
 
 # Paths = existing library
 # Download_folders = newly aquired manga/novels
@@ -270,6 +270,8 @@ volume_keywords = [
 
 volume_one_number_keywords = ["One", "1", "01", "001", "0001"]
 
+new_volume_webhook = None
+
 # Parses the passed command-line arguments
 def parse_my_args():
     global paths
@@ -334,6 +336,12 @@ def parse_my_args():
         help="Whether or not to use the watchdog library to watch for file changes in the download folders.",
         required=False,
     )
+    parser.add_argument(
+        "-nw",
+        "--new_volume_webhook",
+        help="If passed in, the new volume release notification will be redirected to this single discord webhook channel.",
+        required=False,
+    )
     parser = parser.parse_args()
     if not parser.paths and not parser.download_folders:
         print("No paths or download folders were passed to the script.")
@@ -394,6 +402,9 @@ def parse_my_args():
                 send_error_message(
                     "Watchdog was enabled, but no download folders were passed to the script."
                 )
+    if parser.new_volume_webhook is not None:
+        global new_volume_webhook
+        new_volume_webhook = parser.new_volume_webhook
 
 
 def set_num_as_float_or_int(volume_number):
@@ -1413,7 +1424,8 @@ def remove_duplicate_releases_from_download(original_releases, downloaded_releas
                         )
                     ):
                         if allow_matching_single_volumes_with_multi_volumes and (
-                            download.multi_volume or original.multi_volume
+                            (download.multi_volume and not original.multi_volume)
+                            or (original.multi_volume and not download.multi_volume)
                         ):
                             send_change_message(
                                 "\n\t\tallow_matching_single_volumes_with_multi_volumes=True"
@@ -2210,6 +2222,7 @@ def check_upgrade(
     existing_root, dir, file, similarity_strings=None, cache=False, isbn=False
 ):
     global moved_files
+    global new_volume_webhook
     existing_dir = os.path.join(existing_root, dir)
     clean_existing = os.listdir(existing_dir)
     clean_and_sort(existing_dir, clean_existing)
@@ -2375,6 +2388,7 @@ def check_upgrade(
                         color=65280,
                         fields=fields,
                         image_local=cover,
+                        passed_webhook=new_volume_webhook,
                     )
                 else:
                     send_discord_message(
@@ -2382,6 +2396,7 @@ def check_upgrade(
                         "New Volume Release",
                         color=65280,
                         fields=fields,
+                        passed_webhook=new_volume_webhook,
                     )
                 # send_discord_message(
                 #     "File: "
