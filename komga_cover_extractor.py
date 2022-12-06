@@ -33,7 +33,7 @@ from base64 import b64encode
 from unidecode import unidecode
 from io import BytesIO
 
-script_version = "1.2.1"
+script_version = "1.2.3"
 
 # Paths = existing library
 # Download_folders = newly aquired manga/novels
@@ -102,6 +102,9 @@ ROOT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
 
 # Cached paths from the users existing library. Read from cached_paths.txt
 cached_paths = []
+
+# Cached identifier results, aka successful matches via series_id or isbn
+cached_identifier_results = []
 
 # watchdog toggle
 watchdog_toggle = False
@@ -2355,7 +2358,7 @@ def check_upgrade(
                 cover = find_and_extract_cover(volume, return_data_only=True)
                 fields = [
                     {
-                        "name": "Volume Number",
+                        "name": "Volume Number(s)",
                         "value": "```" + str(volume.volume_number) + "```",
                         "inline": False,
                     },
@@ -2747,10 +2750,19 @@ def organize_array_list_by_first_letter(
     return array_list
 
 
+class IdentifierResult:
+    def __init__(self, series_name, identifiers, path, matches):
+        self.series_name = series_name
+        self.identifiers = identifiers
+        self.path = path
+        self.matches = matches
+
+
 # Checks for an existing series by pulling the series name from each elidable file in the downloads_folder
 # and comparing it to an existin folder within the user's library.
 def check_for_existing_series():
     global cached_paths
+    global cached_identifier_results
     if download_folders:
         print("\nChecking download folders for items to match to existing library...")
         for download_folder in download_folders:
@@ -2768,6 +2780,35 @@ def check_for_existing_series():
                         if (
                             file.name in processed_files or not processed_files
                         ) and os.path.isfile(file.path):
+                            if (
+                                cached_identifier_results
+                                and match_through_isbn_or_series_id
+                            ):
+                                found = False
+                                for cached_identifier in cached_identifier_results:
+                                    if (
+                                        cached_identifier.series_name
+                                        == file.series_name
+                                    ):
+                                        check_upgrade(
+                                            os.path.dirname(cached_identifier.path),
+                                            os.path.basename(cached_identifier.path),
+                                            file,
+                                            similarity_strings=cached_identifier.matches,
+                                            isbn=True,
+                                        )
+                                        if cached_identifier.path not in cached_paths:
+                                            cached_paths.append(cached_identifier.path)
+                                            write_to_file(
+                                                "cached_paths.txt",
+                                                cached_identifier.path,
+                                                without_date=True,
+                                                check_for_dup=False,
+                                            )
+                                        found = True
+                                        break
+                                if found:
+                                    continue
                             if cached_paths:
                                 if exclude:
                                     cached_paths = organize_array_list_by_first_letter(
@@ -3204,6 +3245,14 @@ def check_for_existing_series():
                                             + directories_found[0]
                                         )
                                         base = os.path.basename(directories_found[0])
+                                        identifier = IdentifierResult(
+                                            file.series_name,
+                                            download_file_meta,
+                                            directories_found[0],
+                                            matched_ids,
+                                        )
+                                        if identifier not in cached_identifier_results:
+                                            cached_identifier_results.append(identifier)
                                         done = check_upgrade(
                                             os.path.dirname(directories_found[0]),
                                             base,
@@ -3293,6 +3342,7 @@ def rename_dirs_in_download_folder():
                     file_objects,
                 )
                 for folderDir in folder_accessor.dirs[:]:
+                    done = False
                     full_file_path = os.path.join(folder_accessor.root, folderDir)
                     volumes = upgrade_to_volume_class(
                         upgrade_to_file_class(
@@ -3391,6 +3441,7 @@ def rename_dirs_in_download_folder():
                                                     volume_one.series_name,
                                                 ),
                                             )
+                                            done = True
                                             print(
                                                 "\t\tRenamed "
                                                 + folderDir
@@ -3432,6 +3483,7 @@ def rename_dirs_in_download_folder():
                                                 remove_file(v.path)
                                         # check for an empty folder, and delete it if it is
                                         check_and_delete_empty_folder(v.root)
+                                        done = True
                                 elif user_input.lower() == "i":
                                     print("\tInput mode selected.")
                                     print(
@@ -3504,153 +3556,139 @@ def rename_dirs_in_download_folder():
                                                     )
                                                     + " already exists."
                                                 )
+                                    done = True
                                 else:
                                     print("Skipping...")
                             except Exception as e:
                                 print(e)
                                 print("Skipping...")
-                        else:
-                            download_folder_basename = os.path.basename(download_folder)
-                            if re.search(
-                                download_folder_basename, full_file_path, re.IGNORECASE
+                    if not done:
+                        download_folder_basename = os.path.basename(download_folder)
+                        if re.search(
+                            download_folder_basename, full_file_path, re.IGNORECASE
+                        ):
+                            if (
+                                re.search(
+                                    r"((\s\[|\]\s)|(\s\(|\)\s)|(\s\{|\}\s))",
+                                    folderDir,
+                                    re.IGNORECASE,
+                                )
+                                or re.search(r"(\s-\s|\s-)$", folderDir, re.IGNORECASE)
+                                or re.search(r"(\bLN\b)", folderDir, re.IGNORECASE)
+                                or re.search(
+                                    r"(\b|\s)((\s|)-(\s|)|)(Part|)(LN|Light Novels?|Novels?|Books?|Volumes?|Vols?|V|第|Discs?|)(\.|)([-_. ]|)(([0-9]+)((([-_.]|)([0-9]+))+|))(\b|\s)",
+                                    folderDir,
+                                    re.IGNORECASE,
+                                )
+                                or re.search(r"\bPremium\b", folderDir, re.IGNORECASE)
+                                or re.search(r":", folderDir, re.IGNORECASE)
+                                or re.search(r"([A-Za-z])(_)", folderDir, re.IGNORECASE)
+                                or re.search(r"([?])", folderDir)
                             ):
-                                if (
-                                    re.search(
-                                        r"((\s\[|\]\s)|(\s\(|\)\s)|(\s\{|\}\s))",
-                                        folderDir,
-                                        re.IGNORECASE,
-                                    )
-                                    or re.search(
-                                        r"(\s-\s|\s-)$", folderDir, re.IGNORECASE
-                                    )
-                                    or re.search(r"(\bLN\b)", folderDir, re.IGNORECASE)
-                                    or re.search(
-                                        r"(\b|\s)((\s|)-(\s|)|)(Part|)(LN|Light Novels?|Novels?|Books?|Volumes?|Vols?|V|第|Discs?|)(\.|)([-_. ]|)(([0-9]+)((([-_.]|)([0-9]+))+|))(\b|\s)",
-                                        folderDir,
-                                        re.IGNORECASE,
-                                    )
-                                    or re.search(
-                                        r"\bPremium\b", folderDir, re.IGNORECASE
-                                    )
-                                    or re.search(r":", folderDir, re.IGNORECASE)
-                                    or re.search(
-                                        r"([A-Za-z])(_)", folderDir, re.IGNORECASE
-                                    )
-                                    or re.search(r"([?])", folderDir)
+                                dir_clean = get_series_name(folderDir)
+                                dir_clean = re.sub(r"([A-Za-z])(_)", r"\1 ", dir_clean)
+                                # replace : with - in dir_clean
+                                dir_clean = re.sub(
+                                    r"([A-Za-z])(\:)", r"\1 -", dir_clean
+                                )
+                                dir_clean = re.sub(r"([?])", "", dir_clean)
+                                # remove dual spaces from dir_clean
+                                dir_clean = remove_dual_space(dir_clean).strip()
+                                if not os.path.isdir(
+                                    os.path.join(folder_accessor.root, dir_clean)
                                 ):
-                                    dir_clean = get_series_name(folderDir)
-                                    dir_clean = re.sub(
-                                        r"([A-Za-z])(_)", r"\1 ", dir_clean
-                                    )
-                                    # replace : with - in dir_clean
-                                    dir_clean = re.sub(
-                                        r"([A-Za-z])(\:)", r"\1 -", dir_clean
-                                    )
-                                    dir_clean = re.sub(r"([?])", "", dir_clean)
-                                    # remove dual spaces from dir_clean
-                                    dir_clean = remove_dual_space(dir_clean).strip()
-                                    if not os.path.isdir(
-                                        os.path.join(folder_accessor.root, dir_clean)
-                                    ):
-                                        print("\tBEFORE: " + folderDir)
-                                        print("\tAFTER:  " + dir_clean + "\n")
-                                        user_input = ""
-                                        if manual_rename:
-                                            user_input = input("Rename (y or n): ")
+                                    print("\tBEFORE: " + folderDir)
+                                    print("\tAFTER:  " + dir_clean + "\n")
+                                    user_input = ""
+                                    if manual_rename:
+                                        user_input = input("Rename (y or n): ")
+                                    else:
+                                        user_input = "y"
+                                    try:
+                                        if user_input.lower().strip() == "y":
+                                            try:
+                                                os.rename(
+                                                    os.path.join(
+                                                        folder_accessor.root,
+                                                        folderDir,
+                                                    ),
+                                                    os.path.join(
+                                                        folder_accessor.root,
+                                                        dir_clean,
+                                                    ),
+                                                )
+                                            except Exception as e:
+                                                send_error_message(
+                                                    "Error renaming folder: " + str(e)
+                                                )
                                         else:
-                                            user_input = "y"
-                                        try:
-                                            if user_input.lower().strip() == "y":
-                                                try:
-                                                    os.rename(
+                                            continue
+                                    except OSError as e:
+                                        send_error_message(e)
+                                elif (
+                                    os.path.isdir(
+                                        os.path.join(folder_accessor.root, dir_clean)
+                                    )
+                                    and dir_clean != ""
+                                ):
+                                    if os.path.join(
+                                        folder_accessor.root, folderDir
+                                    ) != os.path.join(folder_accessor.root, dir_clean):
+                                        for root, dirs, files in scandir.walk(
+                                            os.path.join(
+                                                folder_accessor.root, folderDir
+                                            ),
+                                        ):
+                                            remove_hidden_files(files, root)
+                                            file_objects = upgrade_to_file_class(
+                                                files, root
+                                            )
+                                            folder_accessor2 = Folder(
+                                                root,
+                                                dirs,
+                                                os.path.basename(os.path.dirname(root)),
+                                                os.path.basename(root),
+                                                file_objects,
+                                            )
+                                            for file in folder_accessor2.files:
+                                                new_location_folder = os.path.join(
+                                                    download_folder, dir_clean
+                                                )
+                                                if not os.path.isfile(
+                                                    os.path.join(
+                                                        new_location_folder,
+                                                        file.name,
+                                                    )
+                                                ):
+                                                    move_file(
+                                                        file,
                                                         os.path.join(
-                                                            folder_accessor.root,
-                                                            folderDir,
-                                                        ),
-                                                        os.path.join(
-                                                            folder_accessor.root,
+                                                            download_folder,
                                                             dir_clean,
                                                         ),
                                                     )
-                                                except Exception as e:
+                                                else:
                                                     send_error_message(
-                                                        "Error renaming folder: "
-                                                        + str(e)
+                                                        "File: "
+                                                        + file.name
+                                                        + " already exists in: "
+                                                        + os.path.join(
+                                                            download_folder,
+                                                            dir_clean,
+                                                        )
                                                     )
-                                            else:
-                                                continue
-                                        except OSError as e:
-                                            send_error_message(e)
-                                    elif (
-                                        os.path.isdir(
-                                            os.path.join(
-                                                folder_accessor.root, dir_clean
-                                            )
-                                        )
-                                        and dir_clean != ""
-                                    ):
-                                        if os.path.join(
-                                            folder_accessor.root, folderDir
-                                        ) != os.path.join(
-                                            folder_accessor.root, dir_clean
-                                        ):
-                                            for root, dirs, files in scandir.walk(
-                                                os.path.join(
-                                                    folder_accessor.root, folderDir
-                                                ),
-                                            ):
-                                                remove_hidden_files(files, root)
-                                                file_objects = upgrade_to_file_class(
-                                                    files, root
-                                                )
-                                                folder_accessor2 = Folder(
-                                                    root,
-                                                    dirs,
-                                                    os.path.basename(
-                                                        os.path.dirname(root)
-                                                    ),
-                                                    os.path.basename(root),
-                                                    file_objects,
-                                                )
-                                                for file in folder_accessor2.files:
-                                                    new_location_folder = os.path.join(
-                                                        download_folder, dir_clean
+                                                    send_error_message(
+                                                        "Removing duplicate from downloads."
                                                     )
-                                                    if not os.path.isfile(
+                                                    remove_file(
                                                         os.path.join(
-                                                            new_location_folder,
+                                                            folder_accessor2.root,
                                                             file.name,
                                                         )
-                                                    ):
-                                                        move_file(
-                                                            file,
-                                                            os.path.join(
-                                                                download_folder,
-                                                                dir_clean,
-                                                            ),
-                                                        )
-                                                    else:
-                                                        send_error_message(
-                                                            "File: "
-                                                            + file.name
-                                                            + " already exists in: "
-                                                            + os.path.join(
-                                                                download_folder,
-                                                                dir_clean,
-                                                            )
-                                                        )
-                                                        send_error_message(
-                                                            "Removing duplicate from downloads."
-                                                        )
-                                                        remove_file(
-                                                            os.path.join(
-                                                                folder_accessor2.root,
-                                                                file.name,
-                                                            )
-                                                        )
-                                                check_and_delete_empty_folder(
-                                                    folder_accessor2.root
-                                                )
+                                                    )
+                                            check_and_delete_empty_folder(
+                                                folder_accessor2.root
+                                            )
             except Exception as e:
                 send_error_message(e)
         else:
