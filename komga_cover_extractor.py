@@ -33,7 +33,7 @@ from base64 import b64encode
 from unidecode import unidecode
 from io import BytesIO
 
-script_version = "1.3.0"
+script_version = "1.3.1"
 
 # Paths = existing library
 # Download_folders = newly aquired manga/novels
@@ -1525,6 +1525,20 @@ def remove_duplicate_releases_from_download(original_releases, downloaded_releas
                                 color=65280,
                                 fields=fields,
                             )
+                            if download.multi_volume and not original.multi_volume:
+                                for original_volume in original_releases[:]:
+                                    for volume_number in download.volume_number:
+                                        if (
+                                            volume_number != original.volume_number
+                                            and (
+                                                original_volume.volume_number
+                                                == volume_number
+                                                and original_volume.volume_part
+                                                == original.volume_part
+                                            )
+                                        ):
+                                            remove_file(original_volume.path)
+                                            original_releases.remove(original_volume)
                             replace_file(original, download)
                             moved_files.append(download)
                             if download in downloaded_releases:
@@ -2158,7 +2172,6 @@ def detect_language(s):
             language = detect(s)
         except Exception as e:
             send_error_message(e)
-            send_error_message("Attempted language detection on: " + s)
             return language
     return language
 
@@ -2759,8 +2772,6 @@ def organize_array_list_by_first_letter(
     else:
         send_error_message(
             "First letter of file name was not found, skipping reorganization of array list."
-            + "\nString: "
-            + str(string)
         )
     return array_list
 
