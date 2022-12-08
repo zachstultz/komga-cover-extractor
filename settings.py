@@ -68,10 +68,10 @@ add_publisher_name_to_file_name_when_renaming = False
 # AND YOU ARE USING IT
 match_through_isbn_or_series_id = False
 
-# True = Single volumes can match against multi-volumes and the reverse.
-#   EX: volume 3-4 can match to volume 3
+# True = Multi-volumes can match against single volumes, but not the other way around.
+#   EX: volume 3-4 can match to the individual volumes 3 and 4.
 # False = Multi-volumes can only match against multi-volumes.
-#   EX: volume 3-4 can only match to another 3-4
+#   EX: volume 3-4 can only match to another multi-volume release of 3-4
 allow_matching_single_volumes_with_multi_volumes = False
 
 # The required file type matching percentage between
