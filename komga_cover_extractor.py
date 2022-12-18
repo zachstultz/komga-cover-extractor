@@ -5920,6 +5920,12 @@ def main():
     global skipped_files
     processed_files = []
     moved_files = []
+    download_folder_in_paths = False
+    if download_folders and paths:
+        for folder in download_folders:
+            if folder in paths:
+                download_folder_in_paths = True
+                break
     if (
         os.path.isfile(os.path.join(ROOT_DIR, "cached_paths.txt"))
         and check_for_existing_series_toggle
@@ -5962,12 +5968,14 @@ def main():
         rename_dirs_in_download_folder()
     if check_for_duplicate_volumes_toggle and download_folders:
         check_for_duplicate_volumes(download_folders)
-    if extract_covers_toggle and paths:
+    if extract_covers_toggle and paths and download_folder_in_paths:
         extract_covers()
     if check_for_existing_series_toggle and download_folders and paths:
         check_for_existing_series()
-        if send_scan_request_to_komga_libraries_toggle and moved_files:
-            scan_komga_libraries()
+    if extract_covers_toggle and paths and not download_folder_in_paths:
+        extract_covers()
+    if send_scan_request_to_komga_libraries_toggle and moved_files:
+        scan_komga_libraries()
     if check_for_missing_volumes_toggle and paths:
         check_for_missing_volumes()
     if bookwalker_check:
