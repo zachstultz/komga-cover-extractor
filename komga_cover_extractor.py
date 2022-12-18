@@ -33,7 +33,7 @@ from base64 import b64encode
 from unidecode import unidecode
 from io import BytesIO
 
-script_version = "1.3.4"
+script_version = "1.3.5"
 
 # Paths = existing library
 # Download_folders = newly aquired manga/novels
@@ -1887,7 +1887,7 @@ def check_for_missing_volumes():
                     volume_numbers = []
                     volume_numbers_second = []
                     for volume in existing_dir_volumes:
-                        if volume.volume_number != "" or not volume.volume_number:
+                        if volume.volume_number != "":
                             volume_numbers.append(volume.volume_number)
                     for item in volume_numbers:
                         if isinstance(item, list):
@@ -2320,6 +2320,8 @@ def remove_common_words(s):
             "no",
             "ne",
             "yo",
+            "x",
+            "×",
         ]
         for word in common_words_to_remove:
             s = re.sub(rf"\b{word}\b", " ", s, flags=re.IGNORECASE).strip()
@@ -2774,8 +2776,9 @@ def check_for_duplicate_volumes(paths_to_search=[]):
                                                 if (
                                                     file.root == compare_file.root
                                                     and (
-                                                        file.volume_number
+                                                        file.volume_number != ""
                                                         and compare_file.volume_number
+                                                        != ""
                                                     )
                                                     and file.volume_number
                                                     == compare_file.volume_number
