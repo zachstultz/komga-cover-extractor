@@ -1579,21 +1579,26 @@ class UpgradeResult:
 
 
 # Retrieves the release_group score from the list, using a high similarity
-def get_keyword_score(name, download_folder=False):
+def get_keyword_score(name, file_type, download_folder=False):
     tags = []
     score = 0.0
     for keyword in ranked_keywords:
-        search = re.search(keyword.name, name, re.IGNORECASE)
-        if search:
-            tags.append(Keyword(search.group(0), keyword.score))
-            score += keyword.score
+        if file_type == keyword.file_type or keyword.file_type == "both":
+            search = re.search(keyword.name, name, re.IGNORECASE)
+            if search:
+                tags.append(Keyword(search.group(0), keyword.score))
+                score += keyword.score
     return RankedKeywordResult(score, tags)
 
 
 # Checks if the downloaded release is an upgrade for the current release.
 def is_upgradeable(downloaded_release, current_release):
-    downloaded_release_result = get_keyword_score(downloaded_release.name)
-    current_release_result = get_keyword_score(current_release.name)
+    downloaded_release_result = get_keyword_score(
+        downloaded_release.name, downloaded_release.file_type
+    )
+    current_release_result = get_keyword_score(
+        current_release.name, current_release.file_type
+    )
     upgrade_result = UpgradeResult(
         downloaded_release_result.total_score > current_release_result.total_score,
         downloaded_release_result,
