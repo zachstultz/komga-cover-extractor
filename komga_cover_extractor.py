@@ -35,7 +35,7 @@ from unidecode import unidecode
 from io import BytesIO
 from functools import partial
 
-script_version = "2.0.1"
+script_version = "2.0.2"
 
 # Paths = existing library
 # Download_folders = newly aquired manga/novels
@@ -605,9 +605,15 @@ def send_discord_message(
                     for field in fields:
                         # A field name/title is limited to 256 character and the value of the field is limited to 1024 characters
                         if len(field["name"]) > 256:
-                            field["name"] = field["name"][:253] + "..."
+                            if not re.search(r"```$", field["name"]):
+                                field["name"] = field["name"][:253] + "..."
+                            else:
+                                field["name"] = field["name"][:-3][:250] + "...```"
                         if len(field["value"]) > 1024:
-                            field["value"] = field["value"][:1021] + "..."
+                            if not re.search(r"```$", field["value"]):
+                                field["value"] = field["value"][:1021] + "..."
+                            else:
+                                field["value"] = field["value"][:-3][:1018] + "...```"
                         embed.add_embed_field(
                             name=field["name"],
                             value=field["value"],
