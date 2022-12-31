@@ -35,7 +35,7 @@ from unidecode import unidecode
 from io import BytesIO
 from functools import partial
 
-script_version = "2.0.0"
+script_version = "2.0.1"
 
 # Paths = existing library
 # Download_folders = newly aquired manga/novels
