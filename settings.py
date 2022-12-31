@@ -130,8 +130,6 @@ move_lone_files_to_similar_folder = True
 # Replaces the series name in the file name with the similar folders name.
 replace_series_name_in_file_name_with_similar_folder_name = True
 
-# Whether or not multi-processing should be used when running extract_covers()
-multi_process_cover_extraction = False
 
 ###### EXPERIMENTAL SETTINGS/FEATURES ######
 
@@ -175,4 +173,7 @@ output_chapter_covers_to_discord = False
 
 # Whether or not to rename the chapter number in releases with the preferred chapter keyword.
 rename_chapters_with_preferred_chapter_keyword = False
+
+# Whether or not to extract chapter covers from chapter files.
+extract_chapter_covers = False
 ################################################################
