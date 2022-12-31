@@ -87,15 +87,15 @@ required_similarity_score = 0.9790
 
 # Keyword Class
 class Keyword:
-    def __init__(self, name, score):
+    def __init__(self, name, score, file_type="both"):
         self.name = name
         self.score = score
-
+        self.file_type = file_type
 
 # Keywords ranked by point values, used when determining if a downloaded volume
 # is an upgrade to the existing volume in the library.
 # Case is ignored when checked.
-# EX: Keyword(r"Keyword or Regex", point_value)
+# EX: Keyword(r"Keyword or Regex", point_value, "chapter" or "volume" or "both") # "both" is default
 ranked_keywords = []
 #################################################################
 
