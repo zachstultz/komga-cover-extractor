@@ -9,9 +9,9 @@ rename_files_in_download_folders_toggle = False
 create_folders_for_items_in_download_folder_toggle = False
 # cleans up any unnessary information in the series folder names within the download_folders
 rename_dirs_in_download_folder_toggle = False
-# Checks for any duplicate volumes and deletes the inferior copies based on ranked_keywords.
+# Checks for any duplicate volumes and deletes the lower scoring copies based on ranked_keywords.
 check_for_duplicate_volumes_toggle = False
-# extracts covers from cbz and epub files recursively from the paths passed in
+# extracts covers from cbz and epub files recursively from the paths array.
 extract_covers_toggle = True
 # finds the corresponding series name in our existing library for the files in download_folders and handles moving, upgrading, and deletion
 check_for_existing_series_toggle = False
@@ -42,7 +42,7 @@ add_volume_one_number_to_one_shots = False
 # FALSE: manga v01 (2001).cbz
 add_issue_number_to_cbz_file_name = False
 
-# False = files with be renamed automatically
+# False = files/folders with be renamed automatically
 # True = user will be prompted for approval
 manual_rename = True
 
@@ -52,7 +52,7 @@ manual_rename = True
 resturcture_when_renaming = False
 
 # Whether or not to search an epub file for premium content if no
-# premium keyword is found, and add it into the file name.
+# premium keyword is found, then it adds it into the file name in square brackets.
 search_and_add_premium_to_file_name = False
 
 # Whether or not to add the pulled publisher from the cbz or epub file to the
@@ -105,7 +105,7 @@ ignored_folder_names = [""]
 # List of file types used throughout the program
 file_extensions = ["epub", "cbz"]
 image_extensions = ["jpg", "jpeg", "png", "tbn", "jxl"]
-# file extensions deleted from the download folders in an optional method. [".example"]
+# file extensions that will be deleted from the download folders in an optional method. EX: [".example"]
 unaccepted_file_extensions = []
 series_cover_file_names = ["cover", "poster"]
 # Whether or not to output errors and changes to a log file
@@ -121,7 +121,7 @@ manual_delete = True  # for testing, verify the results
 # EX: r"Keyword or Regex"
 unacceptable_keywords = []
 
-# When creating a folder for a lone file, if enabled, it will first check if any existing folders
+# When creating a folder for a lone file, if enabled, it will first check if any existing folder names
 # are similar enough, and instead use that.
 # (Fixes multiple folders for the same series where the file name did or did not include punctuation)
 # (Similarity check uses required_similarity_score)
@@ -130,27 +130,49 @@ move_lone_files_to_similar_folder = True
 # Replaces the series name in the file name with the similar folders name.
 replace_series_name_in_file_name_with_similar_folder_name = True
 
+# Whether or not multi-processing should be used when running extract_covers()
+multi_process_cover_extraction = False
+
 ###### EXPERIMENTAL SETTINGS/FEATURES ######
 
-# KOMGA SCAN REQUEST - used to send a scan request to komga after files are moved
+# KOMGA SCAN REQUEST - sends a scan request to komga after files have been moved
 komga_ip = ""  # ex: http://localhost
 komga_port = ""  # komga default is 8080
-komga_login_email = ""
+komga_login_email = ""  # your login email
 komga_login_password = ""  # your login password
 
 # ex: http://localhost:8080/libraries/0647PPYWAC6AX/series
-# ex: komga_library_ids = ["0647PPYWAC6AX"] separate by commas
+# ex: komga_library_ids = ["0647PPYWAC6AX"] separate ids by commas
 komga_library_ids = []
 
 # Whether or not to generate a release_groups.txt file in the logs folder or add to it
 # with the help of the user's input. (remember to disable afterwards!)
 # Used when renaming files with reorganize_and_rename.
+# Release group names will be moved to the end of the file name.
+# encased by () brackets with manga, [] brackets with light novels
+# REQUIRES log_to_file=True above!
 generate_release_group_list_toggle = False
 
 # The similarity score requirement when matching any brackted release group
-# within a file name. Used when rebuilding a file name in reorganize_and_rename.
+# within a file name. Used when rebuilding the file name in reorganize_and_rename.
 release_group_similarity_score = 0.8
 
 # Will forgo sending any discord notifications related to renaming files.
 mute_discord_rename_notifications = False
+
+# Chapter support is currently experimental and may not work as intended.
+# This will enable chapter support for all relavent functions and features.
+chapter_support_toggle = False  # EXPERIMENTAL
+
+# The preferred naming format for chapters, used by rename_files_in_download_folders()
+# c = c001, Chapter = Chapter01, and so on.
+# IF YOU WANT A SPACE BETWEEN THE TWO, ADD IT IN THE PREFERRED NAMING.
+preferred_chapter_renaming_format = "c"
+
+# Whether or not covers should be outputted to discord when a new chapter release
+# is moved to the library.
+output_chapter_covers_to_discord = False
+
+# Whether or not to rename the chapter number in releases with the preferred chapter keyword.
+rename_chapters_with_preferred_chapter_keyword = False
 ################################################################
