@@ -35,7 +35,7 @@ from unidecode import unidecode
 from io import BytesIO
 from functools import partial
 
-script_version = "2.0.2"
+script_version = "2.0.3"
 
 # Paths = existing library
 # Download_folders = newly aquired manga/novels
@@ -5453,19 +5453,12 @@ def extract_covers():
                     file.file_type == "volume" and file.number == 1
                     for file in folder_accessor.files
                 )
-                if multi_process_cover_extraction:
-                    with concurrent.futures.ThreadPoolExecutor() as executor:
-                        worker = partial(
-                            process_cover_extraction,
-                            contains_volume_one=contains_volume_one,
-                        )
-                        executor.map(worker, folder_accessor.files)
-                else:
-                    # Use a list comprehension as an expression to apply the process_cover_extraction function to each file
-                    [
-                        process_cover_extraction(file, contains_volume_one)
-                        for file in folder_accessor.files
-                    ]
+                [
+                    process_cover_extraction(file, contains_volume_one)
+                    for file in folder_accessor.files
+                    if file.file_type == "volume"
+                    or (file.file_type == "chapter" and extract_chapter_covers)
+                ]
         else:
             if path == "":
                 print("\nERROR: Path cannot be empty.")
