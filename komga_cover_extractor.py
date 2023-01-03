@@ -35,7 +35,7 @@ from unidecode import unidecode
 from io import BytesIO
 from functools import partial
 
-script_version = "2.0.3"
+script_version = "2.0.4"
 
 # Paths = existing library
 # Download_folders = newly aquired manga/novels
@@ -1210,7 +1210,7 @@ def check_for_multi_volume_file(file_name, chapter=False):
     if chapter:
         keywords = chapter_regex_keywords + "|"
     if re.search(
-        r"(\b({})(\.)?(\s+)?([0-9]+(\.[0-9]+)?)([-_]([0-9]+(\.[0-9]+)?))+\b)".format(
+        r"(\b({})(\.)?(\s+)?([0-9]+(\.[0-9]+)?)([-]([0-9]+(\.[0-9]+)?))+\b)".format(
             keywords
         ),
         remove_bracketed_info_from_name(file_name),
@@ -1440,8 +1440,8 @@ rx_remove_x_hash = re.compile(r"((x|#))", re.IGNORECASE)
 
 # Retrieves and returns the file part from the file name
 def get_file_part(file, chapter=False):
+    global rx_remove, rx_search_part, rx_search_chapters, rx_remove_x_hash
     result = ""
-
     if not chapter:
         # Remove the matched string from the input file name
         file = rx_remove.sub("", file).strip()
@@ -1848,20 +1848,24 @@ def remove_duplicate_releases_from_download(original_releases, downloaded_releas
                             )
                         else:
                             downloaded_file_tags = "None"
-                        original_file_size = os.path.getsize(original.path)
-                        # convert to MB
-                        if original_file_size:
-                            original_file_size = original_file_size / 1000000
-                            original_file_size = (
-                                str(round(original_file_size, 1)) + " MB"
-                            )
-                        downloaded_file_size = os.path.getsize(download.path)
-                        # convert to MB
-                        if downloaded_file_size:
-                            downloaded_file_size = downloaded_file_size / 1000000
-                            downloaded_file_size = (
-                                str(round(downloaded_file_size, 1)) + " MB"
-                            )
+                        original_file_size = None
+                        if os.path.isfile(original.path):
+                            original_file_size = os.path.getsize(original.path)
+                            # convert to MB
+                            if original_file_size:
+                                original_file_size = original_file_size / 1000000
+                                original_file_size = (
+                                    str(round(original_file_size, 1)) + " MB"
+                                )
+                        downloaded_file_size = None
+                        if os.path.isfile(download.path):
+                            downloaded_file_size = os.path.getsize(download.path)
+                            # convert to MB
+                            if downloaded_file_size:
+                                downloaded_file_size = downloaded_file_size / 1000000
+                                downloaded_file_size = (
+                                    str(round(downloaded_file_size, 1)) + " MB"
+                                )
                         fields = [
                             {
                                 "name": "From:",
@@ -2658,7 +2662,7 @@ def convert_to_ascii(s):
 # convert array to string separated by whatever is passed in the separator parameter
 def array_to_string(array, separator):
     if isinstance(array, list):
-        return separator.join(array)
+        return separator.join([str(x) for x in array])
     elif isinstance(array, int) or isinstance(array, float) or isinstance(array, str):
         return separator.join([str(array)])
     else:
@@ -3374,7 +3378,7 @@ def organize_array_list_by_first_letter(
                     array_list.remove(item)
                     array_list.insert(position_to_insert_at, item)
     else:
-        send_error_message(
+        print(
             "First letter of file name was not found, skipping reorganization of array list."
         )
     return array_list
@@ -4916,10 +4920,10 @@ def rename_files_in_download_folders(only_these_files=[]):
                             ):
                                 combined = ""
                                 zfill_int = 2  # 01
-                                zfill_float = 4  # 01.0
+                                zfill_float = 4  # 01.5
                                 if file.file_type == "chapter":
                                     zfill_int = 3  # 001
-                                    zfill_float = 5  # 001.0
+                                    zfill_float = 5  # 001.5
                                 for item in modified:
                                     if type(item) == int:
                                         if item < 10 or (
@@ -5059,11 +5063,11 @@ def rename_files_in_download_folders(only_these_files=[]):
                                             )
                                         ):
                                             user_input = ""
+                                            print("\nBEFORE: " + file.name)
+                                            print("AFTER:  " + replacement)
                                             if not manual_rename:
                                                 user_input = "y"
                                             else:
-                                                print("\nBEFORE: " + file.name)
-                                                print("AFTER:  " + replacement)
                                                 user_input = input(
                                                     "\tRename (y or n): "
                                                 )
