@@ -35,7 +35,7 @@ from unidecode import unidecode
 from io import BytesIO
 from functools import partial
 
-script_version = "2.0.4"
+script_version = "2.0.5"
 
 # Paths = existing library
 # Download_folders = newly aquired manga/novels
@@ -2526,31 +2526,30 @@ def reorganize_and_rename(files, dir):
                                         + file.name
                                     )
                                     remove_file(file.path)
-                                file.volume_number = remove_everything_but_volume_num(
-                                    [rename]
-                                )
-                                if file.file_type == "volume":
-                                    file.series_name = get_series_name_from_file_name(
-                                        rename, file.root
-                                    )
-                                elif file.file_type == "chapter":
-                                    file.series_name = (
-                                        get_series_name_from_file_name_chapter(
-                                            rename, file.volume_number
-                                        )
-                                    )
-                                file.volume_year = get_volume_year(rename)
-                                file.name = rename
-                                file.extensionless_name = get_extensionless_name(rename)
-                                file.basename = os.path.basename(rename)
-                                file.path = os.path.join(file.root, rename)
-                                file.extensionless_path = os.path.splitext(file.path)[0]
-                                if file.file_type == "volume":
-                                    file.extras = get_extras(rename, file.root)
-                                elif file.file_type == "chapter":
-                                    file.extras = get_extras(
-                                        rename, file.root, chapter=True
-                                    )
+                        if file.file_type == "volume":
+                            file.volume_number = remove_everything_but_volume_num(
+                                [rename]
+                            )
+                            file.series_name = get_series_name_from_file_name(
+                                rename, file.root
+                            )
+                        elif file.file_type == "chapter":
+                            file.volume_number = remove_everything_but_volume_num(
+                                [rename], chapter=True
+                            )
+                            file.series_name = get_series_name_from_file_name_chapter(
+                                rename, file.volume_number
+                            )
+                        file.volume_year = get_volume_year(rename)
+                        file.name = rename
+                        file.extensionless_name = get_extensionless_name(rename)
+                        file.basename = os.path.basename(rename)
+                        file.path = os.path.join(file.root, rename)
+                        file.extensionless_path = os.path.splitext(file.path)[0]
+                        if file.file_type == "volume":
+                            file.extras = get_extras(rename, file.root)
+                        elif file.file_type == "chapter":
+                            file.extras = get_extras(rename, file.root, chapter=True)
                     except OSError as ose:
                         send_error_message(ose)
         except Exception as e:
@@ -3037,9 +3036,7 @@ def remove_bracketed_info_from_name(string):
     # Use a while loop to repeatedly apply the regular expression to the string and remove the matched bracketed content
     while True:
         # The regular expression matches any substring enclosed in brackets and not immediately preceded or followed by a dash, along with the surrounding whitespace characters
-        match = re.search(
-            r"(?<!-)\s*([\【\(\[\{][^\】\)\]\}]+[\】\)\]\}])\s*(?!-)", string
-        )
+        match = re.search(r"(?<!-)\s*([\(\[\{][^\)\]\}]+[\)\]\}])\s*(?!-)", string)
 
         # If there are no more matches, exit the loop
         if not match:
@@ -3047,7 +3044,7 @@ def remove_bracketed_info_from_name(string):
 
         # Replace the first set of brackets and their contents, along with the surrounding whitespace characters, with an empty string
         string = re.sub(
-            r"(?<!-)\s*([\【\(\[\{][^\】\)\]\}]+[\】\)\]\}])\s*(?!-)", " ", string, 1
+            r"(?<!-)\s*([\(\[\{][^\)\]\}]+[\)\]\}])\s*(?!-)", " ", string, 1
         )
 
     # Remove all whitespace characters from the right side of the string
@@ -3617,6 +3614,7 @@ def check_for_existing_series():
                             directories_found = []
                             matched_ids = []
                             for path in paths:
+                                path_position = paths.index(path) + 1
                                 if (
                                     os.path.exists(path)
                                     and not done
@@ -3713,6 +3711,10 @@ def check_for_existing_series():
                                                         + str(dir_position)
                                                         + " of "
                                                         + str(len(folder_accessor.dirs))
+                                                        + " - path "
+                                                        + str(path_position)
+                                                        + " of "
+                                                        + str(len(paths))
                                                         + "\n\t\tCHECKING: "
                                                         + downloaded_file_series_name
                                                         + "\n\t\tAGAINST:  "
