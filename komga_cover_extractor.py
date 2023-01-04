@@ -35,7 +35,7 @@ from unidecode import unidecode
 from io import BytesIO
 from functools import partial
 
-script_version = "2.0.5"
+script_version = "2.0.6"
 
 # Paths = existing library
 # Download_folders = newly aquired manga/novels
@@ -1448,7 +1448,7 @@ def get_file_part(file, chapter=False):
         search = rx_search_part.search(file)
         if search:
             result = search.group(1)
-            result = rx_search_part.sub("", result)
+            result = re.sub(r"Part([-_. ]|)+", " ", result, flags=re.IGNORECASE).strip()
             try:
                 return float(result)
             except ValueError:
