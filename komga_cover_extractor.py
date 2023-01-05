@@ -35,7 +35,7 @@ from unidecode import unidecode
 from io import BytesIO
 from functools import partial
 
-script_version = "2.0.6"
+script_version = "2.0.7"
 
 # Paths = existing library
 # Download_folders = newly aquired manga/novels
@@ -2236,6 +2236,8 @@ def reorganize_and_rename(files, dir):
     global manual_rename
     base_dir = os.path.basename(dir)
     for file in files:
+        if file.name not in processed_files:
+            processed_files.append(file.name)
         preferred_naming_format = preferred_volume_renaming_format
         keywords = volume_regex_keywords
         if file.file_type == "chapter":
@@ -2452,8 +2454,9 @@ def reorganize_and_rename(files, dir):
                     elif file.extension == ".epub":
                         rename += " [" + file.release_group + "]"
                 rename += file.extension
-                if file.name != rename:
+                if rename not in processed_files:
                     processed_files.append(rename)
+                if file.name != rename:
                     try:
                         print("\n\t\tOriginal: " + file.name)
                         print("\t\tRename:   " + rename)
@@ -4719,6 +4722,8 @@ def rename_files_in_download_folders(only_these_files=[]):
                 print("\nLocation: " + root)
                 print("Searching for files to rename...")
                 for file in volumes:
+                    if file.name not in processed_files:
+                        processed_files.append(file.name)
                     if (
                         file.file_type == "chapter"
                         and not rename_chapters_with_preferred_chapter_keyword
@@ -5057,6 +5062,8 @@ def rename_files_in_download_folders(only_these_files=[]):
                                 )
                                 # remove dual spaces from dir_clean
                                 replacement = remove_dual_space(replacement)
+                                if replacement not in processed_files:
+                                    processed_files.append(replacement)
                                 if file.name != replacement:
                                     try:
                                         if not (
@@ -5178,7 +5185,6 @@ def rename_files_in_download_folders(only_these_files=[]):
                         send_error_message(
                             "\nERROR: " + str(e) + " (" + file.name + ")"
                         )
-                    processed_files.append(file.name)
                     if resturcture_when_renaming:
                         reorganize_and_rename([file], file.series_name)
         else:
