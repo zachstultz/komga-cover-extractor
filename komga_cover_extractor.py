@@ -33,9 +33,9 @@ from watchdog.events import FileSystemEventHandler
 from base64 import b64encode
 from unidecode import unidecode
 from io import BytesIO
-from functools import partial
+from functools import lru_cache
 
-script_version = "2.0.8"
+script_version = "2.0.9"
 
 # Paths = existing library
 # Download_folders = newly aquired manga/novels
@@ -674,6 +674,7 @@ def remove_hidden_folders(root, dirs):
 
 
 # check if volume file name is a chapter
+@lru_cache(maxsize=None)
 def contains_chapter_keywords(file_name):
     global chapter_searches
     # Removes underscores from the file name
@@ -694,6 +695,7 @@ def contains_chapter_keywords(file_name):
 
 
 # Checks if the passed string contains volume keywords
+@lru_cache(maxsize=None)
 def contains_volume_keywords(file):
     return re.search(
         r"((\s?(\s-\s|)(Part|)+({})(\.|)([-_. ]|)([0-9]+)\b)|\s?(\s-\s|)(Part|)({})(\.|)([-_. ]|)([0-9]+)([-_.])(\s-\s|)(Part|)({})([0-9]+)\s|\s?(\s-\s|)(Part|)({})(\.|)([-_. ]|)([0-9]+)([-_.])(\s-\s|)(Part|)({})([0-9]+)\s)".format(
@@ -767,7 +769,10 @@ def upgrade_to_file_class(files, root):
         for file, file_type, chapter_number in zip(
             files,
             [
-                "volume" if contains_volume_keywords(file) else "chapter"
+                "chapter"
+                if not contains_volume_keywords(file)
+                and contains_chapter_keywords(file)
+                else "volume"
                 for file in files
             ],
             [
@@ -777,7 +782,10 @@ def upgrade_to_file_class(files, root):
                 for file, file_type in zip(
                     files,
                     [
-                        "volume" if contains_volume_keywords(file) else "chapter"
+                        "chapter"
+                        if not contains_volume_keywords(file)
+                        and contains_chapter_keywords(file)
+                        else "volume"
                         for file in files
                     ],
                 )
@@ -787,6 +795,18 @@ def upgrade_to_file_class(files, root):
 
     # Process the files sequentially
     results = [File(*args) for args in file_args]
+
+    # # print cointains_chapter_keywords cache info
+    # print(contains_chapter_keywords.cache_info()) # for testing
+
+    # # print contains_volume_keywords cache info
+    # print(contains_volume_keywords.cache_info()) # for testing
+
+    # clear lru_cache for contains_chapter_keywords
+    contains_chapter_keywords.cache_clear()
+
+    # clear lru_cache for contains_volume_keywords
+    contains_volume_keywords.cache_clear()
 
     return results
 
@@ -905,6 +925,7 @@ def is_one_shot(file_name, root):
 
 
 # Checks similarity between two strings.
+@lru_cache(maxsize=None)
 def similar(a, b):
     if a == "" or b == "":
         return 0.0
@@ -2983,18 +3004,6 @@ def check_upgrade(
                         fields=fields,
                         image_local=cover,
                     )
-                # send_discord_message(
-                #     "File: "
-                #     + "```"
-                #     + volume.name
-                #     + "```"
-                #     + "To: "
-                #     + "```"
-                #     + existing_dir
-                #     + "```",
-                #     "Moving File",
-                #     color=8421504,
-                # )
                 move_file(volume, existing_dir)
                 moved_files.append(volume)
                 check_and_delete_empty_folder(volume.root)
@@ -3399,7 +3408,11 @@ def check_for_existing_series():
         print("\nChecking download folders for items to match to existing library...")
         for download_folder in download_folders:
             if os.path.exists(download_folder):
+                # an array of unmatched items, used for skipping subsequent series
+                # items that won't match
+                unmatched_series = []
                 for root, dirs, files in scandir.walk(download_folder):
+                    print("\n" + root)
                     clean_and_sort(root, files, dirs)
                     volumes = upgrade_to_volume_class(
                         upgrade_to_file_class(
@@ -3408,10 +3421,21 @@ def check_for_existing_series():
                         )
                     )
                     exclude = None
+                    similar.cache_clear()
                     for file in volumes:
                         if (
                             file.name in processed_files or not processed_files
                         ) and os.path.isfile(file.path):
+                            if unmatched_series:
+                                if (
+                                    file.series_name
+                                    + " - "
+                                    + file.file_type
+                                    + " - "
+                                    + file.extension
+                                    in unmatched_series
+                                ):
+                                    continue
                             if (
                                 cached_identifier_results
                                 and match_through_isbn_or_series_id
@@ -3508,6 +3532,7 @@ def check_for_existing_series():
                                             successful_file_series_name,
                                             downloaded_file_series_name,
                                         )
+                                        # print(similar.cache_info()) # only for testing
                                         print(
                                             "\t\t-(CACHE)- "
                                             + str(position)
@@ -3706,6 +3731,7 @@ def check_for_existing_series():
                                                         existing_series_folder_from_library,
                                                         downloaded_file_series_name,
                                                     )
+                                                    # print(similar.cache_info()) # only for testing
                                                     print(
                                                         "\t\t-(NOT CACHE)- "
                                                         + str(dir_position)
@@ -3982,8 +4008,15 @@ def check_for_existing_series():
                                         for d in directories_found:
                                             print("\t\t\t\t" + d)
                                         print("\t\t\tDisregarding Matches...")
-                            elif not done:
-                                print("\t\t\tNo match found in: " + root)
+                            if not done:
+                                unmatched_series.append(
+                                    file.series_name
+                                    + " - "
+                                    + file.file_type
+                                    + " - "
+                                    + file.extension
+                                )
+                                print("No match found.")
     if messages_to_send:
         grouped_by_series_names = []
         # go through messages_to_send and group them by series name,
@@ -4055,7 +4088,7 @@ def check_for_existing_series():
                             volume_names_mts.append(
                                 re.sub(r"```", "", message.fields[1]["value"])
                             )
-                    if volume_numbers_mts and volume_names_mts:
+                    if volume_numbers_mts and volume_names_mts and series_name:
                         new_fields = [
                             {
                                 "name": "Series Name",
