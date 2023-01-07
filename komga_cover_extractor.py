@@ -35,7 +35,7 @@ from unidecode import unidecode
 from io import BytesIO
 from functools import lru_cache
 
-script_version = "2.0.9"
+script_version = "2.0.10"
 
 # Paths = existing library
 # Download_folders = newly aquired manga/novels
@@ -2969,7 +2969,7 @@ def check_upgrade(
                         1,
                         {
                             "name": volume.file_type.capitalize() + " Part",
-                            "value": "```" + volume.volume_part + "```",
+                            "value": "```" + str(volume.volume_part) + "```",
                             "inline": False,
                         },
                     )
