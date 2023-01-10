@@ -35,7 +35,7 @@ from unidecode import unidecode
 from io import BytesIO
 from functools import lru_cache
 
-script_version = "2.0.11"
+script_version = "2.0.12"
 
 # Paths = existing library
 # Download_folders = newly aquired manga/novels
@@ -4592,22 +4592,26 @@ def check_if_zip_file_contains_comic_info_xml(zip_file):
     return False
 
 
-# retrieve the file specified from the zip file and return the data for it
+# Retrieve the file specified from the zip file and return the data for it.
 def get_file_from_zip(zip_file, file_name, allow_base=True):
     result = None
     try:
         with zipfile.ZipFile(zip_file, "r") as z:
-            list = z.namelist()
-            for file in list:
+            # Iterate through all the files in the zip
+            for info in z.infolist():
                 if allow_base:
-                    if os.path.basename(file).lower() == file_name.lower():
-                        result = z.read(file)
+                    # Check the base name of the file
+                    if os.path.basename(info.filename).lower() == file_name.lower():
+                        # Read the contents of the file
+                        result = z.read(info)
                         break
                 else:
-                    if file.lower() == file_name.lower():
-                        result = z.read(file)
+                    # Check the entire path of the file
+                    if info.filename.lower() == file_name.lower():
+                        # Read the contents of the file
+                        result = z.read(info)
                         break
-    except Exception as e:
+    except (zipfile.BadZipFile, FileNotFoundError) as e:
         send_message(e, error=True)
         send_message("Attempted to read file: " + file_name, error=True)
     return result
