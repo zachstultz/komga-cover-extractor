@@ -175,7 +175,7 @@ mute_discord_rename_notifications = False
 chapter_support_toggle = False  # EXPERIMENTAL
 
 # The preferred naming format for chapters, used by rename_files_in_download_folders()
-# c = c001, Chapter = Chapter01, and so on.
+# c = c001, Chapter = Chapter001, and so on.
 # IF YOU WANT A SPACE BETWEEN THE TWO, ADD IT IN THE PREFERRED NAMING.
 preferred_chapter_renaming_format = "c"
 
