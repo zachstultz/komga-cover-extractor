@@ -58,6 +58,18 @@ search_and_add_premium_to_file_name = False
 # Whether or not to add the pulled publisher from the cbz or epub file to the
 # file name when renmaing.
 add_publisher_name_to_file_name_when_renaming = False
+
+# Exception keywords used when deleting chapter files with the delete_chapters_from_downloads() function.
+# Files containing a match to any exception keywords will be ignored.
+# Case is ignored when checked.
+exception_keywords = [
+    r"Extra",
+    r"One(-|)shot",
+    r"Omake",
+    r"Special",
+    r"Bonus",
+    r"Side(-|)story",
+]
 ################################################################
 
 ########################### UPGRADING ###########################
