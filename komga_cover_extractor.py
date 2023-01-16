@@ -35,7 +35,7 @@ from unidecode import unidecode
 from io import BytesIO
 from functools import lru_cache
 
-script_version = "2.0.12"
+script_version = "2.0.13"
 
 # Paths = existing library
 # Download_folders = newly aquired manga/novels
@@ -120,7 +120,7 @@ chapter_regex_keywords = "chapters?|chaps?|chs?|cs?"
 # REMINDER: ORDER IS IMPORTANT, Top to bottom is the order it will be checked in.
 # Once a match is found, it will stop checking the rest.
 chapter_searches = [
-    r"-(\s+)?(#)?([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?(\s+)?-",
+    r"\s-(\s+)?(#)?([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?(\s+)?-\s",
     r"(\b(?<![A-Za-z])(chapters?|chaps?|chs?|cs?)((\.)|)(\s+)?([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?\b)",
     r"((\b(?<![A-Za-z])(chapters?|chaps?|chs?|cs?|)((\.)|)(\s+)?([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?(#([0-9]+)(([-_.])([0-9]+)|)+)?\b)(\s+)?((\(|\{|\[)\w+(([-_. ])+\w+)?(\]|\}|\))|(?<!\w(\s+)?)(\.cbz|\.epub)(?!\w)))",
     r"(((?<![A-Za-z])(chapters?|chaps?|chs?|cs?)([-_. ]+)?([0-9]+))|\s+([0-9]+)(\.[0-9]+)?(x\d+((\.\d+)+)?)?(\s+|#\d+|\.cbz))",
@@ -273,14 +273,20 @@ class Handler(FileSystemEventHandler):
 
 
 # Read all the lines of a text file and return them
-def read_lines_from_file(file_path, ignore=[]):
-    lines = []
-    with open(file_path, "r") as file:
-        for line in file:
-            line = line.strip()
-            if line and line not in ignore:
-                lines.append(line)
-    return lines
+def read_lines_from_file(file_path, ignore=set()):
+    result = []
+    try:
+        with open(file_path, "r") as file:
+            result = [
+                line.strip()
+                for line in file
+                if line.strip() and line.strip() not in ignore
+            ]
+    except FileNotFoundError:
+        print(f"{file_path} not found.")
+    except:
+        print(f"An error occured while reading {file_path}.")
+    return result
 
 
 volume_keywords = [
@@ -374,35 +380,30 @@ def parse_my_args():
         print("Exiting...")
         exit()
     if parser.paths is not None:
-        paths = []
-        for path in parser.paths:
-            for p in path:
-                paths.append(p)
+        paths = [p for path in parser.paths for p in path]
     if parser.download_folders is not None:
-        download_folders = []
-        for download_folder in parser.download_folders:
-            for folder in download_folder:
-                download_folders.append(folder)
+        download_folders = [
+            folder
+            for download_folder in parser.download_folders
+            for folder in download_folder
+        ]
     if parser.webhook is not None:
-        discord_webhook_url = []
-        for item in parser.webhook:
-            for hook in item:
-                if hook not in discord_webhook_url:
-                    discord_webhook_url.append(hook)
+        discord_webhook_url = list(
+            set(
+                [
+                    hook
+                    for item in parser.webhook
+                    for hook in item
+                    if hook not in discord_webhook_url
+                ]
+            )
+        )
     if parser.bookwalker_check is not None:
-        if (
-            parser.bookwalker_check == 1
-            or parser.bookwalker_check.lower() == "true"
-            or parser.bookwalker_check.lower() == "yes"
-        ):
+        if parser.bookwalker_check.lower() == "true":
             global bookwalker_check
             bookwalker_check = True
     if parser.compress is not None:
-        if (
-            parser.compress == 1
-            or parser.compress.lower() == "true"
-            or parser.compress.lower() == "yes"
-        ):
+        if parser.compress.lower() == "true":
             global compress_image_option
             compress_image_option = True
     if parser.compress_quality is not None:
@@ -410,17 +411,11 @@ def parse_my_args():
         image_quality = set_num_as_float_or_int(parser.compress_quality)
     if parser.bookwalker_webhook_urls is not None:
         global bookwalker_webhook_urls
-        bookwalker_webhook_urls = []
-        for item in parser.bookwalker_webhook_urls:
-            for hook in item:
-                if hook not in bookwalker_webhook_urls:
-                    bookwalker_webhook_urls.append(hook)
+        bookwalker_webhook_urls = list(
+            set([hook for item in parser.bookwalker_webhook_urls for hook in item])
+        )
     if parser.watchdog is not None:
-        if (
-            parser.watchdog == 1
-            or parser.watchdog.lower() == "true"
-            or parser.watchdog.lower() == "yes"
-        ):
+        if parser.watchdog.lower() == "true":
             if download_folders:
                 global watchdog_toggle
                 watchdog_toggle = True
@@ -629,34 +624,31 @@ def send_discord_message(
 
 
 # Removes hidden files
-def remove_hidden_files(files, root):
-    for file in files[:]:
-        if file.startswith("."):
-            files.remove(file)
+def remove_hidden_files(files):
+    return [x for x in files if not x.startswith(".")]
 
 
 # Removes any unaccepted file types
-def remove_unaccepted_file_types(files, root):
-    for file in files[:]:
-        extension = re.sub("\.", "", get_file_extension(file))
-        if (
-            extension not in file_extensions
-            and os.path.isfile(os.path.join(root, file))
-        ) or not zipfile.is_zipfile(os.path.join(root, file)):
-            files.remove(file)
+def remove_unaccepted_file_types(files, root, accepted_extensions):
+    files_path = [os.path.join(root, file) for file in files]
+    accepted_files = [
+        file
+        for file, path in zip(files, files_path)
+        if (os.path.splitext(file)[1].lstrip(".") in accepted_extensions)
+        and os.path.isfile(path)
+        and zipfile.is_zipfile(path)
+    ]
+    return accepted_files
 
 
-# Removes any folder names in the ignored_folders
-def remove_ignored_folders(dirs):
-    if len(ignored_folder_names) != 0:
-        dirs[:] = [d for d in dirs if d not in ignored_folder_names]
+# Removes any folder names in the ignored_folder_names
+def remove_ignored_folder_names(dirs):
+    return [x for x in dirs if x not in ignored_folder_names]
 
 
 # Remove hidden folders from the list
-def remove_hidden_folders(root, dirs):
-    for folder in dirs[:]:
-        if folder.startswith(".") and os.path.isdir(os.path.join(root, folder)):
-            dirs.remove(folder)
+def remove_hidden_folders(dirs):
+    return [x for x in dirs if not x.startswith(".")]
 
 
 # check if volume file name is a chapter
@@ -664,7 +656,7 @@ def remove_hidden_folders(root, dirs):
 def contains_chapter_keywords(file_name):
     global chapter_searches
     # Removes underscores from the file name
-    file_name_clean = remove_underscore_from_name(file_name)
+    file_name_clean = replace_underscore_in_name(file_name)
     file_name_clean = re.sub(r"c1fi7", "", file_name_clean, re.IGNORECASE)
     file_name_clean = remove_dual_space(
         re.sub(r"(_)", " ", file_name_clean).strip()
@@ -683,7 +675,7 @@ def contains_chapter_keywords(file_name):
 # Checks if the passed string contains volume keywords
 @lru_cache(maxsize=None)
 def contains_volume_keywords(file):
-    return re.search(
+    result = re.search(
         r"((\s?(\s-\s|)(Part|)+({})(\.|)([-_. ]|)([0-9]+)\b)|\s?(\s-\s|)(Part|)({})(\.|)([-_. ]|)([0-9]+)([-_.])(\s-\s|)(Part|)({})([0-9]+)\s|\s?(\s-\s|)(Part|)({})(\.|)([-_. ]|)([0-9]+)([-_.])(\s-\s|)(Part|)({})([0-9]+)\s)".format(
             volume_regex_keywords,
             volume_regex_keywords,
@@ -691,34 +683,48 @@ def contains_volume_keywords(file):
             volume_regex_keywords,
             volume_regex_keywords,
         ),
-        remove_underscore_from_name(remove_bracketed_info_from_name(file)),
+        replace_underscore_in_name(remove_bracketed_info_from_name(file)),
         re.IGNORECASE,
     )
+    if result:
+        return True
+    return False
 
 
 # Removes all chapter releases
-def remove_all_chapters(files):
-    for file in files[:]:
-        if contains_chapter_keywords(file) and not contains_volume_keywords(file):
-            files.remove(file)
+def filter_non_chapters(files):
+    non_chapter_files = []
+    for file in files:
+        if not contains_chapter_keywords(file) or contains_volume_keywords(file):
+            non_chapter_files.append(file)
+    return non_chapter_files
 
 
 # Cleans up the files array before usage
 def clean_and_sort(
-    root, files=None, dirs=None, sort=False, chapters=chapter_support_toggle
+    root, files=[], dirs=[], sort=False, chapters=chapter_support_toggle
 ):
+    global ignored_folder_names
+    global file_extensions
+    if ignored_folder_names:
+        ignored_parts = [
+            part for part in root.split(os.sep) if part and part in ignored_folder_names
+        ]
+        if any(ignored_parts):
+            return [], []
     if files:
         if sort:
             files.sort()
-        remove_hidden_files(files, root)
-        remove_unaccepted_file_types(files, root)
+        files = remove_hidden_files(files)
+        files = remove_unaccepted_file_types(files, root, file_extensions)
         if not chapters:
-            remove_all_chapters(files)
+            files = filter_non_chapters(files)
     if dirs:
         if sort:
             dirs.sort()
-        remove_hidden_folders(root, dirs)
-        remove_ignored_folders(dirs)
+        dirs = remove_hidden_folders(dirs)
+        dirs = remove_ignored_folder_names(dirs)
+    return files, dirs
 
 
 # Retrieves the file extension on the passed file
@@ -733,7 +739,7 @@ def get_extensionless_name(file):
 
 # Trades out our regular files for file objects
 def upgrade_to_file_class(files, root):
-    clean_and_sort(root, files)
+    files = clean_and_sort(root, files)[0]
 
     # Create a list of tuples with arguments to pass to the File constructor
     file_args = [
@@ -857,7 +863,7 @@ def is_volume_one(volume_name):
     ):
         keywords = chapter_regex_keywords + "|"
     if re.search(
-        r"(\b(%s)([-_. ]|)(One|1|01|001|0001)(([-_.]([0-9]+))+)?\b)" % keywords,
+        r"(\b(%s)([-_. ]|)(\s+)?(One|1|01|001|0001)(([-_.]([0-9]+))+)?\b)" % keywords,
         volume_name,
         re.IGNORECASE,
     ):
@@ -870,7 +876,9 @@ def is_volume_one(volume_name):
 def is_one_shot_bk(file_name):
     number_status = re.search(r"\d+", file_name)
     chapter_file_status = contains_chapter_keywords(file_name)
-    exception_keyword_status = check_for_exception_keywords(file_name)
+    exception_keyword_status = check_for_exception_keywords(
+        file_name, exception_keywords
+    )
     if (not number_status and not chapter_file_status) and (
         not exception_keyword_status
     ):
@@ -882,14 +890,16 @@ def is_one_shot_bk(file_name):
 # If neither are present, the volume is assumed to be a one-shot volume.
 def is_one_shot(file_name, root):
     files = os.listdir(root)
-    clean_and_sort(root, files)
+    files = clean_and_sort(root, files)[0]
     continue_logic = False
     if len(files) == 1 or root == download_folders[0]:
         continue_logic = True
     if continue_logic == True:
         volume_file_status = contains_volume_keywords(file_name)
         chapter_file_status = contains_chapter_keywords(file_name)
-        exception_keyword_status = check_for_exception_keywords(file_name)
+        exception_keyword_status = check_for_exception_keywords(
+            file_name, exception_keywords
+        )
         if (not volume_file_status and not chapter_file_status) and (
             not exception_keyword_status
         ):
@@ -963,7 +973,7 @@ def chapter_file_name_cleaning(file_name, chapter_number="", skip=False):
 
     # Remove any single brackets at the end of the file_name
     # EX: "Death Note - Bonus Chapter (" --> "Death Note - Bonus Chapter"
-    file_name = re.sub(r"([\【\(\[\{])|([\】\)\]\}])$", "", file_name).strip()
+    file_name = re.sub(r"([\(\[\{])|([\)\]\}])$", "", file_name).strip()
 
     # EX: "006.3 - One Piece" --> "One Piece"
     file_name = re.sub(
@@ -1012,14 +1022,17 @@ def get_series_name_from_file_name_chapter(name, chapter_number=""):
     name = re.sub(r"(\.cbz|\.epub)$", "", name).strip()
 
     # remove underscores
-    name = remove_underscore_from_name(name)
+    name = replace_underscore_in_name(name)
 
     for regex in chapter_searches:
         search = re.search(regex, name, flags=re.IGNORECASE)
         if search:
             name = re.sub(regex + "(.*)", "", name, flags=re.IGNORECASE).strip()
             break
-    result = chapter_file_name_cleaning(name, chapter_number)
+    if isinstance(chapter_number, list):
+        result = chapter_file_name_cleaning(name, chapter_number[0])
+    else:
+        result = chapter_file_name_cleaning(name, chapter_number)
     return result
 
 
@@ -1029,7 +1042,8 @@ def create_folders_for_items_in_download_folder():
         if os.path.exists(download_folder):
             try:
                 for root, dirs, files in scandir.walk(download_folder):
-                    clean_and_sort(root, files, dirs)
+                    clean = clean_and_sort(root, files, dirs)
+                    files, dirs = clean[0], clean[1]
                     global folder_accessor
                     file_objects = upgrade_to_file_class(files, root)
                     folder_accessor = Folder(
@@ -1052,12 +1066,12 @@ def create_folders_for_items_in_download_folder():
                                 for dir in dirs:
                                     if (
                                         similar(
-                                            remove_underscore_from_name(
+                                            replace_underscore_in_name(
                                                 remove_punctuation(dir)
                                             )
                                             .strip()
                                             .lower(),
-                                            remove_underscore_from_name(
+                                            replace_underscore_in_name(
                                                 remove_punctuation(file.basename)
                                             )
                                             .strip()
@@ -1221,7 +1235,7 @@ def remove_everything_but_volume_num(files, chapter=False):
         keywords = chapter_regex_keywords
     for file in files[:]:
         result = None
-        file = remove_underscore_from_name(file)
+        file = replace_underscore_in_name(file)
         is_multi_volume = check_for_multi_volume_file(file, chapter=chapter)
         if not chapter:
             result = re.search(
@@ -1344,23 +1358,11 @@ def remove_everything_but_volume_num(files, chapter=False):
 
 # Retrieves the release year
 def get_volume_year(name):
-    result = ""
-    try:
-        search = re.search(r"(\(|\[|\{)(\d{4})(\)|\]|\})", name, re.IGNORECASE)
-        if search:
-            number = search.group()
-            # remove the brackets
-            number = re.sub(r"(\(|\[|\{)|(\)|\]|\})", "", number)
-            if number:
-                # convert to int
-                converted_number = int(number)
-                if converted_number:
-                    result = converted_number
-    except ValueError:
-        send_message(
-            "ERROR in get_volume_year with: " + name + " " + str(ValueError), error=True
-        )
-    return result
+    match = re.search(r"(\(|\[|\{)(\d{4})(\)|\]|\})", name, re.IGNORECASE)
+    if match:
+        return int(re.sub(r"(\(|\[|\{)|(\)|\]|\})", "", match.group(0)))
+    else:
+        return ""
 
 
 # Compile the regular expression pattern outside of the function
@@ -1375,8 +1377,7 @@ def is_fixed_volume(name, fixed_volume_pattern=fixed_volume_pattern):
 
 
 # Retrieves the release_group on the file name
-def get_release_group(name):
-    global release_groups
+def get_release_group(name, release_groups):
     result = ""
     if release_groups:
         for group in release_groups:
@@ -1496,7 +1497,8 @@ def upgrade_to_volume_class(
         if not skip_fixed_volume:
             file_obj.is_fixed = is_fixed_volume(file.name)
         if not skip_release_group:
-            file_obj.release_group = get_release_group(file.name)
+            global release_groups
+            file_obj.release_group = get_release_group(file.name, release_groups)
         if not skip_name:
             file_obj.name = file.name
         if not skip_extensionless_name:
@@ -1513,11 +1515,9 @@ def upgrade_to_volume_class(
             file_obj.extensionless_path = file.extensionless_path
         if not skip_extras:
             file_obj.extras = (
-                get_extras(file.name, file.root, series_name=file.basename)
+                get_extras(file.name, series_name=file.basename)
                 if file.file_type != "chapter"
-                else get_extras(
-                    file.name, file.root, series_name=file.basename, chapter=True
-                )
+                else get_extras(file.name, series_name=file.basename, chapter=True)
             )
         if not skip_multi_volume:
             file_obj.multi_volume = (
@@ -1553,7 +1553,7 @@ class UpgradeResult:
 
 
 # Retrieves the release_group score from the list, using a high similarity
-def get_keyword_score(name, file_type, download_folder=False):
+def get_keyword_score(name, file_type, ranked_keywords):
     tags = []
     score = 0.0
     for keyword in ranked_keywords:
@@ -1567,11 +1567,12 @@ def get_keyword_score(name, file_type, download_folder=False):
 
 # Checks if the downloaded release is an upgrade for the current release.
 def is_upgradeable(downloaded_release, current_release):
+    global ranked_keywords
     downloaded_release_result = get_keyword_score(
-        downloaded_release.name, downloaded_release.file_type
+        downloaded_release.name, downloaded_release.file_type, ranked_keywords
     )
     current_release_result = get_keyword_score(
-        current_release.name, current_release.file_type
+        current_release.name, current_release.file_type, ranked_keywords
     )
     upgrade_result = UpgradeResult(
         downloaded_release_result.total_score > current_release_result.total_score,
@@ -2015,7 +2016,7 @@ def check_and_delete_empty_folder(folder):
         print("\t\tChecking for empty folder: " + folder)
         delete_hidden_files(os.listdir(folder), folder)
         folder_contents = os.listdir(folder)
-        remove_hidden_files(folder_contents, folder)
+        folder_contents = remove_hidden_files(folder_contents)
         if len(folder_contents) == 0 and (
             folder not in paths and folder not in download_folders
         ):
@@ -2075,7 +2076,7 @@ def check_for_missing_volumes():
             os.chdir(path)
             # get list of folders from path directory
             path_dirs = [f for f in os.listdir(path) if os.path.isdir(f)]
-            clean_and_sort(path, dirs=path_dirs)
+            path_dirs = clean_and_sort(path, dirs=path_dirs)[1]
             global folder_accessor
             folder_accessor = Folder(
                 path,
@@ -2091,7 +2092,9 @@ def check_for_missing_volumes():
                 )
                 existing_dir = os.path.join(existing_dir_full_file_path, dir)
                 clean_existing = os.listdir(existing_dir)
-                clean_and_sort(existing_dir, clean_existing, chapters=False)
+                clean_existing = clean_and_sort(
+                    existing_dir, clean_existing, chapters=False
+                )[0]
                 existing_dir_volumes = upgrade_to_volume_class(
                     upgrade_to_file_class(
                         [
@@ -2335,12 +2338,12 @@ def reorganize_and_rename(files, dir):
                     for item in file.extras[:]:
                         score = similar(
                             re.sub(
-                                r"(Entertainment|Pictures?|LLC|Americas?|USA?|International|Books?|Comics?|Media|Club|On|Press|Enix Manga|Enix|[-_.,\(\[\{\)\]\}])",
+                                r"(Entertainment|Pictures?|LLC|Americas?|USA?|International|Books?|Comics?|Media|Advanced|Club|On|Press|Enix Manga|Enix|[-_.,\(\[\{\)\]\}])",
                                 "",
                                 item,
                             ).strip(),
                             re.sub(
-                                r"(Entertainment|Pictures?|LLC|Americas?|USA?|International|Books?|Comics?|Media|Club|On|Press|Enix Manga|Enix|[-_.,\(\[\{\)\]\}])",
+                                r"(Entertainment|Pictures?|LLC|Americas?|USA?|International|Books?|Comics?|Media|Advanced|Club|On|Press|Enix Manga|Enix|[-_.,\(\[\{\)\]\}])",
                                 "",
                                 publisher,
                             ).strip(),
@@ -2519,9 +2522,9 @@ def reorganize_and_rename(files, dir):
                         file.path = os.path.join(file.root, rename)
                         file.extensionless_path = os.path.splitext(file.path)[0]
                         if file.file_type == "volume":
-                            file.extras = get_extras(rename, file.root)
+                            file.extras = get_extras(rename)
                         elif file.file_type == "chapter":
-                            file.extras = get_extras(rename, file.root, chapter=True)
+                            file.extras = get_extras(rename, chapter=True)
                     except OSError as ose:
                         send_message(ose, error=True)
         except Exception as e:
@@ -2543,34 +2546,51 @@ def remove_dual_space(s):
 # Removes common words to improve string matching accuracy between a series_name
 # from a file name, and a folder name, useful for when releasers sometimes include them,
 # and sometimes don't.
-def remove_common_words(s):
+def normalize_string_for_matching(s):
     if len(s) > 1:
-        common_words_to_remove = [
+        words_to_remove = []
+        common_words = [
             "the",
             "a",
             "à",
             "and",
             "&",
             "I",
-            "Complete",
-            "Series",
             "of",
-            "Novel",
-            "Light Novel",
-            "Manga",
-            "Comic",
+        ]
+        words_to_remove.extend(common_words)
+        editions = [
             "Collection",
             "Master Edition",
             "Edition",
             "Exclusive",
-            "((\d+)([-_. ]+)?th)",
             "Anniversary",
             "Deluxe",
             "Omnibus",
             "Digital",
             "Official",
             "Anthology",
+            "Limited",
+            "Complete",
+            "Collector",
+            "Ultimate",
+            "Special",
+        ]
+        words_to_remove.extend(editions)
+        type_keywords = [
+            "Novel",
+            "Light Novel",
+            "Manga",
+            "Comic",
             "LN",
+            "Series",
+            "Volume",
+            "Chapter",
+            "Book",
+            "MANHUA",
+        ]
+        words_to_remove.extend(type_keywords)
+        japanese_particles = [
             "wa",
             "o",
             "mo",
@@ -2584,18 +2604,18 @@ def remove_common_words(s):
             "no",
             "ne",
             "yo",
+        ]
+        words_to_remove.extend(japanese_particles)
+        misc_words = [
+            "((\d+)([-_. ]+)?th)",
             "x",
             "×",
         ]
-        for word in common_words_to_remove:
+        words_to_remove.extend(misc_words)
+        for word in words_to_remove:
             s = re.sub(rf"\b{word}\b", " ", s, flags=re.IGNORECASE).strip()
             s = remove_dual_space(s)
     return s.strip()
-
-
-# Replaces all numbers
-def remove_numbers(s):
-    return re.sub("([0-9]+)", "", s, flags=re.IGNORECASE)
 
 
 # Returns a string without punctuation.
@@ -2605,11 +2625,15 @@ def remove_punctuation(s, disable_lang=False):
     if not disable_lang and not s.isdigit():
         language = detect_language(s)
     if language and language != "en" and not disable_lang:
-        return remove_dual_space(remove_common_words(re.sub(r"[^\w\s+]", " ", s)))
+        return remove_dual_space(
+            normalize_string_for_matching(re.sub(r"[^\w\s+]", " ", s))
+        )
     else:
         return convert_to_ascii(
             unidecode(
-                remove_dual_space(remove_common_words(re.sub(r"[^\w\s+]", " ", s)))
+                remove_dual_space(
+                    normalize_string_for_matching(re.sub(r"[^\w\s+]", " ", s))
+                )
             )
         )
 
@@ -2695,7 +2719,7 @@ def check_upgrade(
     global messages_to_send
     existing_dir = os.path.join(existing_root, dir)
     clean_existing = os.listdir(existing_dir)
-    clean_and_sort(existing_dir, clean_existing)
+    clean_existing = clean_and_sort(existing_dir, clean_existing)[0]
     clean_existing = upgrade_to_volume_class(
         upgrade_to_file_class(
             [
@@ -3012,7 +3036,8 @@ def check_for_duplicate_volumes(paths_to_search=[]):
             if os.path.exists(p):
                 print("\nSearching " + p + " for duplicate releases...")
                 for root, dirs, files in scandir.walk(p):
-                    clean_and_sort(root, files, dirs)
+                    clean = clean_and_sort(root, files, dirs)
+                    files, dirs = clean[0], clean[1]
                     volumes = upgrade_to_volume_class(
                         upgrade_to_file_class(
                             [f for f in files if os.path.isfile(os.path.join(root, f))],
@@ -3024,7 +3049,7 @@ def check_for_duplicate_volumes(paths_to_search=[]):
                             if os.path.isfile(file.path):
                                 print("\n\tChecking: " + file.name)
                                 volume_series_name = (
-                                    remove_underscore_from_name(
+                                    replace_underscore_in_name(
                                         remove_punctuation(
                                             remove_bracketed_info_from_name(
                                                 file.series_name
@@ -3035,7 +3060,8 @@ def check_for_duplicate_volumes(paths_to_search=[]):
                                     .strip()
                                 )
                                 for root, dirs, files in scandir.walk(file.root):
-                                    clean_and_sort(root, files, dirs)
+                                    clean_two = clean_and_sort(root, files, dirs)
+                                    files, dirs = clean_two[0], clean_two[1]
                                     compare_volumes = upgrade_to_volume_class(
                                         upgrade_to_file_class(
                                             [
@@ -3057,7 +3083,7 @@ def check_for_duplicate_volumes(paths_to_search=[]):
                                                 )
                                                 compare_volume_series_name = (
                                                     (
-                                                        remove_underscore_from_name(
+                                                        replace_underscore_in_name(
                                                             remove_punctuation(
                                                                 remove_bracketed_info_from_name(
                                                                     compare_file.series_name
@@ -3268,7 +3294,7 @@ def check_for_duplicate_volumes(paths_to_search=[]):
 
 
 # regex out underscore from passed string and return it
-def remove_underscore_from_name(name):
+def replace_underscore_in_name(name):
     # Replace underscores that are preceded and followed by a number with a period
     name = re.sub(r"(?<=\d)_(?=\d)", ".", name)
     # Replace all other underscores with a space
@@ -3324,7 +3350,8 @@ def check_for_existing_series():
                 unmatched_series = []
                 for root, dirs, files in scandir.walk(download_folder):
                     print("\n" + root)
-                    clean_and_sort(root, files, dirs)
+                    clean = clean_and_sort(root, files, dirs)
+                    files, dirs = clean[0], clean[1]
                     volumes = upgrade_to_volume_class(
                         upgrade_to_file_class(
                             [f for f in files if os.path.isfile(os.path.join(root, f))],
@@ -3391,7 +3418,7 @@ def check_for_existing_series():
                             ).strip()
                             downloaded_file_series_name = (
                                 (
-                                    remove_underscore_from_name(
+                                    replace_underscore_in_name(
                                         remove_punctuation(downloaded_file_series_name)
                                     )
                                 )
@@ -3430,7 +3457,7 @@ def check_for_existing_series():
                                         ).strip()
                                         successful_file_series_name = (
                                             (
-                                                remove_underscore_from_name(
+                                                replace_underscore_in_name(
                                                     remove_punctuation(
                                                         successful_file_series_name
                                                     )
@@ -3586,7 +3613,10 @@ def check_for_existing_series():
                                             reorganized = True
                                             if root in cached_paths:
                                                 continue
-                                            clean_and_sort(root, files, dirs)
+                                            clean_two = clean_and_sort(
+                                                root, files, dirs
+                                            )
+                                            files, dirs = clean_two[0], clean_two[1]
                                             file_objects = upgrade_to_file_class(
                                                 files, root
                                             )
@@ -3630,7 +3660,7 @@ def check_for_existing_series():
                                                     )
                                                     existing_series_folder_from_library = (
                                                         (
-                                                            remove_underscore_from_name(
+                                                            replace_underscore_in_name(
                                                                 remove_punctuation(
                                                                     remove_bracketed_info_from_name(
                                                                         dir
@@ -4068,9 +4098,10 @@ def rename_dirs_in_download_folder():
                     for f in os.listdir(download_folder)
                     if os.path.isfile(join(download_folder, f))
                 ]
-                clean_and_sort(
+                clean = clean_and_sort(
                     download_folder, download_folder_files, download_folder_dirs
                 )
+                download_folder_files, download_folder_dirs = clean[0], clean[1]
                 global folder_accessor
                 file_objects = upgrade_to_file_class(
                     download_folder_files[:], download_folder
@@ -4147,11 +4178,24 @@ def rename_dirs_in_download_folder():
                         if (
                             volume_one
                             and volume_one.series_name != folderDir
-                            and similar(
-                                remove_bracketed_info_from_name(volume_one.series_name),
-                                remove_bracketed_info_from_name(folderDir),
+                            and (
+                                (
+                                    similar(
+                                        remove_bracketed_info_from_name(
+                                            volume_one.series_name
+                                        ),
+                                        remove_bracketed_info_from_name(folderDir),
+                                    )
+                                    >= 0.25
+                                )
+                                or (
+                                    similar(
+                                        volume_one.series_name,
+                                        folderDir,
+                                    )
+                                    >= 0.25
+                                )
                             )
-                            >= 0.25
                         ):
                             print("\n\tBEFORE: " + folderDir)
                             print("\tAFTER:  " + volume_one.series_name)
@@ -4384,7 +4428,7 @@ def rename_dirs_in_download_folder():
                                                 folder_accessor.root, folderDir
                                             ),
                                         ):
-                                            remove_hidden_files(files, root)
+                                            files = remove_hidden_files(files)
                                             file_objects = upgrade_to_file_class(
                                                 files, root
                                             )
@@ -4444,12 +4488,7 @@ def rename_dirs_in_download_folder():
                 )
 
 
-def add_to_list(item, list):
-    if item != "" and not item in list:
-        list.append(item)
-
-
-def get_extras(file_name, root, chapter=False, series_name="", chapter_number=""):
+def get_extras(file_name, chapter=False, series_name=""):
     extension = get_file_extension(file_name)
     if (
         re.search(re.escape(series_name), file_name, re.IGNORECASE)
@@ -4460,6 +4499,31 @@ def get_extras(file_name, root, chapter=False, series_name="", chapter_number=""
         ).strip()
     results = re.findall(r"(\{|\(|\[)(.*?)(\]|\)|\})", file_name, flags=re.IGNORECASE)
     modified = []
+
+    for result in results:
+        combined = ""
+        for r in result:
+            combined += r
+        if combined not in modified:
+            modified.append(combined)
+    patterns = [
+        r"(\{|\(|\[)(Premium|J-Novel Club Premium)(\]|\)|\})",
+        r"\((\d{4})\)",
+        r"(\{|\(|\[)(Omnibus|Omnibus Edition)(\]|\)|\})",
+        r"(Extra)(\]|\)|\})",
+        r"(\{|\(|\[)Part([-_. ]|)([0-9]+)(\]|\)|\})",
+    ]
+    exclude_patterns = [patterns[4]]
+    for item in modified[:]:
+        for pattern in patterns:
+            if pattern in exclude_patterns:
+                if not chapter and re.search(pattern, item, re.IGNORECASE):
+                    modified.remove(item)
+                    break
+            elif re.search(pattern, item, re.IGNORECASE):
+                modified.remove(item)
+                break
+    modifiers = {".epub": "[%s]", ".cbz": "(%s)"}
     keywords = [
         "Premium",
         "Complete",
@@ -4468,99 +4532,34 @@ def get_extras(file_name, root, chapter=False, series_name="", chapter_number=""
         "Short Story",
         "Omnibus",
     ]
-    keywords_two = ["Extra", "Arc"]
-    for result in results:
-        combined = ""
-        for r in result:
-            combined += r
-        add_to_list(combined, modified)
-    for item in modified[:]:
-        if re.search(
-            r"(\{|\(|\[)(Premium|J-Novel Club Premium)(\]|\)|\})", item, re.IGNORECASE
-        ) or re.search(r"\((\d{4})\)", item, re.IGNORECASE):
-            modified.remove(item)
-        if re.search(
-            r"(\{|\(|\[)(Omnibus|Omnibus Edition)(\]|\)|\})", item, re.IGNORECASE
-        ):
-            modified.remove(item)
-        if re.search(r"(Extra)(\]|\)|\})", item, re.IGNORECASE):
-            modified.remove(item)
-        if not chapter and re.search(
-            r"(\{|\(|\[)Part([-_. ]|)([0-9]+)(\]|\)|\})", item, re.IGNORECASE
-        ):
-            modified.remove(item)
-        if re.search(
-            r"(\{|\(|\[)Season([-_. ]|)([0-9]+)(\]|\)|\})", item, re.IGNORECASE
-        ):
-            modified.remove(item)
-        if not chapter and re.search(
-            r"(\{|\(|\[)(Chapter|Ch|Chpt|Chpter|C)([-_. ]|)([0-9]+)(\.[0-9]+|)(([-_. ]|)([0-9]+)(\.[0-9]+|)|)(\]|\)|\})",
-            item,
-            re.IGNORECASE,
-        ):
-            modified.remove(item)
     for keyword in keywords:
         if re.search(rf"\b{keyword}\b", file_name, re.IGNORECASE):
-            if extension == ".epub":
-                add_to_list("[" + keyword.strip() + "]", modified)
-            elif extension == ".cbz":
-                add_to_list("(" + keyword.strip() + ")", modified)
+            modified_keyword = modifiers[extension] % keyword.strip()
+            if modified_keyword not in modified:
+                modified.append(modified_keyword)
+    keywords_two = ["Extra", "Arc"]
     for keyword_two in keywords_two:
-        if re.search(
+        match = re.search(
             rf"(([A-Za-z]|[0-9]+)|)+ {keyword_two}([-_ ]|)([0-9]+|([A-Za-z]|[0-9]+)+|)",
             file_name,
             re.IGNORECASE,
-        ):
-            result = re.search(
-                rf"(([A-Za-z]|[0-9]+)|)+ {keyword_two}([-_ ]|)([0-9]+|([A-Za-z]|[0-9]+)+|)",
-                file_name,
-                re.IGNORECASE,
-            ).group()
-            if result != "Episode " or (
-                result != "Arc " | result != "arc " | result != "ARC "
-            ):
-                if extension == ".epub":
-                    add_to_list("[" + result.strip() + "]", modified)
-                elif extension == ".cbz":
-                    add_to_list("(" + result.strip() + ")", modified)
-    if not chapter and re.search(
-        r"(\s|\b)Part([-_. ]|)([0-9]+)", file_name, re.IGNORECASE
-    ):
-        result = re.search(
-            r"(\s|\b)Part([-_. ]|)([0-9]+)", file_name, re.IGNORECASE
-        ).group()
-        if extension == ".epub":
-            add_to_list("[" + result.strip() + "]", modified)
-        elif extension == ".cbz":
-            add_to_list("(" + result.strip() + ")", modified)
-    if re.search(r"(\s|\b)Season([-_. ]|)([0-9]+)", file_name, re.IGNORECASE):
-        result = re.search(
-            r"(\s|\b)Season([-_. ]|)([0-9]+)", file_name, re.IGNORECASE
-        ).group()
-        if extension == ".epub":
-            add_to_list("[" + result.strip() + "]", modified)
-        elif extension == ".cbz":
-            add_to_list("(" + result.strip() + ")", modified)
-    if not chapter and re.search(
-        r"(\s|\b)(Chapter|Ch|Chpt|Chpter|C)([-_. ]|)([0-9]+)(\.[0-9]+|)(([-_. ]|)([0-9]+)(\.[0-9]+|)|)(\s|\b)",
-        file_name,
-        re.IGNORECASE,
-    ):
-        result = re.search(
-            r"(\s|\b)(Chapter|Ch|Chpt|Chpter|C)([-_. ]|)([0-9]+)(\.[0-9]+|)(([-_. ]|)([0-9]+)(\.[0-9]+|)|)(\s|\b)",
-            file_name,
-            re.IGNORECASE,
-        ).group()
-        if extension == ".epub":
-            add_to_list("[" + result.strip() + "]", modified)
-        elif extension == ".cbz":
-            add_to_list("(" + result.strip() + ")", modified)
-    # Move Premium to the beginning
-    for item in modified:
-        if re.search(r"Premium", item, re.IGNORECASE):
-            modified.remove(item)
-            modified.insert(0, item)
-    return modified
+        )
+        if match:
+            result = match.group()
+            if result not in {"Episode ", "Arc", "arc", "ARC"}:
+                modified_result = modifiers[extension] % result.strip()
+                if modified_result not in modified:
+                    modified.append(modified_result)
+    part_search = re.search(r"(\s|\b)Part([-_. ]|)([0-9]+)", file_name, re.IGNORECASE)
+    if part_search:
+        result = part_search.group()
+        modified_result = modifiers[extension] % result.strip()
+        if modified_result not in modified:
+            modified.append(modified_result)
+    # Move Premium to the beginning of the list
+    premium_items = [item for item in modified if "Premium" in item]
+    non_premium_items = [item for item in modified if "Premium" not in item]
+    return premium_items + non_premium_items
 
 
 def isfloat(x):
@@ -4659,7 +4658,8 @@ def rename_files_in_download_folders(only_these_files=[]):
                     write_to_file(
                         "cached_paths.txt", root, without_date=True, check_for_dup=True
                     )
-                clean_and_sort(root, files, dirs)
+                clean = clean_and_sort(root, files, dirs)
+                files, dirs = clean[0], clean[1]
                 volumes = upgrade_to_volume_class(
                     upgrade_to_file_class(
                         [f for f in files if os.path.isfile(os.path.join(root, f))],
@@ -4918,12 +4918,16 @@ def rename_files_in_download_folders(only_these_files=[]):
                                         )
                                         combined += " [Premium]"
                                 if not file.is_one_shot:
-                                    converted_value = set_num_as_float_or_int(
-                                        re.sub(
-                                            keywords, "", combined, flags=re.IGNORECASE
-                                        ),
-                                        silent=True,
+                                    converted_value = re.sub(
+                                        keywords, "", combined, flags=re.IGNORECASE
                                     )
+                                    if not re.search(r"-", converted_value):
+                                        converted_value = set_num_as_float_or_int(
+                                            converted_value,
+                                            silent=True,
+                                        )
+                                    else:
+                                        converted_value = ""
                                     converted_and_filled = None
                                     if converted_value != "":
                                         if type(converted_value) == int:
@@ -4993,7 +4997,7 @@ def rename_files_in_download_folders(only_these_files=[]):
                                         replacement += (
                                             " (" + str(file.volume_year) + ")"
                                         )
-                                    extras = get_extras(file.name, file.root)
+                                    extras = get_extras(file.name)
                                     for extra in extras:
                                         replacement += " " + extra
                                     replacement += file.extension
@@ -5144,8 +5148,13 @@ def rename_files_in_download_folders(only_these_files=[]):
 
 
 # Checks for any exception keywords that will prevent the chapter release from being deleted.
-def check_for_exception_keywords(file_name):
-    return re.search(r"Extra|One(-|)shot", file_name, re.IGNORECASE)
+def check_for_exception_keywords(file_name, exception_keywords):
+    result = False
+    for keyword in exception_keywords:
+        if re.search(keyword, file_name, re.IGNORECASE):
+            result = True
+            break
+    return result
 
 
 # Deletes chapter files from the download folder.
@@ -5168,14 +5177,17 @@ def delete_chapters_from_downloads():
                             without_date=True,
                             check_for_dup=True,
                         )
-                    # clean_and_sort(root, files, dirs)
-                    remove_ignored_folders(dirs)
-                    remove_hidden_files(files, root)
+                    # clean = clean_and_sort(root, files, dirs)
+                    # files, dirs = clean[0], clean[1]
+                    dirs = remove_ignored_folder_names(dirs)
+                    files = remove_hidden_files(files)
                     for file in files:
                         if (
                             contains_chapter_keywords(file)
                             and not contains_volume_keywords(file)
-                        ) and not (check_for_exception_keywords(file)):
+                        ) and not (
+                            check_for_exception_keywords(file, exception_keywords)
+                        ):
                             if file.endswith(".cbz") or file.endswith(".zip"):
                                 send_message(
                                     "\n\t\tFile: "
@@ -5206,7 +5218,8 @@ def delete_chapters_from_downloads():
                                 )
                                 remove_file(os.path.join(root, file))
                 for root, dirs, files in scandir.walk(path):
-                    clean_and_sort(root, files, dirs)
+                    clean_two = clean_and_sort(root, files, dirs)
+                    files, dirs = clean_two[0], clean_two[1]
                     for dir in dirs:
                         check_and_delete_empty_folder(os.path.join(root, dir))
             else:
@@ -5397,7 +5410,8 @@ def extract_covers():
                     write_to_file(
                         "cached_paths.txt", root, without_date=True, check_for_dup=True
                     )
-                clean_and_sort(root, files, dirs)
+                clean = clean_and_sort(root, files, dirs)
+                files, dirs = clean[0], clean[1]
                 global folder_accessor
                 print("\nRoot: " + root)
                 # print("Dirs: " + str(dirs))
@@ -5535,9 +5549,10 @@ def delete_unacceptable_files():
                                 without_date=True,
                                 check_for_dup=True,
                             )
-                        # clean_and_sort(root, files, dirs)
-                        remove_ignored_folders(dirs)
-                        remove_hidden_files(files, root)
+                        # clean = clean_and_sort(root, files, dirs)
+                        # files, dirs = clean[0], clean[1]
+                        dirs = remove_ignored_folder_names(dirs)
+                        files = remove_hidden_files(files)
                         for file in files:
                             extension = get_file_extension(file)
                             if (
@@ -5602,7 +5617,8 @@ def delete_unacceptable_files():
                                             )
                                         break
                     for root, dirs, files in scandir.walk(path):
-                        clean_and_sort(root, files, dirs)
+                        clean_two = clean_and_sort(root, files, dirs)
+                        files, dirs = clean_two[0], clean_two[1]
                         for dir in dirs:
                             check_and_delete_empty_folder(os.path.join(root, dir))
                 else:
@@ -6149,7 +6165,7 @@ def check_for_new_volumes_on_bookwalker():
             # get list of folders from path directory
             path_dirs = [f for f in os.listdir(path) if os.path.isdir(f)]
             path_dirs.sort()
-            clean_and_sort(path, dirs=path_dirs)
+            path_dirs = clean_and_sort(path, dirs=path_dirs)[1]
             global folder_accessor
             folder_accessor = Folder(
                 path,
@@ -6165,7 +6181,9 @@ def check_for_new_volumes_on_bookwalker():
                 )
                 existing_dir = os.path.join(existing_dir_full_file_path, dir)
                 clean_existing = os.listdir(existing_dir)
-                clean_and_sort(existing_dir, clean_existing, chapters=False)
+                clean_existing = clean_and_sort(
+                    existing_dir, clean_existing, chapters=False
+                )[0]
                 existing_dir_volumes = upgrade_to_volume_class(
                     upgrade_to_file_class(
                         [
@@ -6383,7 +6401,8 @@ def generate_release_group_list_file():
             try:
                 skipped_file_volumes = []
                 for root, dirs, files in scandir.walk(path):
-                    clean_and_sort(root, files, dirs, sort=True)
+                    clean = clean_and_sort(root, files, dirs, sort=True)
+                    files, dirs = clean[0], clean[1]
                     if files:
                         volumes = upgrade_to_volume_class(
                             upgrade_to_file_class(
@@ -6557,11 +6576,15 @@ def generate_release_group_list_file():
 
 # Checks if a string only contains one set of numbers
 def only_has_one_set_of_numbers(string):
-    return re.search(
+    result = False
+    search = re.search(
         r"(^[^\d]*(([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?(#([0-9]+)(([-_.])([0-9]+)|)+)?)?[^\d]*$)",
         string,
         re.IGNORECASE,
     )
+    if search:
+        result = True
+    return result
 
 
 # Checks if the file name contains multiple numbers
