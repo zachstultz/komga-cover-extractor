@@ -38,7 +38,7 @@ from io import BytesIO
 from functools import lru_cache
 from skimage.metrics import structural_similarity as ssim
 
-script_version = "2.1.0"
+script_version = "2.1.1"
 
 # Paths = existing library
 # Download_folders = newly aquired manga/novels
@@ -5429,8 +5429,8 @@ def find_and_extract_cover(file, return_data_only=False):
                         ):
                             if (
                                 compare_detected_cover_to_blank_image
-                                and os.path.isfile(blank_white_image_path)
-                                and os.path.isfile(blank_black_image_path)
+                                and blank_white_image_path
+                                and blank_black_image_path
                             ):
                                 # read the image data from the zip file
                                 print(
@@ -5518,8 +5518,8 @@ def find_and_extract_cover(file, return_data_only=False):
                 default_cover_path = None
                 if (
                     compare_detected_cover_to_blank_image
-                    and os.path.isfile(blank_white_image_path)
-                    and os.path.isfile(blank_black_image_path)
+                    and blank_white_image_path
+                    and blank_black_image_path
                 ):
                     print("\n\t\tNo cover found, using first image that isn't blank...")
                     for test_file in zip_list:
