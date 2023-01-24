@@ -188,4 +188,13 @@ rename_chapters_with_preferred_chapter_keyword = False
 
 # Whether or not to extract chapter covers from chapter files.
 extract_chapter_covers = False
+
+# When the program has detected a cover image file within the file cbz or epub file, it will compare that image
+# against a blank white image and a blank black image to avoid picking the wrong cover.
+compare_detected_cover_to_blank_image = False  # WILL INCREASE PROCESSING TIME
+
+# The required similarity score between the detected cover and the blank image to be considered a match.
+# If the similarity score is equal to or greater than this value, the cover will be ignored as
+# it is most likely a blank cover.
+blank_cover_required_similarity_score = 0.90
 ################################################################
