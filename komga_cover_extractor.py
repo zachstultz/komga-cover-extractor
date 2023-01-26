@@ -658,15 +658,12 @@ def remove_hidden_files(files):
 
 # Removes any unaccepted file types
 def remove_unaccepted_file_types(files, root, accepted_extensions):
-    files_path = [os.path.join(root, file) for file in files]
-    accepted_files = [
+    return [
         file
-        for file, path in zip(files, files_path)
-        if (os.path.splitext(file)[1].lstrip(".") in accepted_extensions)
-        and os.path.isfile(path)
-        and zipfile.is_zipfile(path)
+        for file in files
+        if os.path.splitext(file)[1].lstrip(".") in accepted_extensions
+        and os.path.isfile(os.path.join(root, file))
     ]
-    return accepted_files
 
 
 # Removes any folder names in the ignored_folder_names
@@ -689,30 +686,32 @@ def contains_chapter_keywords(file_name):
     file_name_clean = remove_dual_space(
         re.sub(r"(_)", " ", file_name_clean).strip()
     ).strip()
-    for chapter_search in chapter_searches:
-        chapter_search_result = re.search(
-            chapter_search, file_name_clean, re.IGNORECASE
-        )
-        if chapter_search_result and not re.search(
-            r"^((\(|\{|\[)\d{4}(\]|\}|\)))$", chapter_search_result.group(0)
-        ):
-            return True
-    return False
+    chapter_search_results = [
+        re.search(pattern, file_name_clean, re.IGNORECASE)
+        for pattern in chapter_searches
+    ]
+    return any(
+        result and not re.search(r"^((\(|\{|\[)\d{4}(\]|\}|\)))$", result.group(0))
+        for result in chapter_search_results
+    )
 
+
+volume_regex = re.compile(
+    r"((\s?(\s-\s|)(Part|)+({})(\.|)([-_. ]|)([0-9]+)\b)|\s?(\s-\s|)(Part|)({})(\.|)([-_. ]|)([0-9]+)([-_.])(\s-\s|)(Part|)({})([0-9]+)\s|\s?(\s-\s|)(Part|)({})(\.|)([-_. ]|)([0-9]+)([-_.])(\s-\s|)(Part|)({})([0-9]+)\s)".format(
+        volume_regex_keywords,
+        volume_regex_keywords,
+        volume_regex_keywords,
+        volume_regex_keywords,
+        volume_regex_keywords,
+    ),
+    re.IGNORECASE,
+)
 
 # Checks if the passed string contains volume keywords
 @lru_cache(maxsize=None)
 def contains_volume_keywords(file):
-    result = re.search(
-        r"((\s?(\s-\s|)(Part|)+({})(\.|)([-_. ]|)([0-9]+)\b)|\s?(\s-\s|)(Part|)({})(\.|)([-_. ]|)([0-9]+)([-_.])(\s-\s|)(Part|)({})([0-9]+)\s|\s?(\s-\s|)(Part|)({})(\.|)([-_. ]|)([0-9]+)([-_.])(\s-\s|)(Part|)({})([0-9]+)\s)".format(
-            volume_regex_keywords,
-            volume_regex_keywords,
-            volume_regex_keywords,
-            volume_regex_keywords,
-            volume_regex_keywords,
-        ),
-        replace_underscore_in_name(remove_bracketed_info_from_name(file)),
-        re.IGNORECASE,
+    result = volume_regex.search(
+        replace_underscore_in_name(remove_bracketed_info_from_name(file))
     )
     if result:
         return True
@@ -721,11 +720,11 @@ def contains_volume_keywords(file):
 
 # Removes all chapter releases
 def filter_non_chapters(files):
-    non_chapter_files = []
-    for file in files:
-        if not contains_chapter_keywords(file) or contains_volume_keywords(file):
-            non_chapter_files.append(file)
-    return non_chapter_files
+    return [
+        file
+        for file in files
+        if not contains_chapter_keywords(file) or contains_volume_keywords(file)
+    ]
 
 
 # Cleans up the files array before usage
@@ -736,23 +735,71 @@ def clean_and_sort(
     global file_extensions
     start_time = time.time()
     if ignored_folder_names:
+        ignored_folder_names_start = time.time()
         ignored_parts = [
             part for part in root.split(os.sep) if part and part in ignored_folder_names
         ]
+        ignored_folder_names_end = time.time()
+        if output_execution_times_to_discord:
+            print_function_execution_time(
+                ignored_folder_names_start,
+                ignored_folder_names_end,
+                "ignored_folder_names in clean_and_sort()",
+            )
         if any(ignored_parts):
             return [], []
     if files:
         if sort:
             files.sort()
+        hidden_files_remove_start = time.time()
         files = remove_hidden_files(files)
+        hidden_files_remove_end = time.time()
+        if output_execution_times_to_discord:
+            print_function_execution_time(
+                hidden_files_remove_start,
+                hidden_files_remove_end,
+                "remove_hidden_files() in clean_and_sort()",
+            )
+        remove_unnaccepted_file_types_start = time.time()
         files = remove_unaccepted_file_types(files, root, file_extensions)
+        remove_unnaccepted_file_types_end = time.time()
+        if output_execution_times_to_discord:
+            print_function_execution_time(
+                remove_unnaccepted_file_types_start,
+                remove_unnaccepted_file_types_end,
+                "remove_unaccepted_file_types() in clean_and_sort()",
+            )
         if not chapters:
+            filter_non_chapters_start = time.time()
             files = filter_non_chapters(files)
+            filter_non_chapters_end = time.time()
+            if output_execution_times_to_discord:
+                print_function_execution_time(
+                    filter_non_chapters_start,
+                    filter_non_chapters_end,
+                    "filter_non_chapters() in clean_and_sort()",
+                )
     if dirs:
         if sort:
             dirs.sort()
+        remove_hidden_folders_start = time.time()
         dirs = remove_hidden_folders(dirs)
+        remove_hidden_folders_end = time.time()
+        if output_execution_times_to_discord:
+            print_function_execution_time(
+                remove_hidden_folders_start,
+                remove_hidden_folders_end,
+                "remove_hidden_folders() in clean_and_sort()",
+            )
+        remove_ignored_folder_names_start = time.time()
         dirs = remove_ignored_folder_names(dirs)
+        remove_ignored_folder_names_end = time.time()
+        if output_execution_times_to_discord:
+            print_function_execution_time(
+                remove_ignored_folder_names_start,
+                remove_ignored_folder_names_end,
+                "remove_ignored_folder_names() in clean_and_sort()",
+            )
     end_time = time.time()
     if output_execution_times_to_discord:
         print_function_execution_time(start_time, end_time, "clean_and_sort()")
@@ -823,12 +870,6 @@ def upgrade_to_file_class(files, root):
 
     # Process the files sequentially
     results = [File(*args) for args in file_args]
-
-    # # print cointains_chapter_keywords cache info
-    # print(contains_chapter_keywords.cache_info()) # for testing
-
-    # # print contains_volume_keywords cache info
-    # print(contains_volume_keywords.cache_info()) # for testing
 
     # clear lru_cache for contains_chapter_keywords
     contains_chapter_keywords.cache_clear()
@@ -942,8 +983,7 @@ def is_one_shot_bk(file_name):
 # Checks for volume keywords and chapter keywords.
 # If neither are present, the volume is assumed to be a one-shot volume.
 def is_one_shot(file_name, root):
-    files = os.listdir(root)
-    files = clean_and_sort(root, files)[0]
+    files = clean_and_sort(root, os.listdir(root))[0]
     continue_logic = False
     if len(files) == 1 or root == download_folders[0]:
         continue_logic = True
@@ -1240,22 +1280,14 @@ def create_folders_for_items_in_download_folder():
                 )
 
 
-# Returns the percentage of files in the given list that have the specified file type.
-def get_file_type_percent_for_folder(files, file_type):
-    count = 0
-    for file in files:
-        if file.file_type == file_type:
-            count += 1
-    percent = (count / len(files)) * 100 if count != 0 else 0
-    return percent
-
-
-# Returns the percentage of files in the given list that have the specified extension.
-def get_percent_for_folder(files, extension):
-    count = 0
-    for file in files:
-        if file.endswith(extension):
-            count += 1
+# Returns the percentage of files in the given list that have the specified extension or file type.
+def get_percent_for_folder(files, extension=None, file_type=None):
+    if file_type:
+        count = len([file for file in files if file.file_type == file_type])
+    elif extension:
+        count = len([file for file in files if file.endswith(extension)])
+    else:
+        return 0
     percent = (count / len(files)) * 100 if count != 0 else 0
     return percent
 
@@ -2823,25 +2855,27 @@ def check_upgrade(
             existing_dir,
         )
     )
-    cbz_percent_download_folder = get_percent_for_folder([file.name], ".cbz")
+    cbz_percent_download_folder = get_percent_for_folder([file.name], extension=".cbz")
     cbz_percent_existing_folder = get_percent_for_folder(
-        [f.name for f in clean_existing], ".cbz"
+        [f.name for f in clean_existing], extension=".cbz"
     )
-    epub_percent_download_folder = get_percent_for_folder([file.name], ".epub")
+    epub_percent_download_folder = get_percent_for_folder(
+        [file.name], extension=".epub"
+    )
     epub_percent_existing_folder = get_percent_for_folder(
-        [f.name for f in clean_existing], ".epub"
+        [f.name for f in clean_existing], extension=".epub"
     )
-    chapter_percentage_download_folder = get_file_type_percent_for_folder(
-        [file], "chapter"
+    chapter_percentage_download_folder = get_percent_for_folder(
+        [file], file_type="chapter"
     )
-    chapter_percentage_existing_folder = get_file_type_percent_for_folder(
-        clean_existing, "chapter"
+    chapter_percentage_existing_folder = get_percent_for_folder(
+        clean_existing, file_type="chapter"
     )
-    volume_percentage_download_folder = get_file_type_percent_for_folder(
-        [file], "volume"
+    volume_percentage_download_folder = get_percent_for_folder(
+        [file], file_type="volume"
     )
-    volume_percentage_existing_folder = get_file_type_percent_for_folder(
-        clean_existing, "volume"
+    volume_percentage_existing_folder = get_percent_for_folder(
+        clean_existing, file_type="volume"
     )
     print(
         "\tRequired Folder Matching Percent: {}%".format(required_matching_percentage)
@@ -5271,12 +5305,8 @@ def rename_files_in_download_folders(only_these_files=[]):
 
 # Checks for any exception keywords that will prevent the chapter release from being deleted.
 def check_for_exception_keywords(file_name, exception_keywords):
-    result = False
-    for keyword in exception_keywords:
-        if re.search(keyword, file_name, re.IGNORECASE):
-            result = True
-            break
-    return result
+    pattern = "|".join(exception_keywords)
+    return bool(re.search(pattern, file_name, re.IGNORECASE))
 
 
 # Deletes chapter files from the download folder.
@@ -5310,7 +5340,7 @@ def delete_chapters_from_downloads():
                         ) and not (
                             check_for_exception_keywords(file, exception_keywords)
                         ):
-                            if file.endswith(".cbz") or file.endswith(".zip"):
+                            if file.endswith(".cbz"):
                                 send_message(
                                     "\n\t\tFile: "
                                     + file
@@ -5813,8 +5843,6 @@ def delete_unacceptable_files():
                                 without_date=True,
                                 check_for_dup=True,
                             )
-                        # clean = clean_and_sort(root, files, dirs)
-                        # files, dirs = clean[0], clean[1]
                         dirs = remove_ignored_folder_names(dirs)
                         files = remove_hidden_files(files)
                         for file in files:
@@ -5824,22 +5852,16 @@ def delete_unacceptable_files():
                                 and extension
                                 and extension in unaccepted_file_extensions
                             ):
+                                send_message(
+                                    "\tUnacceptable: "
+                                    + extension
+                                    + " file found in "
+                                    + file
+                                    + "\n\t\tDeleting file from: "
+                                    + root,
+                                    discord=False,
+                                )
                                 remove_file(os.path.join(root, file))
-                                if not os.path.isfile(os.path.join(root, file)):
-                                    print(
-                                        "\t\tSuccessfully removed unacceptable file: "
-                                        + file
-                                        + "\n\t\tFrom: "
-                                        + root
-                                    )
-                                else:
-                                    send_message(
-                                        "\t\tFailed to remove unacceptable file: "
-                                        + file
-                                        + "\n\t\tFrom: "
-                                        + root,
-                                        error=True,
-                                    )
                             elif unacceptable_keywords:
                                 for keyword in unacceptable_keywords:
                                     unacceptable_keyword_search = re.search(
@@ -6602,10 +6624,8 @@ def cache_paths():
             if path not in download_folders:
                 try:
                     for root, dirs, files in scandir.walk(path):
-                        if (
-                            (root != path and root not in cached_paths)
-                            and (not root.startswith(".") and not root.startswith("_"))
-                            and (os.path.exists(root) and os.path.isdir(root))
+                        if (root != path and root not in cached_paths) and (
+                            not root.startswith(".") and not root.startswith("_")
                         ):
                             cached_paths.append(root)
                             write_to_file(
@@ -6643,8 +6663,9 @@ def scan_komga_libraries():
                     },
                 )
                 if request.status_code == 202:
-                    print(
-                        "Successfully Initiated Scan for: " + library_id + " Library."
+                    send_message(
+                        "Successfully Initiated Scan for: " + library_id + " Library.",
+                        discord=False,
                     )
                 else:
                     send_message(
