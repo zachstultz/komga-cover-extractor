@@ -38,7 +38,7 @@ from io import BytesIO
 from functools import lru_cache
 from skimage.metrics import structural_similarity as ssim
 
-script_version = "2.1.1"
+script_version = "2.1.2"
 
 # Paths = existing library
 # Download_folders = newly aquired manga/novels
@@ -143,7 +143,7 @@ chapter_searches = [
     r"\s-(\s+)?(#)?([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?(\s+)?-\s",
     r"(\b(?<![A-Za-z])(chapters?|chaps?|chs?|cs?)((\.)|)(\s+)?([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?\b)",
     r"((\b(?<![A-Za-z])(chapters?|chaps?|chs?|cs?|)((\.)|)(\s+)?([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?(#([0-9]+)(([-_.])([0-9]+)|)+)?\b)(\s+)?((\(|\{|\[)\w+(([-_. ])+\w+)?(\]|\}|\))|(?<!\w(\s+)?)(\.cbz|\.epub)(?!\w)))",
-    r"(((?<![A-Za-z])(chapters?|chaps?|chs?|cs?)([-_. ]+)?([0-9]+))|\s+([0-9]+)(\.[0-9]+)?(x\d+((\.\d+)+)?)?(\s+|#\d+|\.cbz))",
+    r"(?<!([A-Za-z]|(Part|Episode|Season|Story)(\s+)?))(((chapters?|chaps?|chs?|cs?)([-_. ]+)?([0-9]+))|\s+([0-9]+)(\.[0-9]+)?(x\d+((\.\d+)+)?)?(\s+|#\d+|\.cbz))",
     r"^((#)?([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?(#([0-9]+)(([-_.])([0-9]+)|)+)?)$",
 ]
 
@@ -153,7 +153,7 @@ chapter_searches = [
 messages_to_send = []
 
 # ONLY FOR TESTING
-output_execution_times_to_discord = False
+output_execution_times = False
 
 
 # Folder Class
@@ -297,15 +297,20 @@ class Handler(FileSystemEventHandler):
 
 
 # Read all the lines of a text file and return them
-def read_lines_from_file(file_path, ignore=set()):
+def read_lines_from_file(file_path, ignore=set(), ignore_paths_not_in_paths=True):
     result = []
     try:
         with open(file_path, "r") as file:
-            result = [
-                line.strip()
-                for line in file
-                if line.strip() and line.strip() not in ignore
-            ]
+            for line in file:
+                line = line.strip()
+                if line and line not in ignore:
+                    if ignore_paths_not_in_paths:
+                        for path in paths:
+                            if line.startswith(path) and line not in result:
+                                result.append(line)
+                                break
+                    else:
+                        result.append(line)
     except FileNotFoundError:
         print(f"{file_path} not found.")
     except:
@@ -488,7 +493,7 @@ def set_num_as_float_or_int(volume_number, silent=False):
             send_message(e, error=True)
         return ""
     end_time = time.time()
-    if output_execution_times_to_discord:
+    if output_execution_times:
         print_function_execution_time(start_time, end_time, "set_num_as_float_or_int()")
     return volume_number
 
@@ -740,7 +745,7 @@ def clean_and_sort(
             part for part in root.split(os.sep) if part and part in ignored_folder_names
         ]
         ignored_folder_names_end = time.time()
-        if output_execution_times_to_discord:
+        if output_execution_times:
             print_function_execution_time(
                 ignored_folder_names_start,
                 ignored_folder_names_end,
@@ -754,7 +759,7 @@ def clean_and_sort(
         hidden_files_remove_start = time.time()
         files = remove_hidden_files(files)
         hidden_files_remove_end = time.time()
-        if output_execution_times_to_discord:
+        if output_execution_times:
             print_function_execution_time(
                 hidden_files_remove_start,
                 hidden_files_remove_end,
@@ -763,7 +768,7 @@ def clean_and_sort(
         remove_unnaccepted_file_types_start = time.time()
         files = remove_unaccepted_file_types(files, root, file_extensions)
         remove_unnaccepted_file_types_end = time.time()
-        if output_execution_times_to_discord:
+        if output_execution_times:
             print_function_execution_time(
                 remove_unnaccepted_file_types_start,
                 remove_unnaccepted_file_types_end,
@@ -773,7 +778,7 @@ def clean_and_sort(
             filter_non_chapters_start = time.time()
             files = filter_non_chapters(files)
             filter_non_chapters_end = time.time()
-            if output_execution_times_to_discord:
+            if output_execution_times:
                 print_function_execution_time(
                     filter_non_chapters_start,
                     filter_non_chapters_end,
@@ -785,7 +790,7 @@ def clean_and_sort(
         remove_hidden_folders_start = time.time()
         dirs = remove_hidden_folders(dirs)
         remove_hidden_folders_end = time.time()
-        if output_execution_times_to_discord:
+        if output_execution_times:
             print_function_execution_time(
                 remove_hidden_folders_start,
                 remove_hidden_folders_end,
@@ -794,14 +799,14 @@ def clean_and_sort(
         remove_ignored_folder_names_start = time.time()
         dirs = remove_ignored_folder_names(dirs)
         remove_ignored_folder_names_end = time.time()
-        if output_execution_times_to_discord:
+        if output_execution_times:
             print_function_execution_time(
                 remove_ignored_folder_names_start,
                 remove_ignored_folder_names_end,
                 "remove_ignored_folder_names() in clean_and_sort()",
             )
     end_time = time.time()
-    if output_execution_times_to_discord:
+    if output_execution_times:
         print_function_execution_time(start_time, end_time, "clean_and_sort()")
     return files, dirs
 
@@ -865,7 +870,7 @@ def upgrade_to_file_class(files, root):
         )
     ]
     end_time = time.time()
-    if output_execution_times_to_discord:
+    if output_execution_times:
         print_function_execution_time(start_time, end_time, "upgrade_to_file_class()")
 
     # Process the files sequentially
@@ -1028,6 +1033,7 @@ def move_images(file, folder_name):
 # Retrieves the series name through various regexes
 # Removes the volume number and anything to the right of it, and strips it.
 def get_series_name_from_file_name(name, root):
+    name = remove_bracketed_info_from_name(name)
     start_time = time.time()
     if is_one_shot(name, root):
         name = re.sub(
@@ -1058,7 +1064,7 @@ def get_series_name_from_file_name(name, root):
                 flags=re.IGNORECASE,
             ).strip()
     end_time = time.time()
-    if output_execution_times_to_discord:
+    if output_execution_times:
         print_function_execution_time(
             start_time, end_time, "get_series_name_from_file_name()"
         )
@@ -1115,7 +1121,7 @@ def chapter_file_name_cleaning(file_name, chapter_number="", skip=False):
             r"(Season|Sea|S)(\s+)?([0-9]+)$", "", file_name, flags=re.IGNORECASE
         )
     end_time = time.time()
-    if output_execution_times_to_discord:
+    if output_execution_times:
         print_function_execution_time(
             start_time, end_time, "chapter_file_name_cleaning()"
         )
@@ -1140,7 +1146,7 @@ def get_series_name_from_file_name_chapter(name, chapter_number=""):
     else:
         result = chapter_file_name_cleaning(name, chapter_number)
     end_time = time.time()
-    if output_execution_times_to_discord:
+    if output_execution_times:
         print_function_execution_time(
             start_time, end_time, "get_series_name_from_file_name_chapter()"
         )
@@ -1388,15 +1394,18 @@ def remove_everything_but_volume_num(files, chapter=False):
 
                     # Removes # from bewteen the numbers
                     # EX: 154#3 becomes 154
-                    file = re.sub(r"((#)([0-9]+)(([-_.])([0-9]+)|)+)", "", file).strip()
+                    if re.search(r"(\d+#\d+)", file):
+                        file = re.sub(
+                            r"((#)([0-9]+)(([-_.])([0-9]+)|)+)", "", file
+                        ).strip()
 
                     # removes part from chapter number
                     # EX: 053x1 or c053x1 becomes 053 or c053
                     file = re.sub(r"(x[0-9]+)", "", file, re.IGNORECASE).strip()
 
-                    # removes the bracketed info from the end of the string
+                    # removes the bracketed info from the end of the string, empty or not
                     file = re.sub(
-                        r"(\(|\{|\[)\w+(([-_. ])+\w+)?(\]|\}|\))", "", file
+                        r"(\(|\{|\[)(\w+(([-_. ])+\w+)?)?(\]|\}|\))", "", file
                     ).strip()
 
                     # Removes the - characters.cbz or .epub from the end of the string, with
@@ -1408,8 +1417,11 @@ def remove_everything_but_volume_num(files, chapter=False):
                         file,
                         re.IGNORECASE,
                     ).strip()
-
+                    # - #404 - becomes #404
                     file = re.sub(r"^- | -$", "", file).strip()
+                    # remove # at the beginning of the string
+                    # EX: #001 becomes 001
+                    file = re.sub(r"^#", "", file).strip()
                 file = re.sub(
                     r"\b({})(\.|)([-_. ])?".format(keywords),
                     "",
@@ -1455,7 +1467,7 @@ def remove_everything_but_volume_num(files, chapter=False):
             if file in files:
                 files.remove(file)
     end_time = time.time()
-    if output_execution_times_to_discord:
+    if output_execution_times:
         print_function_execution_time(
             start_time, end_time, "remove_everything_but_volume_num()"
         )
@@ -1647,7 +1659,7 @@ def upgrade_to_volume_class(
                 file_obj.volume_number = 1
         results.append(file_obj)
     end_time = time.time()
-    if output_execution_times_to_discord:
+    if output_execution_times:
         print_function_execution_time(start_time, end_time, "upgrade_to_volume_class()")
     return results
 
@@ -1723,23 +1735,49 @@ def remove_images(path):
 
 # Removes a file
 def remove_file(full_file_path, silent=False):
-    try:
-        os.remove(full_file_path)
-        if not os.path.isfile(full_file_path):
-            if not silent:
-                send_message("\t\t\tFile Removed: " + full_file_path, discord=False)
-                send_discord_message(
-                    "File: " + "```" + full_file_path + "```",
-                    "Removed File",
-                    color=16711680,
+    if os.path.isfile(full_file_path):
+        try:
+            os.remove(full_file_path)
+            if not os.path.isfile(full_file_path):
+                if not silent:
+                    send_message("\t\t\tFile Removed: " + full_file_path, discord=False)
+                    send_discord_message(
+                        None,
+                        "Removed File",
+                        color=16711680,
+                        fields=[
+                            {
+                                "name": "File:",
+                                "value": "```"
+                                + os.path.basename(full_file_path)
+                                + "```",
+                                "inline": False,
+                            },
+                            {
+                                "name": "Location:",
+                                "value": "```"
+                                + os.path.dirname(full_file_path)
+                                + "```",
+                                "inline": False,
+                            },
+                        ],
+                    )
+                remove_images(full_file_path)
+                return True
+            else:
+                send_message(
+                    "\n\t\t\tFailed to remove file: " + full_file_path, error=True
                 )
-            remove_images(full_file_path)
-            return True
-        else:
-            send_message("\n\t\t\tFailed to remove file: " + full_file_path, error=True)
+                return False
+        except OSError as e:
+            send_message(e, error=True)
             return False
-    except OSError as e:
-        send_message(e, error=True)
+    else:
+        send_message(
+            "\n\t\t\tFile does not exist when trying to remove: " + full_file_path,
+            error=True,
+        )
+        return False
 
 
 # Move a file
@@ -2519,7 +2557,11 @@ def reorganize_and_rename(files, dir):
                             or re.search(r"([\[\(\{]\d{4}[\]\)\}])", item)
                         ):
                             file.extras.remove(item)
-                if file.release_group and file.release_group != publisher:
+                if (
+                    move_release_group_to_end_of_file_name
+                    and file.release_group
+                    and file.release_group != publisher
+                ):
                     for item in file.extras[:]:
                         # escape any regex characters
                         item_escaped = re.escape(item)
@@ -2541,16 +2583,17 @@ def reorganize_and_rename(files, dir):
                 if len(file.extras) != 0:
                     for extra in file.extras:
                         rename += " " + extra
-                release_group_escaped = None
-                if file.release_group:
-                    release_group_escaped = re.escape(file.release_group)
-                if release_group_escaped and not re.search(
-                    rf"\b{release_group_escaped}\b", rename, re.IGNORECASE
-                ):
-                    if file.extension == ".cbz":
-                        rename += " (" + file.release_group + ")"
-                    elif file.extension == ".epub":
-                        rename += " [" + file.release_group + "]"
+                if move_release_group_to_end_of_file_name:
+                    release_group_escaped = None
+                    if file.release_group:
+                        release_group_escaped = re.escape(file.release_group)
+                    if release_group_escaped and not re.search(
+                        rf"\b{release_group_escaped}\b", rename, re.IGNORECASE
+                    ):
+                        if file.extension == ".cbz":
+                            rename += " (" + file.release_group + ")"
+                        elif file.extension == ".epub":
+                            rename += " [" + file.release_group + "]"
                 rename += file.extension
                 processed_files.append(rename)
                 if file.name != rename:
@@ -2600,7 +2643,8 @@ def reorganize_and_rename(files, dir):
                                         "\n\t\tReorganized & Renamed File: "
                                         + file.name
                                         + " to \n\t\t"
-                                        + rename,
+                                        + rename
+                                        + "\n",
                                         discord=False,
                                     )
                                     if not mute_discord_rename_notifications:
@@ -3158,8 +3202,11 @@ def remove_bracketed_info_from_name(string):
     # Remove all whitespace characters from the right side of the string
     string = string.rstrip()
 
+    # Remove any space before the extension from having removed bracketed content
+    string = re.sub(r"\s\.(\w+)$", r".\1", string)
+
     # Return the modified string
-    return string
+    return string.strip()
 
 
 # Checks for any duplicate releases and deletes the lower ranking one.
@@ -3172,32 +3219,34 @@ def check_for_duplicate_volumes(paths_to_search=[]):
                     print("\t" + root)
                     clean = clean_and_sort(root, files, dirs)
                     files, dirs = clean[0], clean[1]
+                    if not files:
+                        continue
                     file_objects = upgrade_to_file_class(
                         [f for f in files if os.path.isfile(os.path.join(root, f))],
                         root,
                     )
-                    # filter out any files where number doesn't match
                     file_objects = [
-                        file
-                        for file in file_objects
+                        fo
+                        for fo in file_objects
                         for compare in file_objects
-                        if file.name != compare.name
-                        and file.number == compare.number
-                        and file.root == compare.root
-                        and file.extension == compare.extension
-                        and file.file_type == compare.file_type
+                        if fo.name != compare.name
+                        and (fo.number != "" and compare.number != "")
+                        and fo.number == compare.number
+                        and fo.root == compare.root
+                        and fo.extension == compare.extension
+                        and fo.file_type == compare.file_type
                     ]
                     volumes = upgrade_to_volume_class(file_objects)
                     volumes = [
-                        file
-                        for file in volumes
+                        v
+                        for v in volumes
                         for compare in volumes
-                        if file.name != compare.name
-                        and file.root == compare.root
-                        and file.extension == compare.extension
-                        and file.file_type == compare.file_type
-                        and file.volume_number == compare.volume_number
-                        and file.volume_part == compare.volume_part
+                        if v.name != compare.name
+                        and v.volume_number == compare.volume_number
+                        and v.volume_part == compare.volume_part
+                        and v.root == compare.root
+                        and v.extension == compare.extension
+                        and v.file_type == compare.file_type
                     ]
                     for file in volumes:
                         try:
@@ -3217,6 +3266,10 @@ def check_for_duplicate_volumes(paths_to_search=[]):
                                     x
                                     for x in volumes.copy()
                                     if x.name != file.name
+                                    and x.volume_number == file.volume_number
+                                    and x.volume_part == file.volume_part
+                                    and x.root == file.root
+                                    and x.extension == file.extension
                                     and x.file_type == file.file_type
                                 ]
                                 if compare_volumes:
@@ -3495,6 +3548,7 @@ def check_for_existing_series():
                                     + file.extension
                                     in unmatched_series
                                 ):
+                                    # print("\t\tSkipping: " + file.name + "...")
                                     continue
                             if (
                                 cached_identifier_results
@@ -3742,8 +3796,8 @@ def check_for_existing_series():
                                                 reorganized = True
                                             if (
                                                 not match_through_isbn_or_series_id
-                                                and root in cached_paths
-                                            ):
+                                                or file.file_type == "chapter"
+                                            ) and root in cached_paths:
                                                 continue
                                             clean_two = clean_and_sort(
                                                 root, files, dirs
@@ -4982,7 +5036,9 @@ def rename_files_in_download_folders(only_these_files=[]):
                                                     modified.append("-")
                                         else:
                                             try:
-                                                if isint(r):
+                                                if isint(r) and not re.search(
+                                                    r"(\.\d+$)", str(r)
+                                                ):
                                                     r = int(r)
                                                     modified.append(r)
                                                 elif isfloat(r):
@@ -5167,7 +5223,7 @@ def rename_files_in_download_folders(only_these_files=[]):
                                             )
                                         ):
                                             user_input = ""
-                                            print("\t\tBEFORE: " + file.name)
+                                            print("\n\t\tBEFORE: " + file.name)
                                             print("\t\tAFTER:  " + replacement)
                                             if not manual_rename:
                                                 user_input = "y"
@@ -5640,7 +5696,7 @@ def find_and_extract_cover(file, return_data_only=False):
     else:
         send_message("\nFile: " + file.name + " is not a valid zip file.", error=True)
     end_time = time.time()
-    if output_execution_times_to_discord:
+    if output_execution_times:
         print_function_execution_time(start_time, end_time, "extract_cover_from_zip()")
     return False
 
@@ -5683,7 +5739,7 @@ def extract_covers():
                         for file in folder_accessor.files
                     )
                     end_time = time.time()
-                    if output_execution_times_to_discord:
+                    if output_execution_times:
                         print_function_execution_time(
                             start_time, end_time, "contains_volume_one"
                         )
@@ -5695,7 +5751,7 @@ def extract_covers():
                         or (file.file_type == "chapter" and extract_chapter_covers)
                     ]
                     end_time = time.time()
-                    if output_execution_times_to_discord:
+                    if output_execution_times:
                         print_function_execution_time(
                             start_time, end_time, "process_cover_extraction()"
                         )
@@ -5729,7 +5785,7 @@ def process_cover_extraction(file, contains_volume_one):
             "",
         )
         cover_end_time = time.time()
-        if output_execution_times_to_discord:
+        if output_execution_times:
             print_function_execution_time(
                 cover_start_time, cover_end_time, "cover = next()"
             )
@@ -5749,7 +5805,7 @@ def process_cover_extraction(file, contains_volume_one):
                 has_cover = True
                 cover = result
             not_has_cover_end_time = time.time()
-            if output_execution_times_to_discord:
+            if output_execution_times:
                 print_function_execution_time(
                     not_has_cover_start_time,
                     not_has_cover_end_time,
@@ -5790,7 +5846,7 @@ def process_cover_extraction(file, contains_volume_one):
                         + str(os.path.join(file.root, os.path.basename(cover)))
                     )
             volume_and_chap_cover_end_time = time.time()
-            if output_execution_times_to_discord:
+            if output_execution_times:
                 print_function_execution_time(
                     volume_and_chap_cover_start_time,
                     volume_and_chap_cover_end_time,
@@ -5802,7 +5858,7 @@ def process_cover_extraction(file, contains_volume_one):
             error=True,
         )
     end_time = time.time()
-    if output_execution_times_to_discord:
+    if output_execution_times:
         print_function_execution_time(
             start_time, end_time, "process_cover_extraction()"
         )
@@ -5878,11 +5934,11 @@ def delete_unacceptable_files():
                                             discord=False,
                                         )
                                         send_discord_message(
-                                            "Keyword/Regex: "
+                                            "Found: "
                                             + "```"
                                             + unacceptable_keyword_search.group()
                                             + "```"
-                                            + "File: "
+                                            + "In: "
                                             + "```"
                                             + file
                                             + "```"
@@ -5890,7 +5946,7 @@ def delete_unacceptable_files():
                                             + "```"
                                             + root
                                             + "```",
-                                            "Unacceptable File Found",
+                                            "Unacceptable Match Found",
                                             color=16711680,
                                         )
                                         remove_file(os.path.join(root, file))
@@ -7027,7 +7083,7 @@ def main():
         start_time = time.time()
         delete_unacceptable_files()
         end_time = time.time()
-        if output_execution_times_to_discord:
+        if output_execution_times:
             print_function_execution_time(
                 start_time, end_time, "delete_unacceptable_files()"
             )
@@ -7035,7 +7091,7 @@ def main():
         start_time = time.time()
         delete_chapters_from_downloads()
         end_time = time.time()
-        if output_execution_times_to_discord:
+        if output_execution_times:
             print_function_execution_time(
                 start_time, end_time, "delete_chapters_from_downloads()"
             )
@@ -7045,7 +7101,7 @@ def main():
         start_time = time.time()
         rename_files_in_download_folders()
         end_time = time.time()
-        if output_execution_times_to_discord:
+        if output_execution_times:
             print_function_execution_time(
                 start_time, end_time, "rename_files_in_download_folders()"
             )
@@ -7053,7 +7109,7 @@ def main():
         start_time = time.time()
         create_folders_for_items_in_download_folder()
         end_time = time.time()
-        if output_execution_times_to_discord:
+        if output_execution_times:
             print_function_execution_time(
                 start_time,
                 end_time,
@@ -7063,7 +7119,7 @@ def main():
         start_time = time.time()
         rename_dirs_in_download_folder()
         end_time = time.time()
-        if output_execution_times_to_discord:
+        if output_execution_times:
             print_function_execution_time(
                 start_time, end_time, "rename_dirs_in_download_folder()"
             )
@@ -7071,7 +7127,7 @@ def main():
         start_time = time.time()
         check_for_duplicate_volumes(download_folders)
         end_time = time.time()
-        if output_execution_times_to_discord:
+        if output_execution_times:
             print_function_execution_time(
                 start_time, end_time, "check_for_duplicate_volumes()"
             )
@@ -7079,13 +7135,13 @@ def main():
         start_time = time.time()
         extract_covers()
         end_time = time.time()
-        if output_execution_times_to_discord:
+        if output_execution_times:
             print_function_execution_time(start_time, end_time, "extract_covers()")
     if check_for_existing_series_toggle and download_folders and paths:
         start_time = time.time()
         check_for_existing_series()
         end_time = time.time()
-        if output_execution_times_to_discord:
+        if output_execution_times:
             print_function_execution_time(
                 start_time, end_time, "check_for_existing_series()"
             )
@@ -7093,7 +7149,7 @@ def main():
         start_time = time.time()
         extract_covers()
         end_time = time.time()
-        if output_execution_times_to_discord:
+        if output_execution_times:
             print_function_execution_time(start_time, end_time, "extract_covers()")
     if send_scan_request_to_komga_libraries_toggle and moved_files:
         scan_komga_libraries()
@@ -7101,7 +7157,7 @@ def main():
         start_time = time.time()
         check_for_missing_volumes()
         end_time = time.time()
-        if output_execution_times_to_discord:
+        if output_execution_times:
             print_function_execution_time(
                 start_time, end_time, "check_for_missing_volumes()"
             )
@@ -7113,7 +7169,7 @@ def main():
         start_time = time.time()
         print_stats()
         end_time = time.time()
-        if output_execution_times_to_discord:
+        if output_execution_times:
             print_function_execution_time(start_time, end_time, "print_stats()")
 
 
