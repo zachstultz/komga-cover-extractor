@@ -70,6 +70,17 @@ exception_keywords = [
     r"Bonus",
     r"Side(-|)story",
 ]
+
+# If a release_groups.txt is found within the logs folder, and a match is found,
+# and this is enabled, then when using reorganize & rename,
+# it will move the release group to the end of the file name.
+#
+# A release_groups.txt list can be created with the input of the user by enabling
+# generate_release_group_list_toggle = True and log_to_file = True, below, create it, and then turn this off after creation.
+#
+# BEFORE: Series Name v01 (Group) (f).cbz
+# AFTER : Series Name v01 (f) (Group).cbz
+move_release_group_to_end_of_file_name = True
 ################################################################
 
 ########################### UPGRADING ###########################
