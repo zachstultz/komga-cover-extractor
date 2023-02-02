@@ -80,7 +80,7 @@ exception_keywords = [
 #
 # BEFORE: Series Name v01 (Group) (f).cbz
 # AFTER : Series Name v01 (f) (Group).cbz
-move_release_group_to_end_of_file_name = True
+move_release_group_to_end_of_file_name = False
 ################################################################
 
 ########################### UPGRADING ###########################
