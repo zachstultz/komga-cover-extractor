@@ -38,7 +38,7 @@ from io import BytesIO
 from functools import lru_cache
 from skimage.metrics import structural_similarity as ssim
 
-script_version = "2.1.2"
+script_version = "2.1.3"
 
 # Paths = existing library
 # Download_folders = newly aquired manga/novels
@@ -3247,6 +3247,7 @@ def check_for_duplicate_volumes(paths_to_search=[]):
                         and v.root == compare.root
                         and v.extension == compare.extension
                         and v.file_type == compare.file_type
+                        and v.series_name == compare.series_name
                     ]
                     for file in volumes:
                         try:
@@ -3271,6 +3272,7 @@ def check_for_duplicate_volumes(paths_to_search=[]):
                                     and x.root == file.root
                                     and x.extension == file.extension
                                     and x.file_type == file.file_type
+                                    and x.series_name == file.series_name
                                 ]
                                 if compare_volumes:
                                     print("\t\tChecking: " + file.name)
