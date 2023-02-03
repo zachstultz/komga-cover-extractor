@@ -38,12 +38,16 @@ from io import BytesIO
 from functools import lru_cache
 from skimage.metrics import structural_similarity as ssim
 
-script_version = "2.1.3"
+script_version = "2.1.4"
 
 # Paths = existing library
 # Download_folders = newly aquired manga/novels
 paths = []
 download_folders = []
+
+# paths within paths that were passed in with a defined path_type
+# EX: "volume" or "chapter"
+paths_with_types = []
 
 # global folder_accessor
 folder_accessor = None
@@ -232,6 +236,12 @@ class Volume:
         self.is_one_shot = is_one_shot
 
 
+class Path:
+    def __init__(self, path, path_type):
+        self.path = path
+        self.path_type = path_type
+
+
 # It watches the download directory for any changes.
 class Watcher:
     def __init__(self):
@@ -338,6 +348,7 @@ def parse_my_args():
     global paths
     global download_folders
     global discord_webhook_url
+    global paths_with_types
     parser = argparse.ArgumentParser(
         description="Scans for covers in the cbz and epub files."
     )
@@ -409,7 +420,18 @@ def parse_my_args():
         print("Exiting...")
         exit()
     if parser.paths is not None:
-        paths = [p for path in parser.paths for p in path]
+        for path in parser.paths:
+            if path:
+                if len(path) == 1:
+                    paths.append(path[0])
+                elif len(path) == 2 and (
+                    str(path[1]).lower() == "chapter"
+                    or str(path[1]).lower() == "volume"
+                ):
+                    paths_with_types.append(Path(path[0], path[1]))
+                    paths.append(path[0])
+                else:
+                    paths.append(path[0])
     if parser.download_folders is not None:
         download_folders = [
             folder
@@ -3511,6 +3533,7 @@ def check_for_existing_series():
     global cached_paths
     global cached_identifier_results
     global messages_to_send
+    global paths_with_types
     if download_folders:
         print("\nChecking download folders for items to match to existing library...")
         for download_folder in download_folders:
@@ -3624,6 +3647,15 @@ def check_for_existing_series():
                             if cached_paths:
                                 print("\n\tChecking cached paths for match...")
                                 for p in cached_paths:
+                                    if paths_with_types:
+                                        skip_cached_path = False
+                                        for item in paths_with_types:
+                                            if p.startswith(item.path):
+                                                if file.file_type != item.path_type:
+                                                    skip_cached_path = True
+                                                break
+                                        if skip_cached_path:
+                                            continue
                                     position = cached_paths.index(p) + 1
                                     if (
                                         os.path.exists(p)
@@ -3772,6 +3804,17 @@ def check_for_existing_series():
                                     and not done
                                     and path not in download_folders
                                 ):
+                                    if paths_with_types:
+                                        skip_path = False
+                                        for item in paths_with_types:
+                                            if (
+                                                path == item.path
+                                                and file.file_type != item.path_type
+                                            ):
+                                                skip_path = True
+                                                break
+                                        if skip_path:
+                                            continue
                                     try:
                                         os.chdir(path)
                                         reorganized = False
