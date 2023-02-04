@@ -126,8 +126,8 @@ ranked_keywords = []
 # Folder names to be ignored
 ignored_folder_names = [""]
 # List of file types used throughout the program
-file_extensions = ["epub", "cbz"]
-image_extensions = ["jpg", "jpeg", "png", "tbn", "jxl"]
+file_extensions = [".epub", ".cbz"]
+image_extensions = [".jpg", ".jpeg", ".png", ".tbn", ".jxl"]
 # file extensions that will be deleted from the download folders in an optional method. EX: [".example"]
 unaccepted_file_extensions = []
 series_cover_file_names = ["cover", "poster"]
