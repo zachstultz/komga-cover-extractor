@@ -38,7 +38,7 @@ from io import BytesIO
 from functools import lru_cache
 from skimage.metrics import structural_similarity as ssim
 
-script_version = "2.1.4"
+script_version = "2.2.0"
 
 # Paths = existing library
 # Download_folders = newly aquired manga/novels
@@ -147,7 +147,7 @@ chapter_searches = [
     r"\s-(\s+)?(#)?([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?(\s+)?-\s",
     r"(\b(?<![A-Za-z])(chapters?|chaps?|chs?|cs?)((\.)|)(\s+)?([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?\b)",
     r"((\b(?<![A-Za-z])(chapters?|chaps?|chs?|cs?|)((\.)|)(\s+)?([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?(#([0-9]+)(([-_.])([0-9]+)|)+)?\b)(\s+)?((\(|\{|\[)\w+(([-_. ])+\w+)?(\]|\}|\))|(?<!\w(\s+)?)(\.cbz|\.epub)(?!\w)))",
-    r"(?<!([A-Za-z]|(Part|Episode|Season|Story)(\s+)?))(((chapters?|chaps?|chs?|cs?)([-_. ]+)?([0-9]+))|\s+([0-9]+)(\.[0-9]+)?(x\d+((\.\d+)+)?)?(\s+|#\d+|\.cbz))",
+    r"(?<!([A-Za-z]|(Part|Episode|Season|Story|Arc)(\s+)?))(((chapters?|chaps?|chs?|cs?)([-_. ]+)?([0-9]+))|\s+([0-9]+)(\.[0-9]+)?(x\d+((\.\d+)+)?)?(\s+|#\d+|\.cbz))",
     r"^((#)?([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?(#([0-9]+)(([-_.])([0-9]+)|)+)?)$",
 ]
 
@@ -237,9 +237,12 @@ class Volume:
 
 
 class Path:
-    def __init__(self, path, path_type):
+    def __init__(
+        self, path, path_types=["volume", "chapter"], path_extensions=file_extensions
+    ):
         self.path = path
-        self.path_type = path_type
+        self.path_types = path_types
+        self.path_extensions = path_extensions
 
 
 # It watches the download directory for any changes.
@@ -283,8 +286,7 @@ class Handler(FileSystemEventHandler):
             and not os.path.basename(event.src_path).startswith(".")
             and event.event_type == "created"
             and os.path.isfile(event.src_path)
-            and re.sub("\.", "", get_file_extension(os.path.basename(event.src_path)))
-            in file_extensions
+            and get_file_extension(os.path.basename(event.src_path)) in file_extensions
         ):
             time.sleep(10)
             fields = []
@@ -307,7 +309,7 @@ class Handler(FileSystemEventHandler):
 
 
 # Read all the lines of a text file and return them
-def read_lines_from_file(file_path, ignore=set(), ignore_paths_not_in_paths=True):
+def read_lines_from_file(file_path, ignore=set(), ignore_paths_not_in_paths=False):
     result = []
     try:
         with open(file_path, "r") as file:
@@ -428,8 +430,74 @@ def parse_my_args():
                     str(path[1]).lower() == "chapter"
                     or str(path[1]).lower() == "volume"
                 ):
-                    paths_with_types.append(Path(path[0], path[1]))
+                    paths_with_types.append(Path(path[0], path_types=[path[1]]))
                     paths.append(path[0])
+                # otherwise if there are 2 arguments and they passed a single extension or list of extensions separated by commas
+                elif len(path) == 2 and re.search(r"\.[a-zA-Z0-9]{1,4}", path[1]):
+                    extensions = path[1].split(",")
+                    # get rid of any whitespace
+                    extensions = [extension.strip() for extension in extensions]
+                    found_in_file_extensions = False
+                    for extension in extensions:
+                        if extension in file_extensions:
+                            found_in_file_extensions = True
+                            break
+                    if found_in_file_extensions:
+                        paths_with_types.append(
+                            Path(path[0], path_extensions=extensions)
+                        )
+                        paths.append(path[0])
+                    else:
+                        paths.append(path[0])
+                elif len(path) == 3:
+                    if (
+                        str(path[1]).lower() == "chapter"
+                        or str(path[1]).lower() == "volume"
+                    ):
+                        extensions = path[2].split(",")
+                        # get rid of any whitespace
+                        extensions = [extension.strip() for extension in extensions]
+                        found_in_file_extensions = False
+                        for extension in extensions:
+                            if extension in file_extensions:
+                                found_in_file_extensions = True
+                                break
+                        if found_in_file_extensions:
+                            paths_with_types.append(
+                                Path(
+                                    path[0],
+                                    path_types=[path[1]],
+                                    path_extensions=extensions,
+                                )
+                            )
+                            paths.append(path[0])
+                        else:
+                            paths.append(path[0])
+                    elif (
+                        str(path[2]).lower() == "chapter"
+                        or str(path[2]).lower() == "volume"
+                    ):
+                        extensions = path[1].split(",")
+                        # get rid of any whitespace
+                        extensions = [extension.strip() for extension in extensions]
+                        found_in_file_extensions = False
+                        for extension in extensions:
+                            if extension in file_extensions:
+                                found_in_file_extensions = True
+                                break
+                        if found_in_file_extensions:
+                            paths_with_types.append(
+                                Path(
+                                    path[0],
+                                    path_types=[path[2]],
+                                    path_extensions=extensions,
+                                )
+                            )
+                            paths.append(path[0])
+                        else:
+                            paths.append(path[0])
+                    else:
+                        paths.append(path[0])
                 else:
                     paths.append(path[0])
     if parser.download_folders is not None:
@@ -688,7 +756,7 @@ def remove_unaccepted_file_types(files, root, accepted_extensions):
     return [
         file
         for file in files
-        if os.path.splitext(file)[1].lstrip(".") in accepted_extensions
+        if get_file_extension(file) in accepted_extensions
         and os.path.isfile(os.path.join(root, file))
     ]
 
@@ -1039,11 +1107,11 @@ def similar(a, b):
 # Moves the image into a folder if said image exists. Also checks for a cover/poster image and moves that.
 def move_images(file, folder_name):
     for extension in image_extensions:
-        image = file.extensionless_path + "." + extension
+        image = file.extensionless_path + extension
         if os.path.isfile(image):
             shutil.move(image, folder_name)
         for cover_file_name in series_cover_file_names:
-            cover_image_file_name = cover_file_name + "." + extension
+            cover_image_file_name = cover_file_name + extension
             cover_image_file_path = os.path.join(file.root, cover_image_file_name)
             if os.path.isfile(cover_image_file_path):
                 if not os.path.isfile(os.path.join(folder_name, cover_image_file_name)):
@@ -1195,13 +1263,9 @@ def create_folders_for_items_in_download_folder():
                         file_objects,
                     )
                     for file in folder_accessor.files:
-                        if re.sub(
-                            r"\.", "", file.extension
-                        ) in file_extensions and os.path.basename(
+                        if file.extension in file_extensions and os.path.basename(
                             download_folder
-                        ) == os.path.basename(
-                            file.root
-                        ):
+                        ) == os.path.basename(file.root):
                             done = False
                             if move_lone_files_to_similar_folder and dirs:
                                 for dir in dirs:
@@ -1740,17 +1804,15 @@ def delete_hidden_files(files, root):
 
 # Removes the old series and cover image
 def remove_images(path):
-    for image_extension in image_extensions:
+    for extension in image_extensions:
         if is_volume_one(os.path.basename(path)):
             for cover_file_name in series_cover_file_names:
                 cover_file_name = os.path.join(
-                    os.path.dirname(path), cover_file_name + "." + image_extension
+                    os.path.dirname(path), cover_file_name + extension
                 )
                 if os.path.isfile(cover_file_name):
                     remove_file(cover_file_name, silent=True)
-        volume_image_cover_file_name = (
-            get_extensionless_name(path) + "." + image_extension
-        )
+        volume_image_cover_file_name = get_extensionless_name(path) + extension
         if os.path.isfile(volume_image_cover_file_name):
             remove_file(volume_image_cover_file_name, silent=True)
 
@@ -2373,8 +2435,8 @@ def rename_file(
             #     color=8421504,
             # )
             for image_extension in image_extensions:
-                image_file = extensionless_filename_src + "." + image_extension
-                image_file_rename = extensionless_filename_dst + "." + image_extension
+                image_file = extensionless_filename_src + image_extension
+                image_file_rename = extensionless_filename_dst + image_extension
                 if os.path.isfile(os.path.join(root, image_file)):
                     try:
                         os.rename(
@@ -3645,13 +3707,37 @@ def check_for_existing_series():
                                     )
                             done = False
                             if cached_paths:
-                                print("\n\tChecking cached paths for match...")
+                                print("\n\tChecking path types...")
                                 for p in cached_paths:
                                     if paths_with_types:
                                         skip_cached_path = False
                                         for item in paths_with_types:
                                             if p.startswith(item.path):
-                                                if file.file_type != item.path_type:
+                                                if (
+                                                    file.file_type
+                                                    not in item.path_types
+                                                ):
+                                                    print(
+                                                        "\t\tSkipping: "
+                                                        + p
+                                                        + " - Path: "
+                                                        + str(item.path_types)
+                                                        + " File: "
+                                                        + file.file_type
+                                                    )
+                                                    skip_cached_path = True
+                                                elif (
+                                                    file.extension
+                                                    not in item.path_extensions
+                                                ):
+                                                    print(
+                                                        "\t\tSkipping: "
+                                                        + p
+                                                        + " - Path: "
+                                                        + str(item.path_extensions)
+                                                        + " File: "
+                                                        + file.extension
+                                                    )
                                                     skip_cached_path = True
                                                 break
                                         if skip_cached_path:
@@ -3689,7 +3775,7 @@ def check_for_existing_series():
                                             )
                                         # print(similar.cache_info()) # only for testing
                                         print(
-                                            "\t\t-(CACHE)- "
+                                            "\n\t\t-(CACHE)- "
                                             + str(position)
                                             + " of "
                                             + str(len(cached_paths))
@@ -3703,7 +3789,6 @@ def check_for_existing_series():
                                             + successful_file_series_name
                                             + "\n\t\tSCORE:    "
                                             + str(successful_similarity_score)
-                                            + "\n"
                                         )
                                         if (
                                             successful_similarity_score
@@ -3728,7 +3813,7 @@ def check_for_existing_series():
                                                 ),
                                             )
                                             print(
-                                                '\t\tSimilarity between: "'
+                                                '\n\t\tSimilarity between: "'
                                                 + successful_file_series_name
                                                 + '" and "'
                                                 + downloaded_file_series_name
@@ -3807,12 +3892,35 @@ def check_for_existing_series():
                                     if paths_with_types:
                                         skip_path = False
                                         for item in paths_with_types:
-                                            if (
-                                                path == item.path
-                                                and file.file_type != item.path_type
-                                            ):
-                                                skip_path = True
-                                                break
+                                            if path == item.path:
+                                                if (
+                                                    file.file_type
+                                                    not in item.path_types
+                                                ):
+                                                    print(
+                                                        "\nSkipping path: "
+                                                        + path
+                                                        + " - Path: "
+                                                        + str(item.path_types)
+                                                        + " File: "
+                                                        + str(file.file_type)
+                                                    )
+                                                    skip_path = True
+                                                    break
+                                                elif (
+                                                    file.extension
+                                                    not in item.path_extensions
+                                                ):
+                                                    print(
+                                                        "\nSkipping path: "
+                                                        + path
+                                                        + " - Path: "
+                                                        + str(item.path_extensions)
+                                                        + " File: "
+                                                        + str(file.extension)
+                                                    )
+                                                    skip_path = True
+                                                    break
                                         if skip_path:
                                             continue
                                     try:
@@ -3878,7 +3986,7 @@ def check_for_existing_series():
                                                 if done:
                                                     break
                                                 print(
-                                                    "Looking for: " + file.series_name
+                                                    "\nLooking for: " + file.series_name
                                                 )
                                                 print(
                                                     "\tInside of: "
@@ -3915,7 +4023,7 @@ def check_for_existing_series():
                                                         )
                                                     # print(similar.cache_info()) # only for testing
                                                     print(
-                                                        "\t\t-(NOT CACHE)- "
+                                                        "\n\t\t-(NOT CACHE)- "
                                                         + str(dir_position)
                                                         + " of "
                                                         + str(len(folder_accessor.dirs))
@@ -3933,7 +4041,6 @@ def check_for_existing_series():
                                                         + existing_series_folder_from_library
                                                         + "\n\t\tSCORE:    "
                                                         + str(similarity_score)
-                                                        + "\n"
                                                     )
                                                     if (
                                                         similarity_score
@@ -3958,7 +4065,7 @@ def check_for_existing_series():
                                                             ),
                                                         )
                                                         print(
-                                                            '\t\tSimilarity between: "'
+                                                            '\n\t\tSimilarity between: "'
                                                             + existing_series_folder_from_library
                                                             + '" and "'
                                                             + downloaded_file_series_name
@@ -5050,7 +5157,7 @@ def rename_files_in_download_folders(only_these_files=[]):
                             else:
                                 continue
                             for ext in file_extensions:
-                                result = re.sub("\." + ext, "", result).strip()
+                                result = re.sub(ext, "", result).strip()
                             results = re.split(
                                 r"(%s)(\.|)" % keywords,
                                 result,
@@ -5321,7 +5428,6 @@ def rename_files_in_download_folders(only_these_files=[]):
                                                     ) in image_extensions:
                                                         image_file = (
                                                             file.extensionless_name
-                                                            + "."
                                                             + image_extension
                                                         )
                                                         if os.path.isfile(
@@ -5334,7 +5440,6 @@ def rename_files_in_download_folders(only_these_files=[]):
                                                             )
                                                             replacement_image = (
                                                                 extensionless_replacement
-                                                                + "."
                                                                 + image_extension
                                                             )
                                                             try:
@@ -5488,7 +5593,7 @@ def delete_chapters_from_downloads():
 def remove_non_images(files):
     clean_list = []
     for file in files:
-        extension = re.sub(r"\.", "", get_file_extension(os.path.basename(file)))
+        extension = get_file_extension(os.path.basename(file))
         if extension in image_extensions:
             clean_list.append(file)
     return clean_list
@@ -5505,9 +5610,7 @@ def find_and_extract_cover(file, return_data_only=False):
             epub_cover_path = get_epub_cover(file.path)
             if epub_cover_path:
                 epub_cover_path = os.path.basename(epub_cover_path)
-                epub_cover_extension = re.sub(
-                    r"\.", "", get_file_extension(epub_cover_path)
-                )
+                epub_cover_extension = get_file_extension(epub_cover_path)
                 if epub_cover_extension not in image_extensions:
                     epub_cover_path = ""
         with zipfile.ZipFile(file.path, "r") as zip_ref:
@@ -5526,7 +5629,6 @@ def find_and_extract_cover(file, return_data_only=False):
             # remove any non-supported image files from the list
             for item in zip_list:
                 extension = get_file_extension(item)
-                extension = re.sub(r"\.", "", extension)
                 if extension not in image_extensions:
                     zip_list.remove(item)
             zip_list.sort()
@@ -5818,14 +5920,9 @@ def process_cover_extraction(file, contains_volume_one):
         cover_start_time = time.time()
         cover = next(
             (
-                os.path.join(file.root, file.extensionless_path + "." + extension)
+                file.extensionless_path + extension
                 for extension in image_extensions
-                if os.path.isfile(
-                    os.path.join(
-                        file.root,
-                        file.extensionless_path + "." + extension,
-                    )
-                )
+                if os.path.isfile(file.extensionless_path + extension)
             ),
             "",
         )
@@ -5857,13 +5954,13 @@ def process_cover_extraction(file, contains_volume_one):
                     "not_has_cover in process_cover_extraction()",
                 )
             else:
-                print("\t\tCover not found.")
+                print("\t\tSeries Cover not found.")
         else:
             image_count += 1
         if (
             file.number == 1
             and not any(
-                os.path.isfile(os.path.join(file.root, f"cover.{ext}"))
+                os.path.isfile(os.path.join(file.root, f"cover{ext}"))
                 for ext in image_extensions
             )
             and has_cover
@@ -7099,7 +7196,9 @@ def main():
         and check_for_existing_series_toggle
     ):
         cached_paths = read_lines_from_file(
-            os.path.join(ROOT_DIR, "cached_paths.txt"), ignore=paths + download_folders
+            os.path.join(ROOT_DIR, "cached_paths.txt"),
+            ignore=paths + download_folders,
+            ignore_paths_not_in_paths=True,
         )
     if (
         (
