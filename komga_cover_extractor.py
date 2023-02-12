@@ -38,7 +38,7 @@ from io import BytesIO
 from functools import lru_cache
 from skimage.metrics import structural_similarity as ssim
 
-script_version = "2.2.0"
+script_version = "2.2.1"
 
 # Paths = existing library
 # Download_folders = newly aquired manga/novels
@@ -136,7 +136,7 @@ cached_identifier_results = []
 watchdog_toggle = False
 
 # Volume Regex Keywords to be used throughout the script
-volume_regex_keywords = "LN|Light Novels?|Novels?|Books?|Volumes?|Vols?|V|第|Discs?"
+volume_regex_keywords = "LN|Light Novels?|Novels?|Books?|Volumes?|Vols?|V|第|Discs?|Tomo"
 
 # Chapter Regex Keywords to be used throughout the script
 chapter_regex_keywords = "chapters?|chaps?|chs?|cs?"
@@ -278,9 +278,14 @@ def send_message(message, discord=True, error=False):
         write_to_file("changes.txt", message)
 
 
+# The last valid file that was found by the watchdog
+last_watchdog_file = None
+
+
 class Handler(FileSystemEventHandler):
     @staticmethod
     def on_any_event(event):
+        global last_watchdog_file
         if (
             not event.is_directory
             and not os.path.basename(event.src_path).startswith(".")
@@ -291,6 +296,7 @@ class Handler(FileSystemEventHandler):
             time.sleep(10)
             fields = []
             if os.path.isfile(event.src_path) and zipfile.is_zipfile(event.src_path):
+                last_watchdog_file = event.src_path
                 fields = [
                     {
                         "name": "File Found:",
@@ -1080,7 +1086,7 @@ def is_one_shot_bk(file_name):
 def is_one_shot(file_name, root):
     files = clean_and_sort(root, os.listdir(root))[0]
     continue_logic = False
-    if len(files) == 1 or root == download_folders[0]:
+    if len(files) == 1 or (download_folders and root == download_folders[0]):
         continue_logic = True
     if continue_logic == True:
         volume_file_status = contains_volume_keywords(file_name)
@@ -1134,13 +1140,13 @@ def get_series_name_from_file_name(name, root):
         ).strip()
     else:
         if re.search(
-            r"(\b|\s)((\s|)-(\s|)|)(Part|)(\[|\(|\{)?(LN|Light Novels?|Novels?|Books?|Volumes?|Vols?|V|第|Discs?)(\.|)([-_. ]|)([0-9]+)(\b|\s).*",
+            r"(\b|\s)((\s|)-(\s|)|)(Part|)(\[|\(|\{)?(LN|Light Novels?|Novels?|Books?|Volumes?|Vols?|V|第|Discs?|Tomo)(\.|)([-_. ]|)([0-9]+)(\b|\s).*",
             name,
             flags=re.IGNORECASE,
         ):
             name = (
                 re.sub(
-                    r"(\b|\s)((\s|)-(\s|)|)(Part|)(\[|\(|\{)?(LN|Light Novels?|Novels?|Books?|Volumes?|Vols?|V|第|Discs?)(\.|)([-_. ]|)([0-9]+)(\b|\s).*",
+                    r"(\b|\s)((\s|)-(\s|)|)(Part|)(\[|\(|\{)?(LN|Light Novels?|Novels?|Books?|Volumes?|Vols?|V|第|Discs?|Tomo)(\.|)([-_. ]|)([0-9]+)(\b|\s).*",
                     "",
                     name,
                     flags=re.IGNORECASE,
@@ -1607,7 +1613,7 @@ def get_release_group(name, release_groups):
 
 # Precompile the regular expressions
 rx_remove = re.compile(
-    r".*(LN|Light Novels?|Novels?|Books?|Volumes?|Vols?|V|第|Discs?)([-_. ]|)([-_. ]|)([0-9]+)(\b|\s)",
+    r".*(LN|Light Novels?|Novels?|Books?|Volumes?|Vols?|V|第|Discs?|Tomo)([-_. ]|)([-_. ]|)([0-9]+)(\b|\s)",
     re.IGNORECASE,
 )
 rx_search_part = re.compile(r"(\b(Part)([-_. ]|)([0-9]+)\b)", re.IGNORECASE)
@@ -4415,7 +4421,7 @@ def check_for_existing_series():
 def get_series_name(dir):
     dir = (
         re.sub(
-            r"(\b|\s)((\s|)-(\s|)|)(Part|)(LN|Light Novels?|Novels?|Books?|Volumes?|Vols?|V|第|Discs?)([-_. ]|)([-_. ]|)([0-9]+)(\b|\s).*",
+            r"(\b|\s)((\s|)-(\s|)|)(Part|)(LN|Light Novels?|Novels?|Books?|Volumes?|Vols?|V|第|Discs?|Tomo)([-_. ]|)([-_. ]|)([0-9]+)(\b|\s).*",
             "",
             dir,
             flags=re.IGNORECASE,
@@ -4715,7 +4721,7 @@ def rename_dirs_in_download_folder():
                                 or re.search(r"(\s-\s|\s-)$", folderDir, re.IGNORECASE)
                                 or re.search(r"(\bLN\b)", folderDir, re.IGNORECASE)
                                 or re.search(
-                                    r"(\b|\s)((\s|)-(\s|)|)(Part|)(LN|Light Novels?|Novels?|Books?|Volumes?|Vols?|V|第|Discs?|)(\.|)([-_. ]|)(([0-9]+)((([-_.]|)([0-9]+))+|))(\b|\s)",
+                                    r"(\b|\s)((\s|)-(\s|)|)(Part|)(LN|Light Novels?|Novels?|Books?|Volumes?|Vols?|V|第|Discs?|Tomo|)(\.|)([-_. ]|)(([0-9]+)((([-_.]|)([0-9]+))+|))(\b|\s)",
                                     folderDir,
                                     re.IGNORECASE,
                                 )
@@ -5747,7 +5753,8 @@ def find_and_extract_cover(file, return_data_only=False):
                                         return image_data
                                 else:
                                     return None
-
+                            elif not compress_image_option and not return_data_only:
+                                return file.extensionless_name + image_extension
                 default_cover_path = None
                 if (
                     compare_detected_cover_to_blank_image
@@ -6089,7 +6096,7 @@ def delete_unacceptable_files():
                                             + root
                                             + "```",
                                             "Unacceptable Match Found",
-                                            color=16711680,
+                                            color=16776960,
                                         )
                                         remove_file(os.path.join(root, file))
                                         if not os.path.isfile(os.path.join(root, file)):
@@ -6449,7 +6456,7 @@ def search_bookwalker(query, type, print_info=False, alternative_search=False):
                     volume_number = remove_everything_but_volume_num([title])
                 if not re.search(r"(\b(Vol)([-_. ]|)\b)", title):
                     title = re.sub(
-                        r"(\b|\s)((\s|)-(\s|)|)(Part|)(\[|\(|\{)?(LN|Light Novels?|Novels?|Books?|Volumes?|Vols?|V|第|Discs?|)(\.|)([-_. ]|)(([0-9]+)(\b|\s))$.*",
+                        r"(\b|\s)((\s|)-(\s|)|)(Part|)(\[|\(|\{)?(LN|Light Novels?|Novels?|Books?|Volumes?|Vols?|V|第|Discs?|Tomo|)(\.|)([-_. ]|)(([0-9]+)(\b|\s))$.*",
                         "",
                         title,
                         flags=re.IGNORECASE,
@@ -6462,7 +6469,7 @@ def search_bookwalker(query, type, print_info=False, alternative_search=False):
                     title = re.sub(r"(\((.*)\)$)", "", title).strip()
                 else:
                     title = re.sub(
-                        r"(\b|\s)((\s|)-(\s|)|)(Part|)(\[|\(|\{)?(LN|Light Novels?|Novels?|Books?|Volumes?|Vols?|V|第|Discs?)(\.|)([-_. ]|)([0-9]+)(\b|\s).*",
+                        r"(\b|\s)((\s|)-(\s|)|)(Part|)(\[|\(|\{)?(LN|Light Novels?|Novels?|Books?|Volumes?|Vols?|V|第|Discs?|Tomo)(\.|)([-_. ]|)([0-9]+)(\b|\s).*",
                         "",
                         title,
                         flags=re.IGNORECASE,
