@@ -5944,7 +5944,7 @@ def process_cover_extraction(file, contains_volume_one):
         if not has_cover:
             not_has_cover_start_time = time.time()
             if not printed:
-                print("\tFile: " + file.name)
+                print("\n\tFile: " + file.name)
                 printed = True
             print("\t\tFile does not have a cover.")
             result = find_and_extract_cover(file)
@@ -5980,7 +5980,7 @@ def process_cover_extraction(file, contains_volume_one):
                 if not printed:
                     print("\tFile: " + file.name)
                     printed = True
-                print("\n\t\tMissing volume one cover.")
+                print("\t\tMissing volume one cover.")
                 print("\t\tFound volume one cover.")
                 cover_extension = get_file_extension(os.path.basename(cover))
                 if os.path.isfile(os.path.join(file.root, os.path.basename(cover))):
