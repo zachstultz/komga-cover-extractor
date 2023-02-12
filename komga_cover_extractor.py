@@ -38,7 +38,7 @@ from io import BytesIO
 from functools import lru_cache
 from skimage.metrics import structural_similarity as ssim
 
-script_version = "2.2.1"
+script_version = "2.2.2"
 
 # Paths = existing library
 # Download_folders = newly aquired manga/novels
@@ -5953,6 +5953,8 @@ def process_cover_extraction(file, contains_volume_one):
                 print("\t\tCover successfully extracted.\n")
                 has_cover = True
                 cover = result
+            else:
+                print("\t\tCover not found.")
             not_has_cover_end_time = time.time()
             if output_execution_times:
                 print_function_execution_time(
@@ -5960,8 +5962,6 @@ def process_cover_extraction(file, contains_volume_one):
                     not_has_cover_end_time,
                     "not_has_cover in process_cover_extraction()",
                 )
-            else:
-                print("\t\tSeries Cover not found.")
         else:
             image_count += 1
         if (
