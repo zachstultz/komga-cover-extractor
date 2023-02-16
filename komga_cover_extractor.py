@@ -588,9 +588,8 @@ def set_num_as_float_or_int(volume_number, silent=False):
             )
             send_message(e, error=True)
         return ""
-    end_time = time.time()
     if output_execution_times:
-        print_function_execution_time(start_time, end_time, "set_num_as_float_or_int()")
+        print_function_execution_time(start_time, "set_num_as_float_or_int()")
     return volume_number
 
 
@@ -840,11 +839,9 @@ def clean_and_sort(
         ignored_parts = [
             part for part in root.split(os.sep) if part and part in ignored_folder_names
         ]
-        ignored_folder_names_end = time.time()
         if output_execution_times:
             print_function_execution_time(
                 ignored_folder_names_start,
-                ignored_folder_names_end,
                 "ignored_folder_names in clean_and_sort()",
             )
         if any(ignored_parts):
@@ -854,30 +851,24 @@ def clean_and_sort(
             files.sort()
         hidden_files_remove_start = time.time()
         files = remove_hidden_files(files)
-        hidden_files_remove_end = time.time()
         if output_execution_times:
             print_function_execution_time(
                 hidden_files_remove_start,
-                hidden_files_remove_end,
                 "remove_hidden_files() in clean_and_sort()",
             )
         remove_unnaccepted_file_types_start = time.time()
         files = remove_unaccepted_file_types(files, root, file_extensions)
-        remove_unnaccepted_file_types_end = time.time()
         if output_execution_times:
             print_function_execution_time(
                 remove_unnaccepted_file_types_start,
-                remove_unnaccepted_file_types_end,
                 "remove_unaccepted_file_types() in clean_and_sort()",
             )
         if not chapters:
             filter_non_chapters_start = time.time()
             files = filter_non_chapters(files)
-            filter_non_chapters_end = time.time()
             if output_execution_times:
                 print_function_execution_time(
                     filter_non_chapters_start,
-                    filter_non_chapters_end,
                     "filter_non_chapters() in clean_and_sort()",
                 )
     if dirs:
@@ -885,25 +876,20 @@ def clean_and_sort(
             dirs.sort()
         remove_hidden_folders_start = time.time()
         dirs = remove_hidden_folders(dirs)
-        remove_hidden_folders_end = time.time()
         if output_execution_times:
             print_function_execution_time(
                 remove_hidden_folders_start,
-                remove_hidden_folders_end,
                 "remove_hidden_folders() in clean_and_sort()",
             )
         remove_ignored_folder_names_start = time.time()
         dirs = remove_ignored_folder_names(dirs)
-        remove_ignored_folder_names_end = time.time()
         if output_execution_times:
             print_function_execution_time(
                 remove_ignored_folder_names_start,
-                remove_ignored_folder_names_end,
                 "remove_ignored_folder_names() in clean_and_sort()",
             )
-    end_time = time.time()
     if output_execution_times:
-        print_function_execution_time(start_time, end_time, "clean_and_sort()")
+        print_function_execution_time(start_time, "clean_and_sort()")
     return files, dirs
 
 
@@ -965,9 +951,8 @@ def upgrade_to_file_class(files, root):
             ],
         )
     ]
-    end_time = time.time()
     if output_execution_times:
-        print_function_execution_time(start_time, end_time, "upgrade_to_file_class()")
+        print_function_execution_time(start_time, "upgrade_to_file_class()")
 
     # Process the files sequentially
     results = [File(*args) for args in file_args]
@@ -1162,11 +1147,8 @@ def get_series_name_from_file_name(name, root):
                 name,
                 flags=re.IGNORECASE,
             ).strip()
-    end_time = time.time()
     if output_execution_times:
-        print_function_execution_time(
-            start_time, end_time, "get_series_name_from_file_name()"
-        )
+        print_function_execution_time(start_time, "get_series_name_from_file_name()")
     return name
 
 
@@ -1219,11 +1201,8 @@ def chapter_file_name_cleaning(file_name, chapter_number="", skip=False):
         file_name = re.sub(
             r"(Season|Sea|S)(\s+)?([0-9]+)$", "", file_name, flags=re.IGNORECASE
         )
-    end_time = time.time()
     if output_execution_times:
-        print_function_execution_time(
-            start_time, end_time, "chapter_file_name_cleaning()"
-        )
+        print_function_execution_time(start_time, "chapter_file_name_cleaning()")
     return file_name
 
 
@@ -1244,10 +1223,9 @@ def get_series_name_from_file_name_chapter(name, chapter_number=""):
         result = chapter_file_name_cleaning(name, chapter_number[0])
     else:
         result = chapter_file_name_cleaning(name, chapter_number)
-    end_time = time.time()
     if output_execution_times:
         print_function_execution_time(
-            start_time, end_time, "get_series_name_from_file_name_chapter()"
+            start_time, "get_series_name_from_file_name_chapter()"
         )
     return result
 
@@ -1561,11 +1539,8 @@ def remove_everything_but_volume_num(files, chapter=False):
         else:
             if file in files:
                 files.remove(file)
-    end_time = time.time()
     if output_execution_times:
-        print_function_execution_time(
-            start_time, end_time, "remove_everything_but_volume_num()"
-        )
+        print_function_execution_time(start_time, "remove_everything_but_volume_num()")
     if is_multi_volume == True and len(results) != 0:
         return results
     elif len(results) != 0 and (len(results) == len(files)):
@@ -1753,9 +1728,8 @@ def upgrade_to_volume_class(
             if file_obj.is_one_shot:
                 file_obj.volume_number = 1
         results.append(file_obj)
-    end_time = time.time()
     if output_execution_times:
-        print_function_execution_time(start_time, end_time, "upgrade_to_volume_class()")
+        print_function_execution_time(start_time, "upgrade_to_volume_class()")
     return results
 
 
@@ -5856,9 +5830,8 @@ def find_and_extract_cover(file, return_data_only=False):
                         return None
     else:
         send_message("\nFile: " + file.name + " is not a valid zip file.", error=True)
-    end_time = time.time()
     if output_execution_times:
-        print_function_execution_time(start_time, end_time, "extract_cover_from_zip()")
+        print_function_execution_time(start_time, "extract_cover_from_zip()")
     return False
 
 
@@ -5899,11 +5872,8 @@ def extract_covers():
                         file.file_type == "volume" and file.number == 1
                         for file in folder_accessor.files
                     )
-                    end_time = time.time()
                     if output_execution_times:
-                        print_function_execution_time(
-                            start_time, end_time, "contains_volume_one"
-                        )
+                        print_function_execution_time(start_time, "contains_volume_one")
                     start_time = time.time()
                     [
                         process_cover_extraction(file, contains_volume_one)
@@ -5911,10 +5881,9 @@ def extract_covers():
                         if file.file_type == "volume"
                         or (file.file_type == "chapter" and extract_chapter_covers)
                     ]
-                    end_time = time.time()
                     if output_execution_times:
                         print_function_execution_time(
-                            start_time, end_time, "process_cover_extraction()"
+                            start_time, "process_cover_extraction()"
                         )
         else:
             if path == "":
@@ -5940,11 +5909,8 @@ def process_cover_extraction(file, contains_volume_one):
             ),
             "",
         )
-        cover_end_time = time.time()
         if output_execution_times:
-            print_function_execution_time(
-                cover_start_time, cover_end_time, "cover = next()"
-            )
+            print_function_execution_time(cover_start_time, "cover = next()")
         if cover:
             has_cover = True
 
@@ -5962,11 +5928,9 @@ def process_cover_extraction(file, contains_volume_one):
                 cover = result
             else:
                 print("\t\tCover not found.")
-            not_has_cover_end_time = time.time()
             if output_execution_times:
                 print_function_execution_time(
                     not_has_cover_start_time,
-                    not_has_cover_end_time,
                     "not_has_cover in process_cover_extraction()",
                 )
         else:
@@ -6001,11 +5965,9 @@ def process_cover_extraction(file, contains_volume_one):
                         "\t\tCover does not exist at: "
                         + str(os.path.join(file.root, os.path.basename(cover)))
                     )
-            volume_and_chap_cover_end_time = time.time()
             if output_execution_times:
                 print_function_execution_time(
                     volume_and_chap_cover_start_time,
-                    volume_and_chap_cover_end_time,
                     "volume_and_chap_cover in process_cover_extraction()",
                 )
     except Exception as e:
@@ -6013,11 +5975,8 @@ def process_cover_extraction(file, contains_volume_one):
             "\nERROR in extract_covers(): " + str(e) + " with file: " + file.name,
             error=True,
         )
-    end_time = time.time()
     if output_execution_times:
-        print_function_execution_time(
-            start_time, end_time, "process_cover_extraction()"
-        )
+        print_function_execution_time(start_time, "process_cover_extraction()")
 
 
 def print_stats():
@@ -7177,9 +7136,10 @@ def compare_images(imageA, imageB):
 
 
 # takes the start time, end time, and name of the function and prints the time it took to run
-def print_function_execution_time(start_time, end_time, function_name):
-    time = end_time - start_time
-    rounded_time = round(time, 3)
+def print_function_execution_time(start_time, function_name):
+    end_time = time.time()
+    time_diff = end_time - start_time
+    rounded_time = round(time_diff, 3)
     send_message(
         "\t\t\t\t"
         + function_name
@@ -7243,85 +7203,66 @@ def main():
     ):
         start_time = time.time()
         delete_unacceptable_files()
-        end_time = time.time()
         if output_execution_times:
-            print_function_execution_time(
-                start_time, end_time, "delete_unacceptable_files()"
-            )
+            print_function_execution_time(start_time, "delete_unacceptable_files()")
     if delete_chapters_from_downloads_toggle and download_folders:
         start_time = time.time()
         delete_chapters_from_downloads()
-        end_time = time.time()
         if output_execution_times:
             print_function_execution_time(
-                start_time, end_time, "delete_chapters_from_downloads()"
+                start_time, "delete_chapters_from_downloads()"
             )
     if generate_release_group_list_toggle and log_to_file and paths:
         generate_release_group_list_file()
     if rename_files_in_download_folders_toggle and download_folders:
         start_time = time.time()
         rename_files_in_download_folders()
-        end_time = time.time()
         if output_execution_times:
             print_function_execution_time(
-                start_time, end_time, "rename_files_in_download_folders()"
+                start_time, "rename_files_in_download_folders()"
             )
     if create_folders_for_items_in_download_folder_toggle and download_folders:
         start_time = time.time()
         create_folders_for_items_in_download_folder()
-        end_time = time.time()
         if output_execution_times:
             print_function_execution_time(
                 start_time,
-                end_time,
                 "create_folders_for_items_in_download_folder()",
             )
     if rename_dirs_in_download_folder_toggle and download_folders:
         start_time = time.time()
         rename_dirs_in_download_folder()
-        end_time = time.time()
         if output_execution_times:
             print_function_execution_time(
-                start_time, end_time, "rename_dirs_in_download_folder()"
+                start_time, "rename_dirs_in_download_folder()"
             )
     if check_for_duplicate_volumes_toggle and download_folders:
         start_time = time.time()
         check_for_duplicate_volumes(download_folders)
-        end_time = time.time()
         if output_execution_times:
-            print_function_execution_time(
-                start_time, end_time, "check_for_duplicate_volumes()"
-            )
+            print_function_execution_time(start_time, "check_for_duplicate_volumes()")
     if extract_covers_toggle and paths and download_folder_in_paths:
         start_time = time.time()
         extract_covers()
-        end_time = time.time()
         if output_execution_times:
-            print_function_execution_time(start_time, end_time, "extract_covers()")
+            print_function_execution_time(start_time, "extract_covers()")
     if check_for_existing_series_toggle and download_folders and paths:
         start_time = time.time()
         check_for_existing_series()
-        end_time = time.time()
         if output_execution_times:
-            print_function_execution_time(
-                start_time, end_time, "check_for_existing_series()"
-            )
+            print_function_execution_time(start_time, "check_for_existing_series()")
     if extract_covers_toggle and paths and not download_folder_in_paths:
         start_time = time.time()
         extract_covers()
-        end_time = time.time()
         if output_execution_times:
-            print_function_execution_time(start_time, end_time, "extract_covers()")
+            print_function_execution_time(start_time, "extract_covers()")
     if send_scan_request_to_komga_libraries_toggle and moved_files:
         scan_komga_libraries()
     if check_for_missing_volumes_toggle and paths:
         start_time = time.time()
         check_for_missing_volumes()
-        end_time = time.time()
         if output_execution_times:
-            print_function_execution_time(
-                start_time, end_time, "check_for_missing_volumes()"
-            )
+            print_function_execution_time(start_time, "check_for_missing_volumes()")
     if bookwalker_check:
         # currently slowed down to avoid rate limiting,
         # advised not to run on each use, but rather once a week
@@ -7329,9 +7270,8 @@ def main():
     if extract_covers_toggle and paths:
         start_time = time.time()
         print_stats()
-        end_time = time.time()
         if output_execution_times:
-            print_function_execution_time(start_time, end_time, "print_stats()")
+            print_function_execution_time(start_time, "print_stats()")
 
 
 if __name__ == "__main__":
