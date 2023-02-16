@@ -145,9 +145,12 @@ chapter_regex_keywords = "chapters?|chaps?|chs?|cs?"
 # Once a match is found, it will stop checking the rest.
 chapter_searches = [
     r"\s-(\s+)?(#)?([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?(\s+)?-\s",
-    r"(\b(?<![A-Za-z])(chapters?|chaps?|chs?|cs?)((\.)|)(\s+)?([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?\b)",
-    r"((\b(?<![A-Za-z])(chapters?|chaps?|chs?|cs?|)((\.)|)(\s+)?([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?(#([0-9]+)(([-_.])([0-9]+)|)+)?\b)(\s+)?((\(|\{|\[)\w+(([-_. ])+\w+)?(\]|\}|\))|(?<!\w(\s+)?)(\.cbz|\.epub)(?!\w)))",
-    r"(?<!([A-Za-z]|(Part|Episode|Season|Story|Arc)(\s+)?))(((chapters?|chaps?|chs?|cs?)([-_. ]+)?([0-9]+))|\s+([0-9]+)(\.[0-9]+)?(x\d+((\.\d+)+)?)?(\s+|#\d+|\.cbz))",
+    r"(\b(?<![A-Za-z])(%s)((\.)|)(\s+)?([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?\b)"
+    % chapter_regex_keywords,
+    r"((\b(?<![A-Za-z])(%s|)((\.)|)(\s+)?([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?(#([0-9]+)(([-_.])([0-9]+)|)+)?\b)(\s+)?((\(|\{|\[)\w+(([-_. ])+\w+)?(\]|\}|\))|(?<!\w(\s+)?)(\.cbz|\.epub)(?!\w)))"
+    % chapter_regex_keywords,
+    r"(?<!([A-Za-z]|(Part|Episode|Season|Story|Arc)(\s+)?))(((%s)([-_. ]+)?([0-9]+))|\s+([0-9]+)(\.[0-9]+)?(x\d+((\.\d+)+)?)?(\s+|#\d+|\.cbz))"
+    % chapter_regex_keywords,
     r"^((#)?([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?(#([0-9]+)(([-_.])([0-9]+)|)+)?)$",
 ]
 
@@ -4325,8 +4328,9 @@ def check_for_existing_series():
             # sort them alphabetically by series name
             grouped_by_series_names.sort(key=lambda x: x["series_name"])
             for group in grouped_by_series_names:
-                # sort them lowest to highest by the number field
-                group["messages"].sort(key=lambda x: x.number)
+                # sort the group's messages lowest to highest by the number field
+                # the number can be a float or an array of floats
+                group["messages"].sort(key=lambda x: x.fields[0]["value"].split(",")[0])
                 if output_chapter_covers_to_discord:
                     for message in group["messages"][:]:
                         cover = find_and_extract_cover(
