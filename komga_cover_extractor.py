@@ -1129,6 +1129,7 @@ def move_images(file, folder_name):
 # Retrieves the series name through various regexes
 # Removes the volume number and anything to the right of it, and strips it.
 def get_series_name_from_file_name(name, root):
+    global volume_regex_keywords
     name = remove_bracketed_info_from_name(name)
     start_time = time.time()
     if is_one_shot(name, root):
@@ -1140,13 +1141,15 @@ def get_series_name_from_file_name(name, root):
         ).strip()
     else:
         if re.search(
-            r"(\b|\s)((\s|)-(\s|)|)(Part|)(\[|\(|\{)?(LN|Light Novels?|Novels?|Books?|Volumes?|Vols?|V|第|Discs?|Tomo)(\.|)([-_. ]|)([0-9]+)(\b|\s).*",
+            r"(\b|\s)((\s|)-(\s|)|)(Part|)(\[|\(|\{)?(%s)(\.|)([-_. ]|)([0-9]+)(\b|\s).*"
+            % volume_regex_keywords,
             name,
             flags=re.IGNORECASE,
         ):
             name = (
                 re.sub(
-                    r"(\b|\s)((\s|)-(\s|)|)(Part|)(\[|\(|\{)?(LN|Light Novels?|Novels?|Books?|Volumes?|Vols?|V|第|Discs?|Tomo)(\.|)([-_. ]|)([0-9]+)(\b|\s).*",
+                    r"(\b|\s)((\s|)-(\s|)|)(Part|)(\[|\(|\{)?(%s)(\.|)([-_. ]|)([0-9]+)(\b|\s).*"
+                    % volume_regex_keywords,
                     "",
                     name,
                     flags=re.IGNORECASE,
@@ -1613,7 +1616,7 @@ def get_release_group(name, release_groups):
 
 # Precompile the regular expressions
 rx_remove = re.compile(
-    r".*(LN|Light Novels?|Novels?|Books?|Volumes?|Vols?|V|第|Discs?|Tomo)([-_. ]|)([-_. ]|)([0-9]+)(\b|\s)",
+    r".*(%s)([-_. ]|)([-_. ]|)([0-9]+)(\b|\s)" % volume_regex_keywords,
     re.IGNORECASE,
 )
 rx_search_part = re.compile(r"(\b(Part)([-_. ]|)([0-9]+)\b)", re.IGNORECASE)
@@ -4419,9 +4422,11 @@ def check_for_existing_series():
 # !OLD METHOD!: Only used for cleaning a folder name as a backup if no volumes were found inside the folder
 # when renaming folders in the dowload directory.
 def get_series_name(dir):
+    global volume_regex_keywords
     dir = (
         re.sub(
-            r"(\b|\s)((\s|)-(\s|)|)(Part|)(LN|Light Novels?|Novels?|Books?|Volumes?|Vols?|V|第|Discs?|Tomo)([-_. ]|)([-_. ]|)([0-9]+)(\b|\s).*",
+            r"(\b|\s)((\s|)-(\s|)|)(Part|)(%s)([-_. ]|)([-_. ]|)([0-9]+)(\b|\s).*"
+            % volume_regex_keywords,
             "",
             dir,
             flags=re.IGNORECASE,
@@ -4457,6 +4462,7 @@ def rename_dirs_in_download_folder():
                 )
                 download_folder_files, download_folder_dirs = clean[0], clean[1]
                 global folder_accessor
+                global volume_regex_keywords
                 file_objects = upgrade_to_file_class(
                     download_folder_files[:], download_folder
                 )
@@ -4721,7 +4727,8 @@ def rename_dirs_in_download_folder():
                                 or re.search(r"(\s-\s|\s-)$", folderDir, re.IGNORECASE)
                                 or re.search(r"(\bLN\b)", folderDir, re.IGNORECASE)
                                 or re.search(
-                                    r"(\b|\s)((\s|)-(\s|)|)(Part|)(LN|Light Novels?|Novels?|Books?|Volumes?|Vols?|V|第|Discs?|Tomo|)(\.|)([-_. ]|)(([0-9]+)((([-_.]|)([0-9]+))+|))(\b|\s)",
+                                    r"(\b|\s)((\s|)-(\s|)|)(Part|)(%s|)(\.|)([-_. ]|)(([0-9]+)((([-_.]|)([0-9]+))+|))(\b|\s)"
+                                    % volume_regex_keywords,
                                     folderDir,
                                     re.IGNORECASE,
                                 )
@@ -6236,6 +6243,7 @@ def combine_series(series_list):
 
 
 def search_bookwalker(query, type, print_info=False, alternative_search=False):
+    global volume_regex_keywords
     sleep_timer = 8
     # The total amount of pages to scrape
     total_pages_to_scrape = 5
@@ -6456,7 +6464,8 @@ def search_bookwalker(query, type, print_info=False, alternative_search=False):
                     volume_number = remove_everything_but_volume_num([title])
                 if not re.search(r"(\b(Vol)([-_. ]|)\b)", title):
                     title = re.sub(
-                        r"(\b|\s)((\s|)-(\s|)|)(Part|)(\[|\(|\{)?(LN|Light Novels?|Novels?|Books?|Volumes?|Vols?|V|第|Discs?|Tomo|)(\.|)([-_. ]|)(([0-9]+)(\b|\s))$.*",
+                        r"(\b|\s)((\s|)-(\s|)|)(Part|)(\[|\(|\{)?(%s|)(\.|)([-_. ]|)(([0-9]+)(\b|\s))$.*"
+                        % volume_regex_keywords,
                         "",
                         title,
                         flags=re.IGNORECASE,
@@ -6469,7 +6478,8 @@ def search_bookwalker(query, type, print_info=False, alternative_search=False):
                     title = re.sub(r"(\((.*)\)$)", "", title).strip()
                 else:
                     title = re.sub(
-                        r"(\b|\s)((\s|)-(\s|)|)(Part|)(\[|\(|\{)?(LN|Light Novels?|Novels?|Books?|Volumes?|Vols?|V|第|Discs?|Tomo)(\.|)([-_. ]|)([0-9]+)(\b|\s).*",
+                        r"(\b|\s)((\s|)-(\s|)|)(Part|)(\[|\(|\{)?(%s)(\.|)([-_. ]|)([0-9]+)(\b|\s).*"
+                        % volume_regex_keywords,
                         "",
                         title,
                         flags=re.IGNORECASE,
