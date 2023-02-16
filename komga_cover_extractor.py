@@ -3442,20 +3442,32 @@ def check_for_duplicate_volumes(paths_to_search=[]):
                                                             discord=False,
                                                         )
                                                         send_discord_message(
-                                                            "Location: "
-                                                            + "```"
-                                                            + upgrade_file.root
-                                                            + "```"
-                                                            + "Duplicate: "
-                                                            + "```"
-                                                            + duplicate_file.name
-                                                            + "```"
-                                                            + "has a lower score than: "
-                                                            + "```"
-                                                            + upgrade_file.name
-                                                            + "```",
+                                                            None,
                                                             "Duplicate Download Release (NOT UPGRADE)",
                                                             color=16776960,
+                                                            fields=[
+                                                                {
+                                                                    "name": "Location:",
+                                                                    "value": "```"
+                                                                    + upgrade_file.root
+                                                                    + "```",
+                                                                    "inline": False,
+                                                                },
+                                                                {
+                                                                    "name": "Duplicate:",
+                                                                    "value": "```"
+                                                                    + duplicate_file.name
+                                                                    + "```",
+                                                                    "inline": False,
+                                                                },
+                                                                {
+                                                                    "name": "has a lower score than:",
+                                                                    "value": "```"
+                                                                    + upgrade_file.name
+                                                                    + "```",
+                                                                    "inline": False,
+                                                                },
+                                                            ],
                                                         )
                                                         if not manual_delete:
                                                             remove_file(
@@ -3489,20 +3501,32 @@ def check_for_duplicate_volumes(paths_to_search=[]):
                                                             discord=False,
                                                         )
                                                         send_discord_message(
-                                                            "Location: "
-                                                            + "```"
-                                                            + compare_file.root
-                                                            + "```"
-                                                            + "Duplicate: "
-                                                            + "```"
-                                                            + file.name
-                                                            + "```"
-                                                            + "has an equal score to: "
-                                                            + "```"
-                                                            + compare_file.name
-                                                            + "```",
+                                                            None,
                                                             "Duplicate Download Release (REQUIRES MANUAL DECISION)",
                                                             color=16776960,
+                                                            fields=[
+                                                                {
+                                                                    "name": "Location:",
+                                                                    "value": "```"
+                                                                    + compare_file.root
+                                                                    + "```",
+                                                                    "inline": False,
+                                                                },
+                                                                {
+                                                                    "name": "Duplicate:",
+                                                                    "value": "```"
+                                                                    + file.name
+                                                                    + "```",
+                                                                    "inline": False,
+                                                                },
+                                                                {
+                                                                    "name": "has an equal score to:",
+                                                                    "value": "```"
+                                                                    + compare_file.name
+                                                                    + "```",
+                                                                    "inline": False,
+                                                                },
+                                                            ],
                                                         )
                                                         print("\t\t\t\t\tSkipping...")
                                         except Exception as e:
