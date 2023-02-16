@@ -297,22 +297,20 @@ class Handler(FileSystemEventHandler):
             and get_file_extension(os.path.basename(event.src_path)) in file_extensions
         ):
             time.sleep(10)
-            fields = []
             if os.path.isfile(event.src_path) and zipfile.is_zipfile(event.src_path):
                 last_watchdog_file = event.src_path
-                fields = [
-                    {
-                        "name": "File Found:",
-                        "value": "```" + str(event.src_path) + "```",
-                        "inline": False,
-                    }
-                ]
                 send_message("Starting Script (WATCHDOG) (EXPERIMENTAL)", discord=False)
                 send_discord_message(
                     None,
                     "Starting Script (WATCHDOG) (EXPERIMENTAL)",
                     color=7615723,
-                    fields=fields,
+                    fields=[
+                        {
+                            "name": "File Found:",
+                            "value": "```" + str(event.src_path) + "```",
+                            "inline": False,
+                        }
+                    ],
                 )
                 main()
 
@@ -1801,6 +1799,8 @@ def remove_images(path):
         volume_image_cover_file_name = get_extensionless_name(path) + extension
         if os.path.isfile(volume_image_cover_file_name):
             remove_file(volume_image_cover_file_name, silent=True)
+            if not os.path.isfile(volume_image_cover_file_name):
+                break
 
 
 # Removes a file
@@ -1832,7 +1832,8 @@ def remove_file(full_file_path, silent=False):
                             },
                         ],
                     )
-                remove_images(full_file_path)
+                if get_file_extension(full_file_path) not in image_extensions:
+                    remove_images(full_file_path)
                 return True
             else:
                 send_message(
@@ -1862,16 +1863,21 @@ def move_file(file, new_location, silent=False):
                         discord=False,
                     )
                     send_discord_message(
-                        "File: "
-                        + "```"
-                        + file.name
-                        + "```"
-                        + "To:"
-                        + "```"
-                        + new_location
-                        + "```",
+                        None,
                         "Moved File",
                         color=8421504,
+                        fields=[
+                            {
+                                "name": "From:",
+                                "value": "```" + file.name + "```",
+                                "inline": False,
+                            },
+                            {
+                                "name": "To:",
+                                "value": "```" + new_location + "```",
+                                "inline": False,
+                            },
+                        ],
                     )
                 move_images(file, new_location)
                 return True
@@ -1905,16 +1911,21 @@ def replace_file(old_file, new_file):
                         discord=False,
                     )
                     send_discord_message(
-                        "File: "
-                        + "```"
-                        + new_file.name
-                        + "```"
-                        + "To:"
-                        + "```"
-                        + old_file.root
-                        + "```",
+                        None,
                         "Moved File",
                         color=8421504,
+                        fields=[
+                            {
+                                "name": "File:",
+                                "value": "```" + new_file.name + "```",
+                                "inline": False,
+                            },
+                            {
+                                "name": "To:",
+                                "value": "```" + old_file.root + "```",
+                                "inline": False,
+                            },
+                        ],
                     )
                 else:
                     send_message(
@@ -2407,19 +2418,6 @@ def rename_file(
                 + extensionless_filename_dst,
                 discord=False,
             )
-            # if not mute_discord_rename_notifications:
-            # send_discord_message(
-            #     "From: "
-            #     + "```"
-            #     + extensionless_filename_src
-            #     + "```"
-            #     + "To:"
-            #     + "```"
-            #     + extensionless_filename_dst
-            #     + "```",
-            #     "Renamed File",
-            #     color=8421504,
-            # )
             for image_extension in image_extensions:
                 image_file = extensionless_filename_src + image_extension
                 image_file_rename = extensionless_filename_dst + image_extension
@@ -2684,16 +2682,21 @@ def reorganize_and_rename(files, dir):
                             )
                             if not mute_discord_rename_notifications:
                                 send_discord_message(
-                                    "From: "
-                                    + "```"
-                                    + file.name
-                                    + "```"
-                                    + "To:"
-                                    + "```"
-                                    + rename
-                                    + "```",
+                                    None,
                                     "Reorganized & Renamed File",
                                     color=8421504,
+                                    fields=[
+                                        {
+                                            "name": "From:",
+                                            "value": "```" + file.name + "```",
+                                            "inline": False,
+                                        },
+                                        {
+                                            "name": "To:",
+                                            "value": "```" + rename + "```",
+                                            "inline": False,
+                                        },
+                                    ],
                                 )
                         else:
                             user_input = input("\tReorganize & Rename (y or n): ")
@@ -2719,16 +2722,21 @@ def reorganize_and_rename(files, dir):
                                     )
                                     if not mute_discord_rename_notifications:
                                         send_discord_message(
-                                            "From: "
-                                            + "```"
-                                            + file.name
-                                            + "```"
-                                            + "To:"
-                                            + "```"
-                                            + rename
-                                            + "```",
+                                            None,
                                             "Reorganized & Renamed File",
                                             color=8421504,
+                                            fields=[
+                                                {
+                                                    "name": "From:",
+                                                    "value": "```" + file.name + "```",
+                                                    "inline": False,
+                                                },
+                                                {
+                                                    "name": "To:",
+                                                    "value": "```" + rename + "```",
+                                                    "inline": False,
+                                                },
+                                            ],
                                         )
                                 else:
                                     print(
@@ -3448,18 +3456,6 @@ def check_for_duplicate_volumes(paths_to_search=[]):
                                                             + "```",
                                                             "Duplicate Download Release (NOT UPGRADE)",
                                                             color=16776960,
-                                                        )
-                                                        send_discord_message(
-                                                            "File: "
-                                                            + "```"
-                                                            + duplicate_file.name
-                                                            + "```"
-                                                            + "Location: "
-                                                            + "```"
-                                                            + duplicate_file.root
-                                                            + "```",
-                                                            "Deleting File",
-                                                            color=16711680,
                                                         )
                                                         if not manual_delete:
                                                             remove_file(
@@ -5403,16 +5399,25 @@ def rename_files_in_download_folders(only_these_files=[]):
                                                         not mute_discord_rename_notifications
                                                     ):
                                                         send_discord_message(
-                                                            "From: "
-                                                            + "```"
-                                                            + file.name
-                                                            + "```"
-                                                            + "To: "
-                                                            + "```"
-                                                            + replacement
-                                                            + "```",
+                                                            None,
                                                             "Renamed File",
                                                             color=8421504,
+                                                            fields=[
+                                                                {
+                                                                    "name": "From:",
+                                                                    "value": "```"
+                                                                    + file.name
+                                                                    + "```",
+                                                                    "inline": False,
+                                                                },
+                                                                {
+                                                                    "name": "To:",
+                                                                    "value": "```"
+                                                                    + replacement
+                                                                    + "```",
+                                                                    "inline": False,
+                                                                },
+                                                            ],
                                                         )
                                                     for (
                                                         image_extension
@@ -5548,22 +5553,30 @@ def delete_chapters_from_downloads():
                                     discord=False,
                                 )
                                 send_discord_message(
-                                    "File: "
-                                    + "```"
-                                    + file
-                                    + "```"
-                                    + "Location: "
-                                    + "```"
-                                    + root
-                                    + "```"
-                                    + "Checks: "
-                                    + "```"
-                                    + "Contains chapter keywords/lone numbers ✓\n"
-                                    + "Does not contain any volume keywords ✓\n"
-                                    + "Does not contain any exclusion keywords ✓"
-                                    + "```",
+                                    None,
                                     "Chapter Release Found",
                                     color=8421504,
+                                    fields=[
+                                        {
+                                            "name": "File:",
+                                            "value": "```" + file + "```",
+                                            "inline": False,
+                                        },
+                                        {
+                                            "name": "Location:",
+                                            "value": "```" + root + "```",
+                                            "inline": False,
+                                        },
+                                        {
+                                            "name": "Checks:",
+                                            "value": "```"
+                                            + "Contains chapter keywords/lone numbers ✓\n"
+                                            + "Does not contain any volume keywords ✓\n"
+                                            + "Does not contain any exclusion keywords ✓"
+                                            + "```",
+                                            "inline": False,
+                                        },
+                                    ],
                                 )
                                 remove_file(os.path.join(root, file))
                 for root, dirs, files in scandir.walk(path):
@@ -6021,70 +6034,80 @@ def delete_unacceptable_files():
                         dirs = remove_ignored_folder_names(dirs)
                         files = remove_hidden_files(files)
                         for file in files:
-                            extension = get_file_extension(file)
-                            if (
-                                unaccepted_file_extensions
-                                and extension
-                                and extension in unaccepted_file_extensions
-                            ):
-                                send_message(
-                                    "\tUnacceptable: "
-                                    + extension
-                                    + " file found in "
-                                    + file
-                                    + "\n\t\tDeleting file from: "
-                                    + root,
-                                    discord=False,
-                                )
-                                remove_file(os.path.join(root, file))
-                            elif unacceptable_keywords:
-                                for keyword in unacceptable_keywords:
-                                    unacceptable_keyword_search = re.search(
-                                        keyword, file, re.IGNORECASE
+                            file_path = os.path.join(root, file)
+                            if os.path.isfile(file_path):
+                                extension = get_file_extension(file)
+                                if (
+                                    unaccepted_file_extensions
+                                    and extension
+                                    and extension in unaccepted_file_extensions
+                                ):
+                                    send_message(
+                                        "\tUnacceptable: "
+                                        + extension
+                                        + " file found in "
+                                        + file
+                                        + "\n\t\tDeleting file from: "
+                                        + root,
+                                        discord=False,
                                     )
-                                    if unacceptable_keyword_search:
-                                        send_message(
-                                            "\tUnacceptable: "
-                                            + unacceptable_keyword_search.group()
-                                            + " match found in "
-                                            + file
-                                            + "\n\t\tDeleting file from: "
-                                            + root,
-                                            discord=False,
+                                    remove_file(file_path)
+                                elif unacceptable_keywords:
+                                    for keyword in unacceptable_keywords:
+                                        unacceptable_keyword_search = re.search(
+                                            keyword, file, re.IGNORECASE
                                         )
-                                        send_discord_message(
-                                            "Found: "
-                                            + "```"
-                                            + unacceptable_keyword_search.group()
-                                            + "```"
-                                            + "In: "
-                                            + "```"
-                                            + file
-                                            + "```"
-                                            + "Location: "
-                                            + "```"
-                                            + root
-                                            + "```",
-                                            "Unacceptable Match Found",
-                                            color=16776960,
-                                        )
-                                        remove_file(os.path.join(root, file))
-                                        if not os.path.isfile(os.path.join(root, file)):
-                                            print(
-                                                "\t\t\tSuccessfully removed unacceptable file: "
-                                                + file
-                                                + "\n\t\t\tFrom: "
-                                                + root
-                                            )
-                                        else:
+                                        if unacceptable_keyword_search:
                                             send_message(
-                                                "\t\t\tFailed to remove unacceptable file: "
+                                                "\tUnacceptable: "
+                                                + unacceptable_keyword_search.group()
+                                                + " match found in "
                                                 + file
-                                                + "\n\t\t\tFrom: "
+                                                + "\n\t\tDeleting file from: "
                                                 + root,
-                                                error=True,
+                                                discord=False,
                                             )
-                                        break
+                                            send_discord_message(
+                                                None,
+                                                "Unacceptable Match Found",
+                                                color=16776960,
+                                                fields=[
+                                                    {
+                                                        "name": "Found Regex/Keyword Match:",
+                                                        "value": "```"
+                                                        + unacceptable_keyword_search.group()
+                                                        + "```",
+                                                        "inline": False,
+                                                    },
+                                                    {
+                                                        "name": "In:",
+                                                        "value": "```" + file + "```",
+                                                        "inline": False,
+                                                    },
+                                                    {
+                                                        "name": "Location:",
+                                                        "value": "```" + root + "```",
+                                                        "inline": False,
+                                                    },
+                                                ],
+                                            )
+                                            remove_file(file_path)
+                                            if not os.path.isfile(file_path):
+                                                print(
+                                                    "\t\t\tSuccessfully removed unacceptable file: "
+                                                    + file
+                                                    + "\n\t\t\tFrom: "
+                                                    + root
+                                                )
+                                            else:
+                                                send_message(
+                                                    "\t\t\tFailed to remove unacceptable file: "
+                                                    + file
+                                                    + "\n\t\t\tFrom: "
+                                                    + root,
+                                                    error=True,
+                                                )
+                                            break
                     for root, dirs, files in scandir.walk(path):
                         clean_two = clean_and_sort(root, files, dirs)
                         files, dirs = clean_two[0], clean_two[1]
