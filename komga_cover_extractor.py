@@ -1635,99 +1635,47 @@ def get_file_part(file, chapter=False):
 # Trades out our regular files for file objects
 def upgrade_to_volume_class(
     files,
-    skip_file_type=False,
-    skip_series_name=False,
-    skip_volume_year=False,
-    skip_volume_number=False,
-    skip_file_part=False,
-    skip_fixed_volume=False,
-    skip_release_group=False,
-    skip_name=False,
-    skip_extensionless_name=False,
-    skip_basename=False,
-    skip_extension=False,
-    skip_root=False,
-    skip_path=False,
-    skip_extensionless_path=False,
-    skip_extras=False,
-    skip_multi_volume=False,
-    skip_is_one_shot=False,
 ):
     start_time = time.time()
     results = []
     for file in files:
         file_obj = Volume(
-            "",
-            "",
-            "",
-            "",
-            "",
-            False,
-            "",
-            "",
-            "",
-            "",
-            "",
-            "",
-            "",
-            "",
-            [],
-            None,
-            None,
-        )
-        if not skip_file_type:
-            file_obj.file_type = file.file_type
-        if not skip_series_name:
-            file_obj.series_name = file.basename
-        if not skip_volume_year:
-            file_obj.volume_year = get_volume_year(file.name)
-        if not skip_volume_number:
-            file_obj.volume_number = file.number
-        if not skip_file_part:
-            file_obj.volume_part = (
+            file.file_type,
+            file.basename,
+            get_volume_year(file.name),
+            file.number,
+            (
                 get_file_part(file.name)
                 if file.file_type != "chapter"
                 else get_file_part(file.name, chapter=True)
-            )
-        if not skip_fixed_volume:
-            file_obj.is_fixed = is_fixed_volume(file.name)
-        if not skip_release_group:
-            global release_groups
-            file_obj.release_group = get_release_group(file.name, release_groups)
-        if not skip_name:
-            file_obj.name = file.name
-        if not skip_extensionless_name:
-            file_obj.extensionless_name = file.extensionless_name
-        if not skip_basename:
-            file_obj.basename = file.basename
-        if not skip_extension:
-            file_obj.extension = file.extension
-        if not skip_root:
-            file_obj.root = file.root
-        if not skip_path:
-            file_obj.path = file.path
-        if not skip_extensionless_path:
-            file_obj.extensionless_path = file.extensionless_path
-        if not skip_extras:
-            file_obj.extras = (
+            ),
+            is_fixed_volume(file.name),
+            get_release_group(file.name, release_groups),
+            file.name,
+            file.extensionless_name,
+            file.basename,
+            file.extension,
+            file.root,
+            file.path,
+            file.extensionless_path,
+            (
                 get_extras(file.name, series_name=file.basename)
                 if file.file_type != "chapter"
                 else get_extras(file.name, series_name=file.basename, chapter=True)
-            )
-        if not skip_multi_volume:
-            file_obj.multi_volume = (
+            ),
+            (
                 check_for_multi_volume_file(file.name)
                 if file.file_type != "chapter"
                 else check_for_multi_volume_file(file.name, chapter=True)
-            )
-        if not skip_is_one_shot:
-            file_obj.is_one_shot = (
+            ),
+            (
                 is_one_shot(file.name, file.root)
                 if file.file_type != "chapter"
                 else False
-            )
-            if file_obj.is_one_shot:
-                file_obj.volume_number = 1
+            ),
+        )
+        if file_obj.is_one_shot:
+            file_obj.volume_number = 1
         results.append(file_obj)
     if output_execution_times:
         print_function_execution_time(start_time, "upgrade_to_volume_class()")
@@ -1868,7 +1816,7 @@ def move_file(file, new_location, silent=False):
                         color=8421504,
                         fields=[
                             {
-                                "name": "From:",
+                                "name": "File:",
                                 "value": "```" + file.name + "```",
                                 "inline": False,
                             },
@@ -3089,16 +3037,14 @@ def check_upgrade(
                             "inline": False,
                         },
                         {
-                            "name": "Identifiers:",
-                            "value": "Downloaded File:"
-                            + "```"
-                            + str(similarity_strings[0])
-                            + "```"
-                            + "Existing Library:"
-                            + "```"
-                            + str(similarity_strings[1])
-                            + "```",
-                            "inline": True,
+                            "name": "Downloaded File:",
+                            "value": "```" + "\n".join(similarity_strings[0]) + "```",
+                            "inline": False,
+                        },
+                        {
+                            "name": "Existing Library File:",
+                            "value": "```" + "\n".join(similarity_strings[1]) + "```",
+                            "inline": False,
                         },
                     ]
                 else:
@@ -4199,6 +4145,9 @@ def check_for_existing_series():
                                                                     )
                                                                 ]
                                                             if existing_file_meta:
+                                                                found_existing_meta_match = (
+                                                                    False
+                                                                )
                                                                 # strip whitespace from each item in the list
                                                                 existing_file_meta = [
                                                                     x.strip()
@@ -4207,6 +4156,8 @@ def check_for_existing_series():
                                                                 for (
                                                                     d_meta
                                                                 ) in download_file_meta:
+                                                                    if found_existing_meta_match:
+                                                                        break
                                                                     for (
                                                                         e_meta
                                                                     ) in existing_file_meta:
@@ -4227,24 +4178,23 @@ def check_for_existing_series():
                                                                         if (
                                                                             d_meta
                                                                             == e_meta
+                                                                            and f.root
+                                                                            not in directories_found
                                                                         ):
                                                                             directories_found.append(
                                                                                 f.root
                                                                             )
-                                                                            if (
+                                                                            matched_ids.append(
                                                                                 download_file_meta
-                                                                                not in matched_ids
-                                                                            ):
-                                                                                matched_ids.append(
-                                                                                    download_file_meta
-                                                                                )
-                                                                            if (
+                                                                            )
+                                                                            matched_ids.append(
                                                                                 existing_file_meta
-                                                                                not in matched_ids
-                                                                            ):
-                                                                                matched_ids.append(
-                                                                                    existing_file_meta
-                                                                                )
+                                                                            )
+                                                                            found_existing_meta_match = (
+                                                                                True
+                                                                            )
+                                                                            break
+
                                     except Exception as e:
                                         send_message(e, error=True)
                             if (
