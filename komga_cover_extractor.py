@@ -38,7 +38,7 @@ from io import BytesIO
 from functools import lru_cache
 from skimage.metrics import structural_similarity as ssim
 
-script_version = "2.2.2"
+script_version = "2.2.3"
 
 # Paths = existing library
 # Download_folders = newly aquired manga/novels
@@ -136,7 +136,9 @@ cached_identifier_results = []
 watchdog_toggle = False
 
 # Volume Regex Keywords to be used throughout the script
-volume_regex_keywords = "LN|Light Novels?|Novels?|Books?|Volumes?|Vols?|V|第|Discs?|Tomo"
+volume_regex_keywords = (
+    "LN|Light Novels?|Novels?|Books?|Volumes?|Vols?|Discs?|Tomo|Tome|V|第|T"
+)
 
 # Chapter Regex Keywords to be used throughout the script
 chapter_regex_keywords = "chapters?|chaps?|chs?|cs?"
@@ -337,19 +339,6 @@ def read_lines_from_file(file_path, ignore=set(), ignore_paths_not_in_paths=Fals
     return result
 
 
-volume_keywords = [
-    "LN",
-    "Light Novel",
-    "Novel",
-    "Book",
-    "Volume",
-    "Vol",
-    "V",
-    "第",
-    "Disc",
-]
-
-volume_one_number_keywords = ["One", "1", "01", "001", "0001"]
 new_volume_webhook = None
 
 # Parses the passed command-line arguments
@@ -5709,8 +5698,7 @@ def find_and_extract_cover(file, return_data_only=False):
                                             file.extensionless_name + image_extension,
                                         )
                                     )
-                                    image_extension = ".jpg"
-                                    return file.extensionless_name + image_extension
+                                    return file.extensionless_path + image_extension
                                 elif return_data_only and image_data:
                                     compress_result_data = compress_image(
                                         os.path.join(
@@ -5726,7 +5714,7 @@ def find_and_extract_cover(file, return_data_only=False):
                                 else:
                                     return None
                             elif not compress_image_option and not return_data_only:
-                                return file.extensionless_name + image_extension
+                                return file.extensionless_path + image_extension
                 default_cover_path = None
                 if (
                     compare_detected_cover_to_blank_image
@@ -5803,8 +5791,7 @@ def find_and_extract_cover(file, return_data_only=False):
                                 file.extensionless_name + image_extension,
                             )
                         )
-                        image_extension = ".jpg"
-                        return file.extensionless_name + image_extension
+                        return file.extensionless_path + image_extension
                     elif return_data_only and image_data:
                         compress_result_data = compress_image(
                             os.path.join(
@@ -5883,6 +5870,37 @@ def extract_covers():
                 print("\nERROR: " + path + " is an invalid path.\n")
 
 
+# Converts the passed path of a .webp file to a .jpg file
+# returns the path of the new .jpg file or none if the conversion failed
+def convert_webp_to_jpg(webp_file_path):
+    if webp_file_path:
+        extenionless_webp_file = os.path.splitext(webp_file_path)[0]
+        try:
+            with Image.open(webp_file_path) as im:
+                im.convert("RGB").save(extenionless_webp_file + ".jpg")
+            # verify that the conversion worked
+            if os.path.isfile(extenionless_webp_file + ".jpg"):
+                # delete the .webp file
+                os.remove(webp_file_path)
+                # verify that the .webp file was deleted
+                if not os.path.isfile(webp_file_path):
+                    return extenionless_webp_file + ".jpg"
+                else:
+                    send_message(
+                        "ERROR: Could not delete " + webp_file_path, error=True
+                    )
+            else:
+                send_message(
+                    "ERROR: Could not convert " + webp_file_path + " to jpg", error=True
+                )
+        except Exception as e:
+            send_message(
+                "ERROR: Could not convert " + webp_file_path + " to jpg", error=True
+            )
+            send_message("ERROR: " + str(e), error=True)
+    return None
+
+
 def process_cover_extraction(file, contains_volume_one):
     start_time = time.time()
     global image_count
@@ -5912,6 +5930,21 @@ def process_cover_extraction(file, contains_volume_one):
                 printed = True
             print("\t\tFile does not have a cover.")
             result = find_and_extract_cover(file)
+            if result and result.endswith(".webp"):
+                print("\t\tCover is a .webp file. Converting to .jpg...")
+                conversion_result = convert_webp_to_jpg(result)
+                if conversion_result:
+                    print("\t\tCover successfully converted to .jpg")
+                    result = conversion_result
+                else:
+                    print("\t\tCover conversion failed.")
+                    print("\t\tCleaning up webp file...")
+                    remove_file(result)
+                    if not os.path.isfile(result):
+                        print("\t\tWebp file successfully deleted.")
+                    else:
+                        print("\t\tWebp file could not be deleted.")
+                    result = None
             if result:
                 image_count += 1
                 print("\t\tCover successfully extracted.\n")
