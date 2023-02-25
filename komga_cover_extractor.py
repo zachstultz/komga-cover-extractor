@@ -1145,6 +1145,7 @@ def get_series_name_from_file_name(name, root):
         and (
             os.path.basename(root) not in str(download_folders) or not download_folders
         )
+        and (os.path.basename(root) not in str(paths) or not paths)
     ):
         name = remove_bracketed_info_from_name(os.path.basename(root))
     if output_execution_times:
@@ -1229,6 +1230,7 @@ def get_series_name_from_file_name_chapter(name, root, chapter_number=""):
         and (
             os.path.basename(root) not in str(download_folders) or not download_folders
         )
+        and (os.path.basename(root) not in str(paths) or not paths)
     ):
         result = remove_bracketed_info_from_name(os.path.basename(root))
     if output_execution_times:
