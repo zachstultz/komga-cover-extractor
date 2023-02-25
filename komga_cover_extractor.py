@@ -138,9 +138,8 @@ watchdog_toggle = False
 # Volume Regex Keywords to be used throughout the script
 # ORDER IS IMPORTANT, if a single character volume keyword is checked first, then that can break
 # cleaning of various bits of input.
-volume_regex_keywords = (
-    "LN|Light Novels?|Novels?|Books?|Volumes?|Vols?|Discs?|Tomo|Tome|V|第|T"
-)
+volume_regex_keywords = "(?<![A-Za-z])LN|(?<![A-Za-z])Light Novels?|(?<![A-Za-z])Novels?|(?<![A-Za-z])Books?|(?<![A-Za-z])Volumes?|(?<![A-Za-z])Vols?|(?<![A-Za-z])Discs?|(?<![A-Za-z])Tomo|(?<![A-Za-z])Tome|(?<![A-Za-z])V|(?<![A-Za-z])第|(?<![A-Za-z])T"
+
 
 # Chapter Regex Keywords to be used throughout the script
 chapter_regex_keywords = "chapters?|chaps?|chs?|cs?"
@@ -1107,7 +1106,7 @@ def move_images(file, folder_name):
 # Removes the volume number and anything to the right of it, and strips it.
 def get_series_name_from_file_name(name, root):
     global volume_regex_keywords
-    name = remove_bracketed_info_from_name(name)
+    # name = remove_bracketed_info_from_name(name)
     start_time = time.time()
     if is_one_shot(name, root):
         name = re.sub(
@@ -2526,12 +2525,12 @@ def reorganize_and_rename(files, dir):
                     for item in file.extras[:]:
                         score = similar(
                             re.sub(
-                                r"(Entertainment|Pictures?|LLC|Americas?|USA?|International|Books?|Comics?|Media|Advanced|Club|On|Press|Enix Manga|Enix|[-_.,\(\[\{\)\]\}])",
+                                r"(Entertainment|Pictures?|LLC|Americas?|USA?|International|Books?|Comics?|Media|Advanced|Club|On|Press|Enix Manga|Enix|Horse Manga|Horse Comics?|[-_.,\(\[\{\)\]\}])",
                                 "",
                                 item,
                             ).strip(),
                             re.sub(
-                                r"(Entertainment|Pictures?|LLC|Americas?|USA?|International|Books?|Comics?|Media|Advanced|Club|On|Press|Enix Manga|Enix|[-_.,\(\[\{\)\]\}])",
+                                r"(Entertainment|Pictures?|LLC|Americas?|USA?|International|Books?|Comics?|Media|Advanced|Club|On|Press|Enix Manga|Enix|Horse Manga|Horse Comics?|[-_.,\(\[\{\)\]\}])",
                                 "",
                                 publisher,
                             ).strip(),
