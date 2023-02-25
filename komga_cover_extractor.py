@@ -38,7 +38,7 @@ from io import BytesIO
 from functools import lru_cache
 from skimage.metrics import structural_similarity as ssim
 
-script_version = "2.2.3"
+script_version = "2.2.4"
 
 # Paths = existing library
 # Download_folders = newly aquired manga/novels
@@ -136,6 +136,8 @@ cached_identifier_results = []
 watchdog_toggle = False
 
 # Volume Regex Keywords to be used throughout the script
+# ORDER IS IMPORTANT, if a single character volume keyword is checked first, then that can break
+# cleaning of various bits of input.
 volume_regex_keywords = (
     "LN|Light Novels?|Novels?|Books?|Volumes?|Vols?|Discs?|Tomo|Tome|V|第|T"
 )
@@ -904,7 +906,7 @@ def upgrade_to_file_class(files, root):
             file,
             get_extensionless_name(file),
             (
-                get_series_name_from_file_name_chapter(file, chapter_number)
+                get_series_name_from_file_name_chapter(file, root, chapter_number)
                 if file_type == "chapter"
                 else get_series_name_from_file_name(file, root)
             ),
@@ -1137,6 +1139,14 @@ def get_series_name_from_file_name(name, root):
                 name,
                 flags=re.IGNORECASE,
             ).strip()
+    if (
+        not name
+        and root
+        and (
+            os.path.basename(root) not in str(download_folders) or not download_folders
+        )
+    ):
+        name = remove_bracketed_info_from_name(os.path.basename(root))
     if output_execution_times:
         print_function_execution_time(start_time, "get_series_name_from_file_name()")
     return name
@@ -1196,7 +1206,7 @@ def chapter_file_name_cleaning(file_name, chapter_number="", skip=False):
     return file_name
 
 
-def get_series_name_from_file_name_chapter(name, chapter_number=""):
+def get_series_name_from_file_name_chapter(name, root, chapter_number=""):
     start_time = time.time()
     # remove the file extension
     name = re.sub(r"(\.cbz|\.epub)$", "", name).strip()
@@ -1213,6 +1223,14 @@ def get_series_name_from_file_name_chapter(name, chapter_number=""):
         result = chapter_file_name_cleaning(name, chapter_number[0])
     else:
         result = chapter_file_name_cleaning(name, chapter_number)
+    if (
+        not result
+        and root
+        and (
+            os.path.basename(root) not in str(download_folders) or not download_folders
+        )
+    ):
+        result = remove_bracketed_info_from_name(os.path.basename(root))
     if output_execution_times:
         print_function_execution_time(
             start_time, "get_series_name_from_file_name_chapter()"
@@ -2600,6 +2618,7 @@ def reorganize_and_rename(files, dir):
                         elif file.extension == ".epub":
                             rename += " [" + file.release_group + "]"
                 rename += file.extension
+                rename = rename.strip()
                 processed_files.append(rename)
                 if file.name != rename:
                     try:
@@ -2697,7 +2716,7 @@ def reorganize_and_rename(files, dir):
                                 [rename], chapter=True
                             )
                             file.series_name = get_series_name_from_file_name_chapter(
-                                rename, file.volume_number
+                                rename, file.root, file.volume_number
                             )
                         file.volume_year = get_volume_year(rename)
                         file.name = rename
@@ -3559,6 +3578,13 @@ def check_for_existing_series():
                     exclude = None
                     similar.cache_clear()
                     for file in volumes:
+                        if not file.series_name:
+                            print(
+                                "\tSkipping: "
+                                + file.name
+                                + "\n\t\t - has no series_name"
+                            )
+                            continue
                         if (
                             file.name in processed_files or not processed_files
                         ) and os.path.isfile(file.path):
