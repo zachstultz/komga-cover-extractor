@@ -11,7 +11,7 @@ create_folders_for_items_in_download_folder_toggle = False
 rename_dirs_in_download_folder_toggle = False
 # Checks for any duplicate volumes and deletes the lower scoring copies based on ranked_keywords.
 check_for_duplicate_volumes_toggle = False
-# extracts covers from cbz and epub files recursively from the paths array.
+# extracts covers from manga and novel files recursively from the paths array.
 extract_covers_toggle = True
 # finds the corresponding series name in our existing library for the files in download_folders and handles moving, upgrading, and deletion
 check_for_existing_series_toggle = False
@@ -33,14 +33,14 @@ preferred_volume_renaming_format = "v"
 # Whether or not to add a volume number one to one-shot volumes
 # Useful for Comictagger matching, and enabling upgrading of
 # one-shot volumes.
-# Requires the one shot to be the only cbz or epub file within the folder.
+# Requires the one shot to be the only manga or novel file within the folder.
 add_volume_one_number_to_one_shots = False
 
 # Whether or not to add the issue number to the file name
 # Useful when using ComicTagger
-# TRUE: manga v01 #01 (2001).cbz
-# FALSE: manga v01 (2001).cbz
-add_issue_number_to_cbz_file_name = False
+# TRUE: manga v01 #01 (2001).extension
+# FALSE: manga v01 (2001).extension
+add_issue_number_to_manga_file_name = False
 
 # False = files/folders with be renamed automatically
 # True = user will be prompted for approval
@@ -51,16 +51,16 @@ manual_rename = True
 # Also changes the series name to the folder name that it's being moved to.
 resturcture_when_renaming = False
 
-# Whether or not to search an epub file for premium content if no
+# Whether or not to search a novel file for premium content if no
 # premium keyword is found, then it adds it into the file name in square brackets.
 search_and_add_premium_to_file_name = False
 
-# Whether or not to add the pulled publisher from the cbz or epub file to the
+# Whether or not to add the pulled publisher from the manga or novel file to the
 # file name when renmaing.
 add_publisher_name_to_file_name_when_renaming = False
 
 # Exception keywords used when deleting chapter files with the delete_chapters_from_downloads() function.
-# Files containing a match to any exception keywords will be ignored.
+# Files containing a match to any exception keyword will be ignored.
 # Case is ignored when checked.
 exception_keywords = [
     r"Extra",
@@ -78,8 +78,8 @@ exception_keywords = [
 # A release_groups.txt list can be created with the input of the user by enabling
 # generate_release_group_list_toggle = True and log_to_file = True, below, create it, and then turn this off after creation.
 #
-# BEFORE: Series Name v01 (Group) (f).cbz
-# AFTER : Series Name v01 (f) (Group).cbz
+# BEFORE: Series Name v01 (Group) (f).extension
+# AFTER : Series Name v01 (f) (Group).extension
 move_release_group_to_end_of_file_name = False
 ################################################################
 
@@ -100,8 +100,8 @@ allow_matching_single_volumes_with_multi_volumes = False
 # The required file type matching percentage between
 # the download folder and the existing folder
 #
-# For exmpale, 90% of the folder's files must be CBZ or EPUB
-# Used to avoid accdientally matching an epub volume to a manga library
+# For exmpale, 90% of the folder's files must be have an extension in manga_extensions or novel_extensions
+# Used to avoid accdientally matching a novel volume to a manga library
 # or vice versa because they can have the same exact series name.
 required_matching_percentage = 90
 
@@ -125,9 +125,8 @@ ranked_keywords = []
 ############################# MISC #############################
 # Folder names to be ignored
 ignored_folder_names = [""]
-# List of file types used throughout the program
-file_extensions = [".epub", ".cbz"]
-image_extensions = [".jpg", ".jpeg", ".png", ".tbn", ".jxl", ".webp"]
+
+
 # file extensions that will be deleted from the download folders in an optional method. EX: [".example"]
 unaccepted_file_extensions = []
 series_cover_file_names = ["cover", "poster"]
@@ -137,7 +136,7 @@ log_to_file = False
 bookwalker_check = False
 # Prompts the user when deleting a lower-ranking duplicate volume when running
 # check_for_duplicate_volumes()
-manual_delete = True  # for testing, verify the results
+manual_delete = True
 # Any keywords/regexes within this array that are found within a file name,
 # will be automatically deleted from the download_folders by delete_unacceptable_files()
 # Case is ignored.
@@ -200,9 +199,9 @@ rename_chapters_with_preferred_chapter_keyword = False
 # Whether or not to extract chapter covers from chapter files.
 extract_chapter_covers = False
 
-# When the program has detected a cover image file within the file cbz or epub file, it will compare that image
+# When the program has detected a cover image file within the manga file or novel file, it will compare that image
 # against a blank white image and a blank black image to avoid picking the wrong cover.
-compare_detected_cover_to_blank_image = False  # WILL INCREASE PROCESSING TIME
+compare_detected_cover_to_blank_images = False  # WILL INCREASE PROCESSING TIME
 
 # The required similarity score between the detected cover and the blank image to be considered a match.
 # If the similarity score is equal to or greater than this value, the cover will be ignored as
