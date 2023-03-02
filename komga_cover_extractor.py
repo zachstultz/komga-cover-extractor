@@ -59,13 +59,8 @@ compress_image_option = False
 # Pass in via cli
 image_quality = 60
 
-# Stat-related
-file_count = 0
-cbz_count = 0
-epub_count = 0
+# Stat-related variables
 image_count = 0
-cbz_internal_covers_found = 0
-poster_found = 0
 errors = []
 items_changed = []
 
@@ -102,9 +97,6 @@ processed_files = []
 # Used when determining whether or not to trigger a library scan in komga.
 moved_files = []
 
-# All extensions that aren't in this list will be ignored when searching
-# an epubs internal contents.
-internal_epub_extensions = [".xhtml", ".opf", ".ncx", ".xml", ".html"]
 
 # Where logs are written to.
 ROOT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
@@ -135,25 +127,100 @@ cached_identifier_results = []
 # watchdog toggle
 watchdog_toggle = False
 
+# Accepted file extensions for manga
+zip_extensions = [
+    # ".zip",
+    ".cbz",
+    ".epub",
+]
+rar_extensions = [
+    # ".rar",
+    # ".cbr"
+]
+
+# Accepted file extensions for manga and novels
+novel_extensions = [".epub"]
+manga_extensions = [x for x in zip_extensions if x not in novel_extensions]
+
+# All the accepted file extensions
+file_extensions = novel_extensions + manga_extensions
+
+
+# All the accepted image extensions
+image_extensions = [".jpg", ".jpeg", ".png", ".tbn", ".jxl", ".webp"]
+
 # Volume Regex Keywords to be used throughout the script
 # ORDER IS IMPORTANT, if a single character volume keyword is checked first, then that can break
 # cleaning of various bits of input.
-volume_regex_keywords = "(?<![A-Za-z])LN|(?<![A-Za-z])Light Novels?|(?<![A-Za-z])Novels?|(?<![A-Za-z])Books?|(?<![A-Za-z])Volumes?|(?<![A-Za-z])Vols?|(?<![A-Za-z])Discs?|(?<![A-Za-z])Tomo|(?<![A-Za-z])Tome|(?<![A-Za-z])V|(?<![A-Za-z])第|(?<![A-Za-z])T"
-
+volume_keywords = [
+    "LN",
+    "Light Novels?",
+    "Novels?",
+    "Books?",
+    "Volumes?",
+    "Vols?",
+    "Discs?",
+    "Tomo",
+    "Tome",
+    "V",
+    "第",
+    "T",
+]
 
 # Chapter Regex Keywords to be used throughout the script
-chapter_regex_keywords = "chapters?|chaps?|chs?|cs?"
+chapter_keywords = [
+    "Chapters?",
+    "Chaps?",
+    "Chs?",
+    "Cs?",
+]
+
+# Keywords to be avoided in a chapter regex.
+exclusion_keywords = [
+    "Part",
+    "Episode",
+    "Season",
+    "Story",
+    "Arc",
+    "Prologue",
+    "Epilogue",
+    "Omake",
+    "Extra",
+    "Special",
+]
+
+# Volume Regex Keywords to be used throughout the script
+volume_regex_keywords = "(?<![A-Za-z])" + "|(?<![A-Za-z])".join(volume_keywords)
+
+# Exclusion Regex Keywords to be used in the Chapter Regex Keywords to avoid incorrect number matches.
+exclusion_keywords_regex = "|".join(keyword + r"(\s)" for keyword in exclusion_keywords)
+
+# Put the exclusion_keywords_regex inside of (?<!%s)
+exclusion_keywords_regex = r"(?<!%s)" % exclusion_keywords_regex
+
+# Chapter Regex Keywords to be used throughout the script
+chapter_regex_keywords = r"(?<![A-Za-z])" + (r"|(?<![A-Za-z])").join(chapter_keywords)
+
+### EXTENION REGEX ###
+# File extensions regex to be used throughout the script
+file_extensions_regex = "|".join(file_extensions).replace(".", "\.")
+# Manga extensions regex to be used throughout the script
+manga_extensions_regex = "|".join(manga_extensions).replace(".", "\.")
+# Novel extensions regex to be used throughout the script
+novel_extensions_regex = "|".join(novel_extensions).replace(".", "\.")
+# Image extensions regex to be used throughout the script
+image_extensions_regex = "|".join(image_extensions).replace(".", "\.")
 
 # REMINDER: ORDER IS IMPORTANT, Top to bottom is the order it will be checked in.
 # Once a match is found, it will stop checking the rest.
 chapter_searches = [
     r"\s-(\s+)?(#)?([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?(\s+)?-\s",
-    r"(\b(?<![A-Za-z])(%s)((\.)|)(\s+)?([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?\b)"
+    r"(\b(%s)((\.)|)(\s+)?([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?\b)"
     % chapter_regex_keywords,
-    r"((\b(?<![A-Za-z])(%s|)((\.)|)(\s+)?([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?(#([0-9]+)(([-_.])([0-9]+)|)+)?\b)(\s+)?((\(|\{|\[)\w+(([-_. ])+\w+)?(\]|\}|\))|(?<!\w(\s+)?)(\.cbz|\.epub)(?!\w)))"
-    % chapter_regex_keywords,
-    r"(?<!([A-Za-z]|(Part|Episode|Season|Story|Arc)(\s+)?))(((%s)([-_. ]+)?([0-9]+))|\s+([0-9]+)(\.[0-9]+)?(x\d+((\.\d+)+)?)?(\s+|#\d+|\.cbz))"
-    % chapter_regex_keywords,
+    r"((\b(%s|)((\.)|)(\s+)?(%s)([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?(#([0-9]+)(([-_.])([0-9]+)|)+)?\b)(\s+)?((\(|\{|\[)\w+(([-_. ])+\w+)?(\]|\}|\))|(?<!\w(\s+)?)(%s)(?!\w)))"
+    % (chapter_regex_keywords, exclusion_keywords_regex, manga_extensions_regex),
+    r"(?<!([A-Za-z]|(Part|Episode|Season|Story|Arc|Epilogue)(\s+)?))(((%s)([-_. ]+)?([0-9]+))|\s+([0-9]+)(\.[0-9]+)?(x\d+((\.\d+)+)?)?(\s+|#\d+|%s))"
+    % (chapter_regex_keywords, manga_extensions_regex),
     r"^((#)?([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?(#([0-9]+)(([-_.])([0-9]+)|)+)?)$",
 ]
 
@@ -165,6 +232,8 @@ messages_to_send = []
 # ONLY FOR TESTING
 output_execution_times = False
 
+# Used to store multiple embeds to be sent in one message
+grouped_notifications = []
 
 # Folder Class
 class Folder:
@@ -271,6 +340,9 @@ class Watcher:
             self.observer.join()
 
 
+# Our array of file extensions and how many files have that extension
+file_counters = {x: 0 for x in file_extensions}
+
 # Sends a message, prints it, and writes it to a file depending on whether the error parameter is set to True or False
 def send_message(message, discord=True, error=False):
     print(message)
@@ -305,17 +377,26 @@ class Handler(FileSystemEventHandler):
                 send_message("Starting Script (WATCHDOG) (EXPERIMENTAL)", discord=False)
                 send_discord_message(
                     None,
-                    "Starting Script (WATCHDOG) (EXPERIMENTAL)",
-                    color=7615723,
-                    fields=[
-                        {
-                            "name": "File Found:",
-                            "value": "```" + str(event.src_path) + "```",
-                            "inline": False,
-                        }
+                    [
+                        handle_fields(
+                            DiscordEmbed(
+                                title="Starting Script (WATCHDOG) (EXPERIMENTAL)",
+                                color=7615723,
+                            ),
+                            [
+                                {
+                                    "name": "File Found:",
+                                    "value": "```" + str(event.src_path) + "```",
+                                    "inline": False,
+                                }
+                            ],
+                        )
                     ],
                 )
                 main()
+                send_message(
+                    "Finished Execution (WATCHDOG) (EXPERIMENTAL)", discord=False
+                )
 
 
 # Read all the lines of a text file and return them
@@ -349,7 +430,9 @@ def parse_my_args():
     global discord_webhook_url
     global paths_with_types
     parser = argparse.ArgumentParser(
-        description="Scans for covers in the cbz and epub files."
+        description="Scans for and extracts covers from "
+        + ", ".join(file_extensions)
+        + " files."
     )
     parser.add_argument(
         "-p",
@@ -617,7 +700,7 @@ def compress_image(image_path, quality=image_quality, to_jpg=False, raw_data=Non
         if extension == ".png" and (
             os.path.isfile(new_filename) and os.path.isfile(image_path) and not raw_data
         ):
-            os.remove(image_path)
+            remove_file(image_path, silent=True)
             return image_path
     except OSError as ose:
         send_message(
@@ -635,26 +718,38 @@ def check_text_file_for_message(text_file, message):
     return False
 
 
+# Adjusts discord embeds fields to fit the discord embed field limits
+def handle_fields(embed, fields):
+    if fields:
+        # An embed can contain a maximum of 25 fields
+        if len(fields) > 25:
+            fields = fields[:25]
+        for field in fields:
+            # A field name/title is limited to 256 character and the value of the field is limited to 1024 characters
+            if len(field["name"]) > 256:
+                if not re.search(r"```$", field["name"]):
+                    field["name"] = field["name"][:253] + "..."
+                else:
+                    field["name"] = field["name"][:-3][:250] + "...```"
+            if len(field["value"]) > 1024:
+                if not re.search(r"```$", field["value"]):
+                    field["value"] = field["value"][:1021] + "..."
+                else:
+                    field["value"] = field["value"][:-3][:1018] + "...```"
+            embed.add_embed_field(
+                name=field["name"],
+                value=field["value"],
+                inline=field["inline"],
+            )
+    return embed
+
+
 last_hook_index = None
 
-# Sends a discord message using the users webhook url
-def send_discord_message(
-    message,
-    title=None,
-    url=None,
-    rate_limit=True,
-    color=None,
-    proxies={},
-    fields=[],
-    timestamp=True,
-    passed_webhook=None,
-    image=None,
-    image_local=None,
-):
-    hook = None
+# Handles picking a webhook url, to evenly distribute the load
+def pick_webhook(passed_webhook=None, url=None):
     global discord_webhook_url
     global last_hook_index
-    global script_version
     if not passed_webhook:
         if discord_webhook_url:
             if not last_hook_index and last_hook_index != 0:
@@ -670,76 +765,66 @@ def send_discord_message(
             last_hook_index = discord_webhook_url.index(hook)
     else:
         hook = passed_webhook
-    webhook = DiscordWebhook()
-    embed = None
+    return hook
+
+
+webhook_obj = DiscordWebhook()
+
+# Sends a discord message using the users webhook url
+def send_discord_message(
+    message,
+    embeds=[],
+    url=None,
+    rate_limit=True,
+    timestamp=True,
+    passed_webhook=None,
+    image=None,
+    image_local=None,
+):
+    global script_version
+    global grouped_notifications
+    global webhook_obj
+    hook = pick_webhook(passed_webhook, url)
     try:
         if hook:
-            if color and not embed:
-                embed = DiscordEmbed()
-                embed.color = color
-            elif color and embed:
-                embed.color = color
-            if title and not embed:
-                embed = DiscordEmbed()
-                # discord max title length is 256
-                if len(title) > 256:
-                    title = title[:253] + "..."
-                embed.title = title
-            elif title and embed:
-                # discord max title length is 256
-                if len(title) > 256:
-                    title = title[:253] + "..."
-                embed.title = title
-            if message and not embed:
-                webhook.content = message
-            elif message and embed:
-                embed.description = message
-            webhook.url = hook
+            webhook_obj.url = hook
             if rate_limit:
-                webhook.rate_limit_retry = rate_limit
-            if embed:
-                if fields:
-                    # An embed can contain a maximum of 25 fields
-                    if len(fields) > 25:
-                        fields = fields[:25]
-                    for field in fields:
-                        # A field name/title is limited to 256 character and the value of the field is limited to 1024 characters
-                        if len(field["name"]) > 256:
-                            if not re.search(r"```$", field["name"]):
-                                field["name"] = field["name"][:253] + "..."
-                            else:
-                                field["name"] = field["name"][:-3][:250] + "...```"
-                        if len(field["value"]) > 1024:
-                            if not re.search(r"```$", field["value"]):
-                                field["value"] = field["value"][:1021] + "..."
-                            else:
-                                field["value"] = field["value"][:-3][:1018] + "...```"
-                        embed.add_embed_field(
-                            name=field["name"],
-                            value=field["value"],
-                            inline=field["inline"],
-                        )
-                if script_version:
-                    # Embed footer is limited to 2048 characters
-                    if len("v" + script_version) > 2048:
-                        embed.set_footer(text="v" + script_version[:2045] + "...")
-                    else:
+                webhook_obj.rate_limit_retry = rate_limit
+            if embeds:
+                if len(embeds) > 10:
+                    embeds = embeds[:10]
+                for embed in embeds:
+                    if script_version:
                         embed.set_footer(text="v" + script_version)
-                if timestamp:
-                    embed.set_timestamp()
-                if image and not image_local:
-                    embed.set_image(url=image)
-                elif image_local and not image:
-                    webhook.add_file(file=image_local, filename="cover.jpg")
-                    embed.set_image(url="attachment://cover.jpg")
-                webhook.add_embed(embed)
-            if proxies:
-                webhook.proxies = proxies
-            response = webhook.execute()
-        else:
-            return
+                    if timestamp:
+                        embed.set_timestamp()
+                    if image and not image_local:
+                        embed.set_image(url=image)
+                    elif (
+                        (image_local and not image) or webhook_obj.files
+                    ) and re.search(r"Release", embed.title, re.IGNORECASE):
+                        # check that the file doesn't already exist, if it does then use that instead
+                        found = False
+                        for file in webhook_obj.files:
+                            if file == "cover.jpg" or file == "_cover.jpg":
+                                found = True
+                                break
+                        if not found:
+                            webhook_obj.add_file(file=image_local, filename="cover.jpg")
+                        if not embed.image:
+                            embed.set_image(url="attachment://cover.jpg")
+                    webhook_obj.add_embed(embed)
+            elif message:
+                webhook_obj.content = message
+            webhook_obj.execute()
+            # Reset the webhook object
+            webhook_obj = DiscordWebhook()
+            # Reset the grouped notifications if the embeds are the same as the grouped notifications
+            if embeds == grouped_notifications:
+                grouped_notifications = []
     except Exception as e:
         send_message(e, discord=False, error=True)
+        # print(e)
 
 
 # Removes hidden files
@@ -781,10 +866,19 @@ def contains_chapter_keywords(file_name):
         re.search(pattern, file_name_clean, re.IGNORECASE)
         for pattern in chapter_searches
     ]
-    return any(
+    found = any(
         result and not re.search(r"^((\(|\{|\[)\d{4}(\]|\}|\)))$", result.group(0))
         for result in chapter_search_results
     )
+    if not found and not contains_volume_keywords(file_name):
+        without_year = re.sub(volume_year_regex, "", file_name, flags=re.IGNORECASE)
+        chapter_numbers_found = re.search(
+            r"([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?(#([0-9]+)(([-_.])([0-9]+)|)+)?",
+            without_year,
+        )
+        if chapter_numbers_found:
+            found = True
+    return found
 
 
 volume_regex = re.compile(
@@ -962,21 +1056,17 @@ def update_stats(file):
     if not os.path.isfile(file.path):
         return
 
-    global file_count
-    file_count += 1
-
-    if file.extension == ".cbz":
-        global cbz_count
-        cbz_count += 1
-    elif file.extension == ".epub":
-        global epub_count
-        epub_count += 1
+    global file_counters
+    if file.extension in file_counters:
+        file_counters[file.extension] += 1
+    else:
+        file_counters[file.extension] = 1
 
 
 # Credit to original source: https://alamot.github.io/epub_cover/
 # Modified by me.
-# Retrieves the inner epub cover
-def get_epub_cover(epub_path):
+# Retrieves the inner novel cover
+def get_novel_cover(novel_path):
     namespaces = {
         "calibre": "http://calibre.kovidgoyal.net/2009/metadata",
         "dc": "http://purl.org/dc/elements/1.1/",
@@ -985,7 +1075,7 @@ def get_epub_cover(epub_path):
         "u": "urn:oasis:names:tc:opendocument:xmlns:container",
         "xsi": "http://www.w3.org/2001/XMLSchema-instance",
     }
-    with zipfile.ZipFile(epub_path) as z:
+    with zipfile.ZipFile(novel_path) as z:
         try:
             t = etree.fromstring(z.read("META-INF/container.xml"))
             rootfile_path = t.xpath(
@@ -1012,12 +1102,12 @@ def get_epub_cover(epub_path):
                         )
                         return cover_path
                     else:
-                        print("\t\t\tNo cover_href found in get_epub_cover()")
+                        print("\t\t\tNo cover_href found in get_novel_cover()")
                 else:
-                    print("\t\t\tNo cover_id found in get_epub_cover()")
+                    print("\t\t\tNo cover_id found in get_novel_cover()")
             else:
                 print(
-                    "\t\t\tNo rootfile_path found in META-INF/container.xml in get_epub_cover()"
+                    "\t\t\tNo rootfile_path found in META-INF/container.xml in get_novel_cover()"
                 )
         except Exception as e:
             send_message(e, error=True)
@@ -1060,6 +1150,7 @@ def is_one_shot_bk(file_name):
 # Checks for volume keywords and chapter keywords.
 # If neither are present, the volume is assumed to be a one-shot volume.
 def is_one_shot(file_name, root):
+    global volume_year_regex
     files = clean_and_sort(root, os.listdir(root))[0]
     continue_logic = False
     if len(files) == 1 or (download_folders and root == download_folders[0]):
@@ -1070,9 +1161,9 @@ def is_one_shot(file_name, root):
         exception_keyword_status = check_for_exception_keywords(
             file_name, exception_keywords
         )
-        if (not volume_file_status and not chapter_file_status) and (
-            not exception_keyword_status
-        ):
+        if (
+            not volume_file_status and not chapter_file_status
+        ) and not exception_keyword_status:
             return True
     return False
 
@@ -1087,7 +1178,7 @@ def similar(a, b):
 
 
 # Moves the image into a folder if said image exists. Also checks for a cover/poster image and moves that.
-def move_images(file, folder_name):
+def move_images(file, folder_name, group=False):
     for extension in image_extensions:
         image = file.extensionless_path + extension
         if os.path.isfile(image):
@@ -1099,18 +1190,20 @@ def move_images(file, folder_name):
                 if not os.path.isfile(os.path.join(folder_name, cover_image_file_name)):
                     shutil.move(cover_image_file_path, folder_name)
                 else:
-                    remove_file(cover_image_file_path)
+                    remove_file(cover_image_file_path, group=group)
 
 
 # Retrieves the series name through various regexes
 # Removes the volume number and anything to the right of it, and strips it.
 def get_series_name_from_file_name(name, root):
     global volume_regex_keywords
+    global file_extensions_regex
     # name = remove_bracketed_info_from_name(name)
     start_time = time.time()
     if is_one_shot(name, root):
         name = re.sub(
-            r"([-_ ]+|)(((\[|\(|\{).*(\]|\)|\}))|LN)([-_. ]+|)(epub|cbz|).*",
+            r"([-_ ]+|)(((\[|\(|\{).*(\]|\)|\}))|LN)([-_. ]+|)(%s|).*"
+            % file_extensions_regex.replace("\.", ""),
             "",
             name,
             flags=re.IGNORECASE,
@@ -1133,7 +1226,8 @@ def get_series_name_from_file_name(name, root):
             ).strip()
         else:
             name = re.sub(
-                r"(\d+)?([-_. ]+)?((\[|\(|\})(.*)(\]|\)|\}))?([-_. ]+)?(\.cbz|\.epub)$",
+                r"(\d+)?([-_. ]+)?((\[|\(|\})(.*)(\]|\)|\}))?([-_. ]+)?(%s)$"
+                % file_extensions_regex,
                 "",
                 name,
                 flags=re.IGNORECASE,
@@ -1207,9 +1301,10 @@ def chapter_file_name_cleaning(file_name, chapter_number="", skip=False):
 
 
 def get_series_name_from_file_name_chapter(name, root, chapter_number=""):
+    global file_extensions_regex
     start_time = time.time()
     # remove the file extension
-    name = re.sub(r"(\.cbz|\.epub)$", "", name).strip()
+    name = re.sub(r"(%s)$" % file_extensions_regex, "", name).strip()
 
     # remove underscores
     name = replace_underscore_in_name(name)
@@ -1240,7 +1335,8 @@ def get_series_name_from_file_name_chapter(name, root, chapter_number=""):
 
 
 # Creates folders for our stray volumes sitting in the root of the download folder.
-def create_folders_for_items_in_download_folder():
+def create_folders_for_items_in_download_folder(group=False):
+    global grouped_notifications
     for download_folder in download_folders:
         if os.path.exists(download_folder):
             try:
@@ -1323,20 +1419,34 @@ def create_folders_for_items_in_download_folder():
                                                 file = new_file_obj
                                             else:
                                                 # if it does exist, delete the file
-                                                remove_file(file.path)
+                                                remove_file(file.path, silent=True)
                                         # check that the file doesn't already exist in the folder
                                         if os.path.isfile(
                                             file.path
                                         ) and not os.path.isfile(
                                             os.path.join(root, dir, file.name)
                                         ):
+                                            if (
+                                                group
+                                                and len(grouped_notifications) == 10
+                                            ):
+                                                send_discord_message(
+                                                    None, grouped_notifications
+                                                )
                                             # it doesn't, we move it and the image associated with it, to that folder
-                                            move_file(file, os.path.join(root, dir))
+                                            move_file(
+                                                file,
+                                                os.path.join(root, dir),
+                                                group=group,
+                                            )
                                             done = True
                                             break
                                         else:
                                             # it does, so we remove the duplicate file
-                                            remove_file(os.path.join(root, file.name))
+                                            remove_file(
+                                                os.path.join(root, file.name),
+                                                silent=True,
+                                            )
                                             done = True
                                             break
                             if not done:
@@ -1354,9 +1464,9 @@ def create_folders_for_items_in_download_folder():
                                 does_folder_exist = os.path.exists(folder_location)
                                 if not does_folder_exist:
                                     os.mkdir(folder_location)
-                                    move_file(file, folder_location)
-                                else:
-                                    move_file(file, folder_location)
+                                if group and len(grouped_notifications) == 10:
+                                    send_discord_message(None, grouped_notifications)
+                                move_file(file, folder_location, group=group)
             except Exception as e:
                 send_message(e, error=True)
         else:
@@ -1366,14 +1476,16 @@ def create_folders_for_items_in_download_folder():
                 send_message(
                     "\nERROR: " + download_folder + " is an invalid path.\n", error=True
                 )
+    if group and len(grouped_notifications):
+        send_discord_message(None, grouped_notifications)
 
 
 # Returns the percentage of files in the given list that have the specified extension or file type.
-def get_percent_for_folder(files, extension=None, file_type=None):
+def get_percent_for_folder(files, extensions=None, file_type=None):
     if file_type:
         count = len([file for file in files if file.file_type == file_type])
-    elif extension:
-        count = len([file for file in files if file.endswith(extension)])
+    elif extensions:
+        count = len([file for file in files if get_file_extension(file) in extensions])
     else:
         return 0
     percent = (count / len(files)) * 100 if count != 0 else 0
@@ -1422,6 +1534,7 @@ def convert_list_of_numbers_to_array(string):
 def remove_everything_but_volume_num(files, chapter=False):
     start_time = time.time()
     global chapter_searches
+    global file_extensions_regex
     results = []
     is_multi_volume = False
     keywords = volume_regex_keywords
@@ -1441,13 +1554,13 @@ def remove_everything_but_volume_num(files, chapter=False):
             if has_multiple_numbers(file):
                 if re.search(
                     r"((Episode|Ep)(\.)?(\s+)?(#)?(([0-9]+)(([-_.])([0-9]+)|)+))$",
-                    re.sub(r"(\.cbz|\.epub)", "", file),
+                    re.sub(r"(%s)" % file_extensions_regex, "", file),
                     re.IGNORECASE,
                 ):
                     file = re.sub(
                         r"((Episode|Ep)(\.)?(\s+)?(#)?(([0-9]+)(([-_.])([0-9]+)|)+))$",
                         "",
-                        re.sub(r"(\.cbz|\.epub)", "", file),
+                        re.sub(r"(%s)" % file_extensions_regex, "", file),
                         re.IGNORECASE,
                     ).strip()
                     # remove - at the end of the string
@@ -1455,8 +1568,8 @@ def remove_everything_but_volume_num(files, chapter=False):
                         r"-(\s+)?(#)?([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?(\s+)?-", file
                     ) and re.search(r"(-)$", file):
                         file = re.sub(r"(-)$", "", file).strip()
-            # With a chapter keyword, without, but before bracketed info, or without and with .cbz or .epub after the number
-            # Series Name c001.cbz or Series Name 001 (2021) (Digital) (Release).cbz or Series Name 001.cbz
+            # With a chapter keyword, without, but before bracketed info, or without and with a manga extension or a novel exteion after the number
+            # Series Name c001.extension or Series Name 001 (2021) (Digital) (Release).extension or Series Name 001.extension
             for search in chapter_searches:
                 search_result = re.search(search, file, re.IGNORECASE)
                 if search_result:
@@ -1490,11 +1603,11 @@ def remove_everything_but_volume_num(files, chapter=False):
                         r"(\(|\{|\[)(\w+(([-_. ])+\w+)?)?(\]|\}|\))", "", file
                     ).strip()
 
-                    # Removes the - characters.cbz or .epub from the end of the string, with
+                    # Removes the - characters.extension from the end of the string, with
                     # the dash and characters being optional
-                    # EX:  - prologue.cbz or .cbz
+                    # EX:  - prologue.extension or .extension
                     file = re.sub(
-                        r"(((\s+)?-(\s+)?([A-Za-z]+))?(\.cbz|\.epub))",
+                        r"(((\s+)?-(\s+)?([A-Za-z]+))?(%s))" % file_extensions_regex,
                         "",
                         file,
                         re.IGNORECASE,
@@ -1558,9 +1671,11 @@ def remove_everything_but_volume_num(files, chapter=False):
         return ""
 
 
+volume_year_regex = r"(\(|\[|\{)(\d{4})(\)|\]|\})"
+
 # Retrieves the release year
 def get_volume_year(name):
-    match = re.search(r"(\(|\[|\{)(\d{4})(\)|\]|\})", name, re.IGNORECASE)
+    match = re.search(volume_year_regex, name, re.IGNORECASE)
     if match:
         return int(re.sub(r"(\(|\[|\{)|(\)|\]|\})", "", match.group(0)))
     else:
@@ -1739,7 +1854,7 @@ def is_upgradeable(downloaded_release, current_release):
 def delete_hidden_files(files, root):
     for file in files[:]:
         if (str(file)).startswith(".") and os.path.isfile(os.path.join(root, file)):
-            remove_file(os.path.join(root, file))
+            remove_file(os.path.join(root, file), silent=True)
 
 
 # Removes the old series and cover image
@@ -1760,34 +1875,45 @@ def remove_images(path):
 
 
 # Removes a file
-def remove_file(full_file_path, silent=False):
+def remove_file(full_file_path, silent=False, group=False):
+    global grouped_notifications
     if os.path.isfile(full_file_path):
         try:
             os.remove(full_file_path)
             if not os.path.isfile(full_file_path):
                 if not silent:
                     send_message("\t\t\tFile Removed: " + full_file_path, discord=False)
-                    send_discord_message(
-                        None,
-                        "Removed File",
-                        color=16711680,
-                        fields=[
-                            {
-                                "name": "File:",
-                                "value": "```"
-                                + os.path.basename(full_file_path)
-                                + "```",
-                                "inline": False,
-                            },
-                            {
-                                "name": "Location:",
-                                "value": "```"
-                                + os.path.dirname(full_file_path)
-                                + "```",
-                                "inline": False,
-                            },
-                        ],
-                    )
+                    embed = [
+                        handle_fields(
+                            DiscordEmbed(
+                                title="Removed File",
+                                color=16711680,
+                            ),
+                            fields=[
+                                {
+                                    "name": "File:",
+                                    "value": "```"
+                                    + os.path.basename(full_file_path)
+                                    + "```",
+                                    "inline": False,
+                                },
+                                {
+                                    "name": "Location:",
+                                    "value": "```"
+                                    + os.path.dirname(full_file_path)
+                                    + "```",
+                                    "inline": False,
+                                },
+                            ],
+                        )
+                    ]
+                    if group:
+                        grouped_notifications.append(embed[0])
+                    else:
+                        send_discord_message(
+                            None,
+                            embed,
+                        )
                 if get_file_extension(full_file_path) not in image_extensions:
                     remove_images(full_file_path)
                 return True
@@ -1808,7 +1934,8 @@ def remove_file(full_file_path, silent=False):
 
 
 # Move a file
-def move_file(file, new_location, silent=False):
+def move_file(file, new_location, silent=False, group=False):
+    global grouped_notifications
     try:
         if os.path.isfile(file.path):
             shutil.move(file.path, new_location)
@@ -1818,24 +1945,34 @@ def move_file(file, new_location, silent=False):
                         "\t\tMoved File: " + file.name + " to " + new_location,
                         discord=False,
                     )
-                    send_discord_message(
-                        None,
-                        "Moved File",
-                        color=8421504,
-                        fields=[
-                            {
-                                "name": "File:",
-                                "value": "```" + file.name + "```",
-                                "inline": False,
-                            },
-                            {
-                                "name": "To:",
-                                "value": "```" + new_location + "```",
-                                "inline": False,
-                            },
-                        ],
-                    )
-                move_images(file, new_location)
+                    embed = [
+                        handle_fields(
+                            DiscordEmbed(
+                                title="Moved File",
+                                color=8421504,
+                            ),
+                            fields=[
+                                {
+                                    "name": "File:",
+                                    "value": "```" + file.name + "```",
+                                    "inline": False,
+                                },
+                                {
+                                    "name": "To:",
+                                    "value": "```" + new_location + "```",
+                                    "inline": False,
+                                },
+                            ],
+                        )
+                    ]
+                    if group:
+                        grouped_notifications.append(embed[0])
+                    else:
+                        send_discord_message(
+                            None,
+                            embed,
+                        )
+                move_images(file, new_location, group=group)
                 return True
             else:
                 send_message(
@@ -1852,10 +1989,11 @@ def move_file(file, new_location, silent=False):
 
 
 # Replaces an old file.
-def replace_file(old_file, new_file):
+def replace_file(old_file, new_file, group=False):
+    global grouped_notifications
     try:
         if os.path.isfile(old_file.path) and os.path.isfile(new_file.path):
-            file_removal_status = remove_file(old_file.path)
+            file_removal_status = remove_file(old_file.path, group=group)
             if not os.path.isfile(old_file.path) and file_removal_status:
                 move_file(new_file, old_file.root, silent=True)
                 if os.path.isfile(os.path.join(old_file.root, new_file.name)):
@@ -1866,23 +2004,33 @@ def replace_file(old_file, new_file):
                         + old_file.root,
                         discord=False,
                     )
-                    send_discord_message(
-                        None,
-                        "Moved File",
-                        color=8421504,
-                        fields=[
-                            {
-                                "name": "File:",
-                                "value": "```" + new_file.name + "```",
-                                "inline": False,
-                            },
-                            {
-                                "name": "To:",
-                                "value": "```" + old_file.root + "```",
-                                "inline": False,
-                            },
-                        ],
-                    )
+                    embed = [
+                        handle_fields(
+                            DiscordEmbed(
+                                title="Moved File",
+                                color=8421504,
+                            ),
+                            fields=[
+                                {
+                                    "name": "File:",
+                                    "value": "```" + new_file.name + "```",
+                                    "inline": False,
+                                },
+                                {
+                                    "name": "To:",
+                                    "value": "```" + old_file.root + "```",
+                                    "inline": False,
+                                },
+                            ],
+                        )
+                    ]
+                    if group:
+                        grouped_notifications.append(embed[0])
+                    else:
+                        send_discord_message(
+                            None,
+                            embed,
+                        )
                 else:
                     send_message(
                         "\tFailed to replace: "
@@ -1926,8 +2074,11 @@ def execute_command(command):
 
 
 # Removes the duplicate after determining it's upgrade status, otherwise, it upgrades
-def remove_duplicate_releases_from_download(original_releases, downloaded_releases):
+def remove_duplicate_releases_from_download(
+    original_releases, downloaded_releases, group=False
+):
     global moved_files
+    global grouped_notifications
     for download in downloaded_releases[:]:
         if (
             not isinstance(download.volume_number, int)
@@ -2101,15 +2252,25 @@ def remove_duplicate_releases_from_download(original_releases, downloaded_releas
                                 + " from download folder.",
                                 discord=False,
                             )
-                            send_discord_message(
-                                None,
-                                "Upgrade Process (Not Upgrade)",
-                                color=16776960,
-                                fields=fields,
-                            )
+                            embed = [
+                                handle_fields(
+                                    DiscordEmbed(
+                                        title="Upgrade Process (Not Upgrade)",
+                                        color=16776960,
+                                    ),
+                                    fields=fields,
+                                )
+                            ]
+                            if group:
+                                grouped_notifications.append(embed[0])
+                            else:
+                                send_discord_message(
+                                    None,
+                                    embed,
+                                )
                             if download in downloaded_releases:
                                 downloaded_releases.remove(download)
-                            remove_file(download.path)
+                            remove_file(download.path, group=group)
                         else:
                             send_message(
                                 "\t\tUPGRADE: "
@@ -2120,12 +2281,22 @@ def remove_duplicate_releases_from_download(original_releases, downloaded_releas
                                 + original.name,
                                 discord=False,
                             )
-                            send_discord_message(
-                                None,
-                                "Upgrade Process (Upgrade)",
-                                color=65280,
-                                fields=fields,
-                            )
+                            embed = [
+                                handle_fields(
+                                    DiscordEmbed(
+                                        title="Upgrade Process (Upgrade)",
+                                        color=65280,
+                                    ),
+                                    fields=fields,
+                                )
+                            ]
+                            if group:
+                                grouped_notifications.append(embed[0])
+                            else:
+                                send_discord_message(
+                                    None,
+                                    embed,
+                                )
                             if download.multi_volume and not original.multi_volume:
                                 for original_volume in original_releases[:]:
                                     for volume_number in download.volume_number:
@@ -2138,12 +2309,19 @@ def remove_duplicate_releases_from_download(original_releases, downloaded_releas
                                                 == original.volume_part
                                             )
                                         ):
-                                            remove_file(original_volume.path)
+                                            remove_file(
+                                                original_volume.path, group=group
+                                            )
                                             original_releases.remove(original_volume)
-                            replace_file(original, download)
+                            replace_file(original, download, group=group)
                             moved_files.append(download)
                             if download in downloaded_releases:
                                 downloaded_releases.remove(download)
+                            if grouped_notifications:
+                                send_discord_message(
+                                    None,
+                                    grouped_notifications,
+                                )
                     elif (download.volume_number == original.volume_number) and (
                         (download.volume_number != "" and original.volume_number != "")
                         and (not download.volume_part and original.volume_part)
@@ -2161,15 +2339,25 @@ def remove_duplicate_releases_from_download(original_releases, downloaded_releas
                                 + " from download folder.",
                                 discord=False,
                             )
-                            send_discord_message(
-                                None,
-                                "Upgrade Process (Not Upgrade)",
-                                color=16776960,
-                                fields=fields,
-                            )
+                            embed = [
+                                handle_fields(
+                                    DiscordEmbed(
+                                        title="Upgrade Process (Not Upgrade)",
+                                        color=16776960,
+                                    ),
+                                    fields=fields,
+                                )
+                            ]
+                            if group:
+                                grouped_notifications.append(embed[0])
+                            else:
+                                send_discord_message(
+                                    None,
+                                    embed,
+                                )
                             if download in downloaded_releases:
                                 downloaded_releases.remove(download)
-                            remove_file(download.path)
+                            remove_file(download.path, group=group)
                         else:
                             send_message(
                                 "\t\tUPGRADE: "
@@ -2180,12 +2368,22 @@ def remove_duplicate_releases_from_download(original_releases, downloaded_releas
                                 + original.name,
                                 discord=False,
                             )
-                            send_discord_message(
-                                None,
-                                "Upgrade Process (Upgrade)",
-                                color=65280,
-                                fields=fields,
-                            )
+                            embed = [
+                                handle_fields(
+                                    DiscordEmbed(
+                                        title="Upgrade Process (Upgrade)",
+                                        color=65280,
+                                    ),
+                                    fields=fields,
+                                )
+                            ]
+                            if group:
+                                grouped_notifications.append(embed[0])
+                            else:
+                                send_discord_message(
+                                    None,
+                                    embed,
+                                )
                             send_message(
                                 "\t\tRemoving remaining part files with matching release numbers:"
                             )
@@ -2200,31 +2398,44 @@ def remove_duplicate_releases_from_download(original_releases, downloaded_releas
                                     )
                                     and (not download.volume_part and v.volume_part)
                                 ):
-                                    remove_file(v.path)
+                                    remove_file(v.path, group=group)
                                     original_releases.remove(v)
-                            replace_file(original, download)
+                            replace_file(original, download, group=group)
                             moved_files.append(download)
                             if download in downloaded_releases:
                                 downloaded_releases.remove(download)
+                            if grouped_notifications:
+                                send_discord_message(
+                                    None,
+                                    grouped_notifications,
+                                )
 
 
 # Checks if the folder is empty, then deletes if it is
 def check_and_delete_empty_folder(folder):
-    try:
-        print("\t\tChecking for empty folder: " + folder)
-        delete_hidden_files(os.listdir(folder), folder)
-        folder_contents = os.listdir(folder)
-        folder_contents = remove_hidden_files(folder_contents)
-        if len(folder_contents) == 0 and (
-            folder not in paths and folder not in download_folders
-        ):
-            try:
-                print("\t\t\tRemoving empty folder: " + folder)
-                os.rmdir(folder)
-            except OSError as e:
-                send_message(e, error=True)
-    except Exception as e:
-        send_message(e, error=True)
+    # check that the folder exists
+    if os.path.exists(folder):
+        try:
+            print("\t\tChecking for empty folder: " + folder)
+            delete_hidden_files(os.listdir(folder), folder)
+            folder_contents = os.listdir(folder)
+            folder_contents = remove_hidden_files(folder_contents)
+            if len(folder_contents) == 0 and (
+                folder not in paths and folder not in download_folders
+            ):
+                try:
+                    print("\t\t\tRemoving empty folder: " + folder)
+                    os.rmdir(folder)
+                    if not os.path.exists(folder):
+                        print("\t\t\t\tFolder removed: " + folder)
+                    else:
+                        print("\t\t\t\tFailed to remove folder: " + folder)
+                except OSError as e:
+                    send_message(e, error=True)
+        except Exception as e:
+            send_message(e, error=True)
+    else:
+        print("\t\tFolder does not exist when checking for empty folder: " + folder)
 
 
 # Writes a log file
@@ -2348,9 +2559,9 @@ def check_for_missing_volumes():
                                     + ": Volume "
                                     + str(number)
                                 )
-                                if volume.extension == ".cbz":
+                                if volume.extension in manga_extensions:
                                     message += " [MANGA]"
-                                elif volume.extension == ".epub":
+                                elif volume.extension in novel_extensions:
                                     message += " [NOVEL]"
                                 print(message)
                                 write_to_file("missing_volumes.txt", message)
@@ -2374,17 +2585,21 @@ def rename_file(
                 + extensionless_filename_dst,
                 discord=False,
             )
-            for image_extension in image_extensions:
-                image_file = extensionless_filename_src + image_extension
-                image_file_rename = extensionless_filename_dst + image_extension
-                if os.path.isfile(os.path.join(root, image_file)):
-                    try:
-                        os.rename(
-                            os.path.join(root, image_file),
-                            os.path.join(root, image_file_rename),
-                        )
-                    except Exception as e:
-                        send_message(e, error=True)
+            if get_file_extension(src) not in image_extensions:
+                for image_extension in image_extensions:
+                    image_file = extensionless_filename_src + image_extension
+                    image_file_rename = extensionless_filename_dst + image_extension
+                    if os.path.isfile(os.path.join(root, image_file)):
+                        try:
+                            rename_file(
+                                os.path.join(root, image_file),
+                                os.path.join(root, image_file_rename),
+                                root,
+                                image_file,
+                                image_file_rename,
+                            )
+                        except Exception as e:
+                            send_message(e, error=True)
         else:
             send_message(
                 "Failed to rename " + src + " to " + dest + "\n\tERROR: " + str(e),
@@ -2392,8 +2607,12 @@ def rename_file(
             )
 
 
-def reorganize_and_rename(files, dir):
+def reorganize_and_rename(files, dir, group=False):
     global manual_rename
+    global file_extensions_regex
+    global manga_extensions
+    global novel_extensions
+    global grouped_notifications
     base_dir = os.path.basename(dir)
     for file in files:
         preferred_naming_format = preferred_volume_renaming_format
@@ -2403,14 +2622,14 @@ def reorganize_and_rename(files, dir):
             preferred_naming_format = preferred_chapter_renaming_format
         try:
             if re.search(
-                r"(\b(%s)([-_.]|)(([0-9]+)((([-_.]|)([0-9]+))+|))(\s|\.epub|\.cbz))"
-                % keywords,
+                r"(\b(%s)([-_.]|)(([0-9]+)((([-_.]|)([0-9]+))+|))(\s|%s))"
+                % (keywords, file_extensions_regex),
                 file.name,
                 re.IGNORECASE,
             ):
                 comic_info_xml = ""
-                epub_info_html = ""
-                if file.extension == ".cbz":
+                novel_info_html = ""
+                if file.extension in manga_extensions:
                     contains_comic_info = check_if_zip_file_contains_comic_info_xml(
                         file.path
                     )
@@ -2423,13 +2642,13 @@ def reorganize_and_rename(files, dir):
                             comicinfo = comicinfo.decode("utf-8")
                             # not parsing pages correctly
                             comic_info_xml = parse_comicinfo_xml(comicinfo)
-                elif file.extension == ".epub":
-                    epub_content_opf = get_file_from_zip(file.path, "content.opf")
-                    epub_package_opf = get_file_from_zip(file.path, "package.opf")
-                    if epub_content_opf:
-                        epub_info_html = parse_html_tags(epub_content_opf)
-                    elif epub_package_opf:
-                        epub_info_html = parse_html_tags(epub_package_opf)
+                elif file.extension in novel_extensions:
+                    novel_content_opf = get_file_from_zip(file.path, "content.opf")
+                    novel_package_opf = get_file_from_zip(file.path, "package.opf")
+                    if novel_content_opf:
+                        novel_info_html = parse_html_tags(novel_content_opf)
+                    elif novel_package_opf:
+                        novel_info_html = parse_html_tags(novel_package_opf)
                 release_year_from_file = ""
                 publisher = ""
                 if comic_info_xml:
@@ -2441,9 +2660,9 @@ def reorganize_and_rename(files, dir):
                         publisher = titlecase(comic_info_xml["Publisher"])
                         publisher = remove_dual_space(publisher)
                         publisher = re.sub(r", LLC.*", "", publisher)
-                elif epub_info_html:
-                    if "dc:date" in epub_info_html:
-                        release_year_from_file = epub_info_html["dc:date"].strip()
+                elif novel_info_html:
+                    if "dc:date" in novel_info_html:
+                        release_year_from_file = novel_info_html["dc:date"].strip()
                         release_year_from_file = re.search(
                             r"\d{4}", release_year_from_file
                         )
@@ -2454,8 +2673,8 @@ def reorganize_and_rename(files, dir):
                                 and release_year_from_file.isdigit()
                             ):
                                 release_year_from_file = int(release_year_from_file)
-                    if "dc:publisher" in epub_info_html:
-                        publisher = titlecase(epub_info_html["dc:publisher"])
+                    if "dc:publisher" in novel_info_html:
+                        publisher = titlecase(novel_info_html["dc:publisher"])
                         publisher = remove_dual_space(publisher)
                         publisher = re.sub(r", LLC.*", "", publisher).strip()
                         publisher = re.sub(r"LLC", "", publisher).strip()
@@ -2499,13 +2718,13 @@ def reorganize_and_rename(files, dir):
                 if number_string:
                     rename += number_string
                 if (
-                    add_issue_number_to_cbz_file_name
+                    add_issue_number_to_manga_file_name
                     and file.file_type == "volume"
-                    and file.extension == ".cbz"
+                    and file.extension in manga_extensions
                     and number_string
                 ):
                     rename += " #" + number_string
-                if file.extension == ".cbz":
+                if file.extension in manga_extensions:
                     if isinstance(file.volume_year, int):
                         rename += " (" + str(file.volume_year) + ")"
                     elif release_year_from_file and isinstance(
@@ -2513,7 +2732,7 @@ def reorganize_and_rename(files, dir):
                     ):
                         file.volume_year = release_year_from_file
                         rename += " (" + str(file.volume_year) + ")"
-                elif file.extension == ".epub":
+                elif file.extension in novel_extensions:
                     if isinstance(file.volume_year, int):
                         rename += " [" + str(file.volume_year) + "]"
                     elif release_year_from_file and isinstance(
@@ -2545,9 +2764,9 @@ def reorganize_and_rename(files, dir):
                         ):
                             file.extras.remove(item)
                     if add_publisher_name_to_file_name_when_renaming:
-                        if file.extension == ".cbz":
+                        if file.extension in manga_extensions:
                             rename += " (" + publisher + ")"
-                        elif file.extension == ".epub":
+                        elif file.extension in novel_extensions:
                             rename += " [" + publisher + "]"
                 if file.volume_year:
                     for item in file.extras[:]:
@@ -2614,9 +2833,9 @@ def reorganize_and_rename(files, dir):
                     if release_group_escaped and not re.search(
                         rf"\b{release_group_escaped}\b", rename, re.IGNORECASE
                     ):
-                        if file.extension == ".cbz":
+                        if file.extension in manga_extensions:
                             rename += " (" + file.release_group + ")"
-                        elif file.extension == ".epub":
+                        elif file.extension in novel_extensions:
                             rename += " [" + file.release_group + "]"
                 rename += file.extension
                 rename = rename.strip()
@@ -2638,23 +2857,38 @@ def reorganize_and_rename(files, dir):
                                 discord=False,
                             )
                             if not mute_discord_rename_notifications:
-                                send_discord_message(
-                                    None,
-                                    "Reorganized & Renamed File",
-                                    color=8421504,
-                                    fields=[
-                                        {
-                                            "name": "From:",
-                                            "value": "```" + file.name + "```",
-                                            "inline": False,
-                                        },
-                                        {
-                                            "name": "To:",
-                                            "value": "```" + rename + "```",
-                                            "inline": False,
-                                        },
-                                    ],
-                                )
+                                embed = [
+                                    handle_fields(
+                                        DiscordEmbed(
+                                            title="Reorganized & Renamed File",
+                                            color=8421504,
+                                        ),
+                                        fields=[
+                                            {
+                                                "name": "From:",
+                                                "value": "```" + file.name + "```",
+                                                "inline": False,
+                                            },
+                                            {
+                                                "name": "To:",
+                                                "value": "```" + rename + "```",
+                                                "inline": False,
+                                            },
+                                        ],
+                                    )
+                                ]
+                                if group:
+                                    if len(grouped_notifications) == 10:
+                                        send_discord_message(
+                                            None,
+                                            grouped_notifications,
+                                        )
+                                    grouped_notifications.append(embed[0])
+                                else:
+                                    send_discord_message(
+                                        None,
+                                        embed,
+                                    )
                         else:
                             user_input = input("\tReorganize & Rename (y or n): ")
                             if (
@@ -2678,23 +2912,40 @@ def reorganize_and_rename(files, dir):
                                         discord=False,
                                     )
                                     if not mute_discord_rename_notifications:
-                                        send_discord_message(
-                                            None,
-                                            "Reorganized & Renamed File",
-                                            color=8421504,
-                                            fields=[
-                                                {
-                                                    "name": "From:",
-                                                    "value": "```" + file.name + "```",
-                                                    "inline": False,
-                                                },
-                                                {
-                                                    "name": "To:",
-                                                    "value": "```" + rename + "```",
-                                                    "inline": False,
-                                                },
-                                            ],
-                                        )
+                                        embed = [
+                                            handle_fields(
+                                                DiscordEmbed(
+                                                    title="Reorganized & Renamed File",
+                                                    color=8421504,
+                                                ),
+                                                fields=[
+                                                    {
+                                                        "name": "From:",
+                                                        "value": "```"
+                                                        + file.name
+                                                        + "```",
+                                                        "inline": False,
+                                                    },
+                                                    {
+                                                        "name": "To:",
+                                                        "value": "```" + rename + "```",
+                                                        "inline": False,
+                                                    },
+                                                ],
+                                            )
+                                        ]
+                                        if group:
+                                            if len(grouped_notifications) == 10:
+                                                send_discord_message(
+                                                    None,
+                                                    grouped_notifications,
+                                                )
+                                            grouped_notifications.append(embed[0])
+                                        else:
+                                            send_discord_message(
+                                                None,
+                                                embed,
+                                            )
                                 else:
                                     print(
                                         "\t\tFile already exists, skipping rename of "
@@ -2704,7 +2955,7 @@ def reorganize_and_rename(files, dir):
                                         + " and deleting "
                                         + file.name
                                     )
-                                    remove_file(file.path)
+                                    remove_file(file.path, silent=True)
                         if file.file_type == "volume":
                             file.volume_number = remove_everything_but_volume_num(
                                 [rename]
@@ -2766,6 +3017,7 @@ def normalize_string_for_matching(s):
         editions = [
             "Collection",
             "Master Edition",
+            "(2|3|4|5)-in-1 Edition",
             "Edition",
             "Exclusive",
             "Anniversary",
@@ -2875,7 +3127,7 @@ class Result:
         self.score = score
 
 
-# gets the toc.xhtml or copyright.xhtml file from the epub file and checks for premium content
+# gets the toc.xhtml or copyright.xhtml file from the novel file and checks for premium content
 def get_toc_or_copyright(file):
     bonus_content_found = False
     with zipfile.ZipFile(file, "r") as zf:
@@ -2916,11 +3168,21 @@ class NewReleaseNotification:
 
 
 def check_upgrade(
-    existing_root, dir, file, similarity_strings=None, cache=False, isbn=False
+    existing_root,
+    dir,
+    file,
+    similarity_strings=None,
+    cache=False,
+    isbn=False,
+    group=False,
 ):
     global moved_files
     global new_volume_webhook
     global messages_to_send
+    global manga_extensions
+    global novel_extensions
+    global grouped_notifications
+    global webhook_obj
     existing_dir = os.path.join(existing_root, dir)
     clean_existing = os.listdir(existing_dir)
     clean_existing = clean_and_sort(existing_dir, clean_existing)[0]
@@ -2934,15 +3196,17 @@ def check_upgrade(
             existing_dir,
         )
     )
-    cbz_percent_download_folder = get_percent_for_folder([file.name], extension=".cbz")
-    cbz_percent_existing_folder = get_percent_for_folder(
-        [f.name for f in clean_existing], extension=".cbz"
+    manga_percent_download_folder = get_percent_for_folder(
+        [file.name], extensions=manga_extensions
     )
-    epub_percent_download_folder = get_percent_for_folder(
-        [file.name], extension=".epub"
+    manga_percent_existing_folder = get_percent_for_folder(
+        [f.name for f in clean_existing], extensions=manga_extensions
     )
-    epub_percent_existing_folder = get_percent_for_folder(
-        [f.name for f in clean_existing], extension=".epub"
+    novel_percent_download_folder = get_percent_for_folder(
+        [file.name], extensions=novel_extensions
+    )
+    novel_percent_existing_folder = get_percent_for_folder(
+        [f.name for f in clean_existing], extensions=novel_extensions
     )
     chapter_percentage_download_folder = get_percent_for_folder(
         [file], file_type="chapter"
@@ -2959,12 +3223,18 @@ def check_upgrade(
     print(
         "\tRequired Folder Matching Percent: {}%".format(required_matching_percentage)
     )
-    print("\t\tDownload Folder CBZ Percent: {}%".format(cbz_percent_download_folder))
-    print("\t\tExisting Folder CBZ Percent: {}%".format(cbz_percent_existing_folder))
     print(
-        "\n\t\tDownload Folder EPUB Percent: {}%".format(epub_percent_download_folder)
+        "\t\tDownload Folder Manga Percent: {}%".format(manga_percent_download_folder)
     )
-    print("\t\tExisting Folder EPUB Percent: {}%".format(epub_percent_existing_folder))
+    print(
+        "\t\tExisting Folder Manga Percent: {}%".format(manga_percent_existing_folder)
+    )
+    print(
+        "\n\t\tDownload Folder Novel Percent: {}%".format(novel_percent_download_folder)
+    )
+    print(
+        "\t\tExisting Folder Novel Percent: {}%".format(novel_percent_existing_folder)
+    )
     print(
         "\n\t\tDownload Folder Chapter Percent: {}%".format(
             chapter_percentage_download_folder
@@ -2987,11 +3257,11 @@ def check_upgrade(
     )
     if (
         (
-            (cbz_percent_download_folder and cbz_percent_existing_folder)
+            (manga_percent_download_folder and manga_percent_existing_folder)
             >= required_matching_percentage
         )
         or (
-            (epub_percent_download_folder and epub_percent_existing_folder)
+            (novel_percent_download_folder and novel_percent_existing_folder)
             >= required_matching_percentage
         )
     ) and (
@@ -3006,7 +3276,7 @@ def check_upgrade(
     ):
         download_dir_volumes = [file]
         if resturcture_when_renaming:
-            reorganize_and_rename(download_dir_volumes, existing_dir)
+            reorganize_and_rename(download_dir_volumes, existing_dir, group=group)
         fields = []
         if similarity_strings:
             if not isbn:
@@ -3069,27 +3339,64 @@ def check_upgrade(
                 "\n\t\tFound existing series from cache: " + existing_dir, discord=False
             )
             if fields:
-                send_discord_message(
-                    None, "Found Series Match (CACHE)", color=8421504, fields=fields
-                )
+                embed = [
+                    handle_fields(
+                        DiscordEmbed(
+                            title="Found Series Match (CACHE)",
+                            color=8421504,
+                        ),
+                        fields=fields,
+                    )
+                ]
+                if group:
+                    grouped_notifications.append(embed[0])
+                else:
+                    send_discord_message(
+                        None,
+                        embed,
+                    )
         elif isbn:
             send_message("\n\t\tFound existing series: " + existing_dir, discord=False)
             if fields:
-                send_discord_message(
-                    None,
-                    "Found Series Match (Matching Identifier)",
-                    color=8421504,
-                    fields=fields,
-                )
+                embed = [
+                    handle_fields(
+                        DiscordEmbed(
+                            title="Found Series Match (Matching Identifier)",
+                            color=8421504,
+                        ),
+                        fields=fields,
+                    ),
+                ]
+                if group:
+                    grouped_notifications.append(embed[0])
+                else:
+                    send_discord_message(
+                        None,
+                        embed,
+                    )
         else:
             send_message("\n\t\tFound existing series: " + existing_dir, discord=False)
             if fields:
-                send_discord_message(
-                    None, "Found Series Match", color=8421504, fields=fields
-                )
+                embed = [
+                    handle_fields(
+                        DiscordEmbed(
+                            title="Found Series Match",
+                            color=8421504,
+                        ),
+                        fields=fields,
+                    ),
+                ]
+                if group:
+                    grouped_notifications.append(embed[0])
+                else:
+                    send_discord_message(
+                        None,
+                        embed,
+                    )
         remove_duplicate_releases_from_download(
             clean_existing,
             download_dir_volumes,
+            group=group,
         )
         if len(download_dir_volumes) != 0:
             volume = download_dir_volumes[0]
@@ -3145,7 +3452,7 @@ def check_upgrade(
                     )
                 title = "New " + volume.file_type.capitalize() + " Release"
                 green_color = 65280
-                move_status = move_file(volume, existing_dir)
+                move_status = move_file(volume, existing_dir, group=group)
                 if move_status:
                     check_and_delete_empty_folder(volume.root)
                     volume.extensionless_path = get_extensionless_name(
@@ -3155,14 +3462,37 @@ def check_upgrade(
                     volume.root = existing_dir
                     moved_files.append(volume)
                 if volume.file_type == "volume":
-                    send_discord_message(
-                        None,
-                        title,
-                        color=green_color,
-                        fields=fields,
-                        image_local=cover,
-                        passed_webhook=new_volume_webhook,
-                    )
+                    embed = [
+                        handle_fields(
+                            DiscordEmbed(
+                                title=title,
+                                color=green_color,
+                            ),
+                            fields=fields,
+                        ),
+                    ]
+                    if new_volume_webhook:
+                        if grouped_notifications:
+                            send_discord_message(None, grouped_notifications)
+                        send_discord_message(
+                            None,
+                            embed,
+                            image_local=cover,
+                            passed_webhook=new_volume_webhook,
+                        )
+                    else:
+                        if group:
+                            grouped_notifications.append(embed[0])
+                            if grouped_notifications:
+                                if cover:
+                                    webhook_obj.add_file(cover, filename="cover.jpg")
+                                send_discord_message(None, grouped_notifications)
+                        else:
+                            send_discord_message(
+                                None,
+                                embed,
+                                image_local=cover,
+                            )
                 elif volume.file_type == "chapter" and new_volume_webhook:
                     messages_to_send.append(
                         NewReleaseNotification(
@@ -3176,15 +3506,32 @@ def check_upgrade(
                         )
                     )
                 elif volume.file_type == "chapter" and not new_volume_webhook:
-                    send_discord_message(
-                        None,
-                        title,
-                        color=green_color,
-                        fields=fields,
-                        image_local=cover,
-                    )
+                    embed = [
+                        handle_fields(
+                            DiscordEmbed(
+                                title=title,
+                                color=green_color,
+                            ),
+                            fields=fields,
+                        ),
+                    ]
+                    if group:
+                        grouped_notifications.append(embed[0])
+                        if grouped_notifications:
+                            send_discord_message(None, grouped_notifications)
+                    else:
+                        send_discord_message(
+                            None,
+                            embed,
+                            image_local=cover,
+                        )
                 return True
         else:
+            if grouped_notifications:
+                send_discord_message(
+                    None,
+                    grouped_notifications,
+                )
             check_and_delete_empty_folder(file.root)
             return True
     else:
@@ -3243,7 +3590,8 @@ def remove_bracketed_info_from_name(string):
 
 
 # Checks for any duplicate releases and deletes the lower ranking one.
-def check_for_duplicate_volumes(paths_to_search=[]):
+def check_for_duplicate_volumes(paths_to_search=[], group=False):
+    global grouped_notifications
     try:
         for p in paths_to_search:
             if os.path.exists(p):
@@ -3396,37 +3744,68 @@ def check_for_duplicate_volumes(paths_to_search=[]):
                                                             + "\n",
                                                             discord=False,
                                                         )
-                                                        send_discord_message(
-                                                            None,
-                                                            "Duplicate Download Release (NOT UPGRADE)",
-                                                            color=16776960,
-                                                            fields=[
-                                                                {
-                                                                    "name": "Location:",
-                                                                    "value": "```"
-                                                                    + upgrade_file.root
-                                                                    + "```",
-                                                                    "inline": False,
-                                                                },
-                                                                {
-                                                                    "name": "Duplicate:",
-                                                                    "value": "```"
-                                                                    + duplicate_file.name
-                                                                    + "```",
-                                                                    "inline": False,
-                                                                },
-                                                                {
-                                                                    "name": "has a lower score than:",
-                                                                    "value": "```"
-                                                                    + upgrade_file.name
-                                                                    + "```",
-                                                                    "inline": False,
-                                                                },
-                                                            ],
-                                                        )
+                                                        embed = [
+                                                            handle_fields(
+                                                                DiscordEmbed(
+                                                                    title="Duplicate Download Release (UPGRADE)",
+                                                                    color=16776960,
+                                                                ),
+                                                                fields=[
+                                                                    {
+                                                                        "name": "Location:",
+                                                                        "value": "```"
+                                                                        + upgrade_file.root
+                                                                        + "```",
+                                                                        "inline": False,
+                                                                    },
+                                                                    {
+                                                                        "name": "Duplicate:",
+                                                                        "value": "```"
+                                                                        + duplicate_file.name
+                                                                        + "```",
+                                                                        "inline": False,
+                                                                    },
+                                                                    {
+                                                                        "name": "has a lower score than:",
+                                                                        "value": "```"
+                                                                        + upgrade_file.name
+                                                                        + "```",
+                                                                        "inline": False,
+                                                                    },
+                                                                ],
+                                                            )
+                                                        ]
+                                                        if group:
+                                                            if (
+                                                                len(
+                                                                    grouped_notifications
+                                                                )
+                                                                == 10
+                                                            ):
+                                                                send_discord_message(
+                                                                    None,
+                                                                    grouped_notifications,
+                                                                )
+                                                            grouped_notifications.append(
+                                                                embed[0]
+                                                            )
+                                                        else:
+                                                            send_discord_message(
+                                                                None,
+                                                                embed,
+                                                            )
+                                                        if (
+                                                            len(grouped_notifications)
+                                                            == 10
+                                                        ):
+                                                            send_discord_message(
+                                                                None,
+                                                                grouped_notifications,
+                                                            )
                                                         if not manual_delete:
                                                             remove_file(
-                                                                duplicate_file.path
+                                                                duplicate_file.path,
+                                                                group=group,
                                                             )
                                                         elif (
                                                             input(
@@ -3437,7 +3816,8 @@ def check_for_duplicate_volumes(paths_to_search=[]):
                                                             == "y"
                                                         ):
                                                             remove_file(
-                                                                duplicate_file.path
+                                                                duplicate_file.path,
+                                                                group=group,
                                                             )
                                                         else:
                                                             send_message(
@@ -3455,34 +3835,56 @@ def check_for_duplicate_volumes(paths_to_search=[]):
                                                             + "\n\t\t\t\t\tRanking scores are equal, REQUIRES MANUAL DECISION.",
                                                             discord=False,
                                                         )
-                                                        send_discord_message(
-                                                            None,
-                                                            "Duplicate Download Release (REQUIRES MANUAL DECISION)",
-                                                            color=16776960,
-                                                            fields=[
-                                                                {
-                                                                    "name": "Location:",
-                                                                    "value": "```"
-                                                                    + compare_file.root
-                                                                    + "```",
-                                                                    "inline": False,
-                                                                },
-                                                                {
-                                                                    "name": "Duplicate:",
-                                                                    "value": "```"
-                                                                    + file.name
-                                                                    + "```",
-                                                                    "inline": False,
-                                                                },
-                                                                {
-                                                                    "name": "has an equal score to:",
-                                                                    "value": "```"
-                                                                    + compare_file.name
-                                                                    + "```",
-                                                                    "inline": False,
-                                                                },
-                                                            ],
-                                                        )
+                                                        embed = [
+                                                            handle_fields(
+                                                                DiscordEmbed(
+                                                                    title="Duplicate Download Release (REQUIRES MANUAL DECISION)",
+                                                                    color=16776960,
+                                                                ),
+                                                                fields=[
+                                                                    {
+                                                                        "name": "Location:",
+                                                                        "value": "```"
+                                                                        + compare_file.root
+                                                                        + "```",
+                                                                        "inline": False,
+                                                                    },
+                                                                    {
+                                                                        "name": "Duplicate:",
+                                                                        "value": "```"
+                                                                        + file.name
+                                                                        + "```",
+                                                                        "inline": False,
+                                                                    },
+                                                                    {
+                                                                        "name": "has an equal score to:",
+                                                                        "value": "```"
+                                                                        + compare_file.name
+                                                                        + "```",
+                                                                        "inline": False,
+                                                                    },
+                                                                ],
+                                                            )
+                                                        ]
+                                                        if group:
+                                                            if (
+                                                                len(
+                                                                    grouped_notifications
+                                                                )
+                                                                == 10
+                                                            ):
+                                                                send_discord_message(
+                                                                    None,
+                                                                    grouped_notifications,
+                                                                )
+                                                            grouped_notifications.append(
+                                                                embed[0]
+                                                            )
+                                                        else:
+                                                            send_discord_message(
+                                                                None,
+                                                                embed,
+                                                            )
                                                         print("\t\t\t\t\tSkipping...")
                                         except Exception as e:
                                             send_message(
@@ -3504,6 +3906,8 @@ def check_for_duplicate_volumes(paths_to_search=[]):
                             continue
             else:
                 print("\n\t\tPath does not exist: " + p)
+        if group and grouped_notifications:
+            send_discord_message(None, grouped_notifications)
     except Exception as e:
         send_message("\n\t\tError: " + str(e), error=True)
 
@@ -3552,11 +3956,12 @@ class IdentifierResult:
 
 # Checks for an existing series by pulling the series name from each elidable file in the downloads_folder
 # and comparing it to an existin folder within the user's library.
-def check_for_existing_series():
+def check_for_existing_series(group=False):
     global cached_paths
     global cached_identifier_results
     global messages_to_send
     global paths_with_types
+    global grouped_notifications
     if download_folders:
         print("\nChecking download folders for items to match to existing library...")
         for download_folder in download_folders:
@@ -3589,12 +3994,7 @@ def check_for_existing_series():
                         if (
                             file.name in processed_files or not processed_files
                         ) and os.path.isfile(file.path):
-                            if unmatched_series and (
-                                (
-                                    not match_through_isbn_or_series_id
-                                    or file.file_type == "chapter"
-                                )
-                            ):
+                            if unmatched_series:
                                 if (
                                     file.series_name
                                     + " - "
@@ -3622,6 +4022,7 @@ def check_for_existing_series():
                                             file,
                                             similarity_strings=cached_identifier.matches,
                                             isbn=True,
+                                            group=group,
                                         )
                                         if cached_identifier.path not in cached_paths:
                                             cached_paths.append(cached_identifier.path)
@@ -3800,8 +4201,13 @@ def check_for_existing_series():
                                                     required_similarity_score,
                                                 ],
                                                 cache=True,
+                                                group=group,
                                             )
                                             if done:
+                                                if group and grouped_notifications:
+                                                    send_discord_message(
+                                                        None, grouped_notifications
+                                                    )
                                                 if p not in cached_paths:
                                                     cached_paths.append(p)
                                                     write_to_file(
@@ -3820,6 +4226,8 @@ def check_for_existing_series():
                                                     exclude = p
                                                 break
                             if done:
+                                if group and grouped_notifications:
+                                    send_discord_message(None, grouped_notifications)
                                 continue
                             download_file_zip_comment = get_zip_comment(file.path)
                             download_file_meta = None
@@ -3915,10 +4323,7 @@ def check_for_existing_series():
                                                     )
                                                 )
                                                 reorganized = True
-                                            if (
-                                                not match_through_isbn_or_series_id
-                                                or file.file_type == "chapter"
-                                            ) and root in cached_paths:
+                                            if root in cached_paths:
                                                 continue
                                             clean_two = clean_and_sort(
                                                 root, files, dirs
@@ -4051,8 +4456,17 @@ def check_for_existing_series():
                                                                 similarity_score,
                                                                 required_similarity_score,
                                                             ],
+                                                            group=group,
                                                         )
                                                         if done:
+                                                            if (
+                                                                group
+                                                                and grouped_notifications
+                                                            ):
+                                                                send_discord_message(
+                                                                    None,
+                                                                    grouped_notifications,
+                                                                )
                                                             if (
                                                                 os.path.join(
                                                                     folder_accessor.root,
@@ -4243,8 +4657,13 @@ def check_for_existing_series():
                                             file,
                                             similarity_strings=matched_ids,
                                             isbn=True,
+                                            group=group,
                                         )
                                         if done:
+                                            if group and grouped_notifications:
+                                                send_discord_message(
+                                                    None, grouped_notifications
+                                                )
                                             if directories_found[0] not in cached_paths:
                                                 cached_paths.append(
                                                     directories_found[0]
@@ -4325,9 +4744,15 @@ def check_for_existing_series():
                         if cover:
                             send_discord_message(
                                 None,
-                                message.title,
-                                color=message.color,
-                                fields=message.fields,
+                                [
+                                    handle_fields(
+                                        DiscordEmbed(
+                                            title=message.title,
+                                            color=message.color,
+                                        ),
+                                        fields=message.fields,
+                                    )
+                                ],
                                 image_local=cover,
                                 passed_webhook=message.webhook,
                             )
@@ -4335,9 +4760,15 @@ def check_for_existing_series():
                         else:
                             send_discord_message(
                                 None,
-                                message.title,
-                                color=message.color,
-                                fields=message.fields,
+                                [
+                                    handle_fields(
+                                        DiscordEmbed(
+                                            title=message.title,
+                                            color=message.color,
+                                        ),
+                                        fields=message.fields,
+                                    )
+                                ],
                                 passed_webhook=message.webhook,
                             )
                 else:
@@ -4375,9 +4806,15 @@ def check_for_existing_series():
                         ]
                         send_discord_message(
                             None,
-                            group["messages"][0].title + "(s)",
-                            color=group["messages"][0].color,
-                            fields=new_fields,
+                            [
+                                handle_fields(
+                                    DiscordEmbed(
+                                        title=group["messages"][0].title + "(s)",
+                                        color=group["messages"][0].color,
+                                    ),
+                                    fields=new_fields,
+                                )
+                            ],
                             passed_webhook=group["messages"][0].webhook,
                         )
 
@@ -4404,7 +4841,7 @@ def get_series_name(dir):
 # Renames the folders in our download directory.
 # If volume releases are available, it will rename based on those.
 # Otherwise it will fallback to just cleaning the name of any brackets.
-def rename_dirs_in_download_folder():
+def rename_dirs_in_download_folder(group=False):
     print("\nLooking for folders to rename...")
     for download_folder in download_folders:
         if os.path.exists(download_folder):
@@ -4453,6 +4890,7 @@ def rename_dirs_in_download_folder():
                     )
                     volume_one = None
                     matching = []
+                    volume_one_series_name = None
                     if volumes:
                         # sort by name
                         if len(volumes) > 1:
@@ -4501,6 +4939,8 @@ def rename_dirs_in_download_folder():
                             print(
                                 "\t\tCould not find series name for: " + volumes[0].path
                             )
+                        if volume_one and volume_one.series_name:
+                            volume_one_series_name = volume_one.series_name
                         if (
                             volume_one
                             and volume_one.series_name != folderDir
@@ -4526,7 +4966,7 @@ def rename_dirs_in_download_folder():
                             print("\n\tBEFORE: " + folderDir)
                             print("\tAFTER:  " + volume_one.series_name)
                             if volumes:
-                                print("\t\tVOLUMES:")
+                                print("\t\tFILES:")
                                 for v in volumes:
                                     print("\t\t\t" + v.name)
                             user_input = ""
@@ -4581,12 +5021,20 @@ def rename_dirs_in_download_folder():
                                                     v.name,
                                                 )
                                             ):
+                                                if (
+                                                    group
+                                                    and len(grouped_notifications) == 10
+                                                ):
+                                                    send_discord_message(
+                                                        None, grouped_notifications
+                                                    )
                                                 move_file(
                                                     v,
                                                     os.path.join(
                                                         folder_accessor.root,
                                                         volume_one.series_name,
                                                     ),
+                                                    group=group,
                                                 )
                                             else:
                                                 print(
@@ -4595,7 +5043,7 @@ def rename_dirs_in_download_folder():
                                                     + " already exists in "
                                                     + volume_one.series_name
                                                 )
-                                                remove_file(v.path)
+                                                remove_file(v.path, silent=True)
                                         # check for an empty folder, and delete it if it is
                                         check_and_delete_empty_folder(v.root)
                                         done = True
@@ -4677,7 +5125,10 @@ def rename_dirs_in_download_folder():
                             except Exception as e:
                                 print(e)
                                 print("Skipping...")
-                    if not done:
+                    if not done and (
+                        not volume_one_series_name
+                        or volume_one_series_name != folderDir
+                    ):
                         download_folder_basename = os.path.basename(download_folder)
                         if re.search(
                             download_folder_basename, full_file_path, re.IGNORECASE
@@ -4777,12 +5228,21 @@ def rename_dirs_in_download_folder():
                                                         file.name,
                                                     )
                                                 ):
+                                                    if (
+                                                        group
+                                                        and len(grouped_notifications)
+                                                        == 10
+                                                    ):
+                                                        send_discord_message(
+                                                            None, grouped_notifications
+                                                        )
                                                     move_file(
                                                         file,
                                                         os.path.join(
                                                             download_folder,
                                                             dir_clean,
                                                         ),
+                                                        group=group,
                                                     )
                                                 else:
                                                     send_message(
@@ -4814,6 +5274,8 @@ def rename_dirs_in_download_folder():
                 send_message(
                     "\nERROR: " + download_folder + " is an invalid path.\n", error=True
                 )
+    if group and grouped_notifications:
+        send_discord_message(None, grouped_notifications)
 
 
 def get_extras(file_name, chapter=False, series_name=""):
@@ -4851,7 +5313,14 @@ def get_extras(file_name, chapter=False, series_name=""):
             elif re.search(pattern, item, re.IGNORECASE):
                 modified.remove(item)
                 break
-    modifiers = {".epub": "[%s]", ".cbz": "(%s)"}
+    modifiers = {
+        ext: "[%s]"
+        if ext in novel_extensions
+        else "(%s)"
+        if ext in manga_extensions
+        else ""
+        for ext in file_extensions
+    }
     keywords = [
         "Premium",
         "Complete",
@@ -4969,10 +5438,14 @@ def parse_html_tags(html):
 
 
 # Renames files.
-def rename_files_in_download_folders(only_these_files=[]):
+def rename_files_in_download_folders(only_these_files=[], group=False):
     global manual_rename
     global cached_paths
     global chapter_searches
+    global manga_extensions
+    global novel_extensions
+    global file_extensions
+    global grouped_notifications
     print("\nSearching for files to rename...")
     for path in download_folders:
         if os.path.exists(path):
@@ -5014,9 +5487,13 @@ def rename_files_in_download_folders(only_these_files=[]):
                     if only_these_files and file.name not in only_these_files:
                         continue
                     try:
+                        # Append 巻 to each extension and join them with |
+                        file_extensions_with_prefix = "".join(
+                            [f"巻?{re.escape(x)}|" for x in file_extensions]
+                        )[:-1]
                         result = re.search(
-                            r"(\s+)?\-?(\s+)?(%s)(\.\s?|\s?|)([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?(#([0-9]+)(([-_.])([0-9]+)|)+)?(\]|\)|\})?(\s|巻?\.epub|巻?\.cbz)"
-                            % keywords,
+                            r"(\s+)?\-?(\s+)?(%s)(\.\s?|\s?|)([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?(#([0-9]+)(([-_.])([0-9]+)|)+)?(\]|\)|\})?(\s|%s)"
+                            % (keywords, file_extensions_with_prefix),
                             file.name,
                             re.IGNORECASE,
                         )
@@ -5142,8 +5619,9 @@ def rename_files_in_download_folders(only_these_files=[]):
                             )
                             modified = []
                             for r in results[:]:
-                                r = r.strip()
-                                if r == "" or r == ".":
+                                if r:
+                                    r = r.strip()
+                                if r == "" or r == "." or r == None:
                                     results.remove(r)
                                 else:
                                     found = re.search(
@@ -5230,13 +5708,13 @@ def rename_files_in_download_folders(only_these_files=[]):
                                     flags=re.IGNORECASE,
                                 )
                                 if (
-                                    file.extension == ".cbz"
-                                    and add_issue_number_to_cbz_file_name
+                                    file.extension in manga_extensions
+                                    and add_issue_number_to_manga_file_name
                                     and file.file_type == "volume"
                                 ):
                                     combined += " " + "#" + without_keyword
                                 elif (
-                                    file.extension == ".epub"
+                                    file.extension in novel_extensions
                                     and search_and_add_premium_to_file_name
                                 ):
                                     if not re.search(
@@ -5246,7 +5724,7 @@ def rename_files_in_download_folders(only_these_files=[]):
                                         or get_toc_or_copyright(file.path)
                                     ):
                                         print(
-                                            "\n\t\tBonus content found inside epub, adding [Premium] to file name."
+                                            "\n\t\tBonus content found inside novel, adding [Premium] to file name."
                                         )
                                         combined += " [Premium]"
                                 if not file.is_one_shot:
@@ -5319,7 +5797,7 @@ def rename_files_in_download_folders(only_these_files=[]):
                                         replacement = remove_dual_space(replacement)
                                 else:
                                     base = re.sub(
-                                        r"(.epub|.cbz)",
+                                        r"(%s)" % file_extensions_regex,
                                         "",
                                         file.basename,
                                         flags=re.IGNORECASE,
@@ -5379,36 +5857,58 @@ def rename_files_in_download_folders(only_these_files=[]):
                                                     os.path.join(root, replacement)
                                                 ):
                                                     send_message(
-                                                        "\t\t\tSuccessfully renamed file: \n\t\t"
+                                                        "\t\t\tSuccessfully renamed file: \n\t\t\t\t"
                                                         + file.name
-                                                        + " to "
+                                                        + "\n\t\t\t\t\tto \n\t\t\t\t"
                                                         + replacement,
                                                         discord=False,
                                                     )
                                                     if (
                                                         not mute_discord_rename_notifications
                                                     ):
-                                                        send_discord_message(
-                                                            None,
-                                                            "Renamed File",
-                                                            color=8421504,
-                                                            fields=[
-                                                                {
-                                                                    "name": "From:",
-                                                                    "value": "```"
-                                                                    + file.name
-                                                                    + "```",
-                                                                    "inline": False,
-                                                                },
-                                                                {
-                                                                    "name": "To:",
-                                                                    "value": "```"
-                                                                    + replacement
-                                                                    + "```",
-                                                                    "inline": False,
-                                                                },
-                                                            ],
-                                                        )
+                                                        embed = [
+                                                            handle_fields(
+                                                                DiscordEmbed(
+                                                                    title="Renamed File",
+                                                                    color=8421504,
+                                                                ),
+                                                                fields=[
+                                                                    {
+                                                                        "name": "From:",
+                                                                        "value": "```"
+                                                                        + file.name
+                                                                        + "```",
+                                                                        "inline": False,
+                                                                    },
+                                                                    {
+                                                                        "name": "To:",
+                                                                        "value": "```"
+                                                                        + replacement
+                                                                        + "```",
+                                                                        "inline": False,
+                                                                    },
+                                                                ],
+                                                            )
+                                                        ]
+                                                        if group:
+                                                            if (
+                                                                len(
+                                                                    grouped_notifications
+                                                                )
+                                                                == 10
+                                                            ):
+                                                                send_discord_message(
+                                                                    None,
+                                                                    grouped_notifications,
+                                                                )
+                                                            grouped_notifications.append(
+                                                                embed[0]
+                                                            )
+                                                        else:
+                                                            send_discord_message(
+                                                                None,
+                                                                embed,
+                                                            )
                                                     for (
                                                         image_extension
                                                     ) in image_extensions:
@@ -5467,7 +5967,7 @@ def rename_files_in_download_folders(only_these_files=[]):
                                                 + "\n\tDeleting: "
                                                 + file.name
                                             )
-                                            remove_file(file.path)
+                                            remove_file(file.path, silent=True)
                                             continue
                                     except OSError as ose:
                                         send_message(ose, error=True)
@@ -5487,12 +5987,14 @@ def rename_files_in_download_folders(only_these_files=[]):
                             "\nERROR: " + str(e) + " (" + file.name + ")", error=True
                         )
                     if resturcture_when_renaming:
-                        reorganize_and_rename([file], file.series_name)
+                        reorganize_and_rename([file], file.series_name, group=group)
         else:
             if path == "":
                 print("\nERROR: Path cannot be empty.")
             else:
                 print("\nERROR: " + path + " is an invalid path.\n")
+    if group and grouped_notifications:
+        send_discord_message(None, grouped_notifications)
 
 
 # Checks for any exception keywords that will prevent the chapter release from being deleted.
@@ -5502,7 +6004,9 @@ def check_for_exception_keywords(file_name, exception_keywords):
 
 
 # Deletes chapter files from the download folder.
-def delete_chapters_from_downloads():
+def delete_chapters_from_downloads(group=False):
+    global manga_extensions
+    global grouped_notifications
     try:
         for path in download_folders:
             if os.path.exists(path):
@@ -5532,7 +6036,7 @@ def delete_chapters_from_downloads():
                         ) and not (
                             check_for_exception_keywords(file, exception_keywords)
                         ):
-                            if file.endswith(".cbz"):
+                            if get_file_extension(file) in manga_extensions:
                                 send_message(
                                     "\n\t\tFile: "
                                     + file
@@ -5542,33 +6046,47 @@ def delete_chapters_from_downloads():
                                     + "\n\t\tDeleting chapter release.",
                                     discord=False,
                                 )
-                                send_discord_message(
-                                    None,
-                                    "Chapter Release Found",
-                                    color=8421504,
-                                    fields=[
-                                        {
-                                            "name": "File:",
-                                            "value": "```" + file + "```",
-                                            "inline": False,
-                                        },
-                                        {
-                                            "name": "Location:",
-                                            "value": "```" + root + "```",
-                                            "inline": False,
-                                        },
-                                        {
-                                            "name": "Checks:",
-                                            "value": "```"
-                                            + "Contains chapter keywords/lone numbers ✓\n"
-                                            + "Does not contain any volume keywords ✓\n"
-                                            + "Does not contain any exclusion keywords ✓"
-                                            + "```",
-                                            "inline": False,
-                                        },
-                                    ],
-                                )
-                                remove_file(os.path.join(root, file))
+                                embed = [
+                                    handle_fields(
+                                        DiscordEmbed(
+                                            title="Chapter Release Found",
+                                            color=8421504,
+                                        ),
+                                        fields=[
+                                            {
+                                                "name": "File:",
+                                                "value": "```" + file + "```",
+                                                "inline": False,
+                                            },
+                                            {
+                                                "name": "Location:",
+                                                "value": "```" + root + "```",
+                                                "inline": False,
+                                            },
+                                            {
+                                                "name": "Checks:",
+                                                "value": "```"
+                                                + "Contains chapter keywords/lone numbers ✓\n"
+                                                + "Does not contain any volume keywords ✓\n"
+                                                + "Does not contain any exclusion keywords ✓"
+                                                + "```",
+                                                "inline": False,
+                                            },
+                                        ],
+                                    )
+                                ]
+                                if group:
+                                    if len(grouped_notifications) == 10:
+                                        send_discord_message(
+                                            None, grouped_notifications
+                                        )
+                                    grouped_notifications.append(embed[0])
+                                else:
+                                    send_discord_message(
+                                        None,
+                                        embed,
+                                    )
+                                remove_file(os.path.join(root, file), group=group)
                 for root, dirs, files in scandir.walk(path):
                     clean_two = clean_and_sort(root, files, dirs)
                     files, dirs = clean_two[0], clean_two[1]
@@ -5579,6 +6097,8 @@ def delete_chapters_from_downloads():
                     print("\nERROR: Path cannot be empty.")
                 else:
                     print("\nERROR: " + path + " is an invalid path.\n")
+        if group and grouped_notifications:
+            send_discord_message(None, grouped_notifications)
     except Exception as e:
         send_message(e, error=True)
 
@@ -5593,20 +6113,21 @@ def remove_non_images(files):
     return clean_list
 
 
-# Finds and extracts the internal cover from a cbz or epub file
+# Finds and extracts the internal cover from a manga or novel file.
 def find_and_extract_cover(file, return_data_only=False):
     start_time = time.time()
     global blank_cover_required_similarity_score
+    global novel_extensions
     # check if the file is a valid zip file
     if zipfile.is_zipfile(file.path):
-        epub_cover_path = ""
-        if file.extension == ".epub":
-            epub_cover_path = get_epub_cover(file.path)
-            if epub_cover_path:
-                epub_cover_path = os.path.basename(epub_cover_path)
-                epub_cover_extension = get_file_extension(epub_cover_path)
-                if epub_cover_extension not in image_extensions:
-                    epub_cover_path = ""
+        novel_cover_path = ""
+        if file.extension in novel_extensions:
+            novel_cover_path = get_novel_cover(file.path)
+            if novel_cover_path:
+                novel_cover_path = os.path.basename(novel_cover_path)
+                novel_cover_extension = get_file_extension(novel_cover_path)
+                if novel_cover_extension not in image_extensions:
+                    novel_cover_path = ""
         with zipfile.ZipFile(file.path, "r") as zip_ref:
             zip_list = zip_ref.namelist()
             zip_list = [
@@ -5626,10 +6147,10 @@ def find_and_extract_cover(file, return_data_only=False):
                 if extension not in image_extensions:
                     zip_list.remove(item)
             zip_list.sort()
-            # parse zip_list and check each os.path.basename for epub_cover_path if epub_cover_path exists, then put it at the front of the list
-            if epub_cover_path:
+            # parse zip_list and check each os.path.basename for novel_cover_path if novel_cover_path exists, then put it at the front of the list
+            if novel_cover_path:
                 for item in zip_list:
-                    if os.path.basename(item) == epub_cover_path:
+                    if os.path.basename(item) == novel_cover_path:
                         zip_list.remove(item)
                         zip_list.insert(0, item)
                         break
@@ -5649,13 +6170,13 @@ def find_and_extract_cover(file, return_data_only=False):
                 for image_file in zip_list:
                     for search in cover_searches:
                         if (
-                            epub_cover_path
-                            and os.path.basename(image_file) == epub_cover_path
+                            novel_cover_path
+                            and os.path.basename(image_file) == novel_cover_path
                         ) or re.search(
                             search, os.path.basename(image_file), re.IGNORECASE
                         ):
                             if (
-                                compare_detected_cover_to_blank_image
+                                compare_detected_cover_to_blank_images
                                 and blank_white_image_path
                                 and blank_black_image_path
                             ):
@@ -5744,7 +6265,7 @@ def find_and_extract_cover(file, return_data_only=False):
                                 return file.extensionless_path + image_extension
                 default_cover_path = None
                 if (
-                    compare_detected_cover_to_blank_image
+                    compare_detected_cover_to_blank_images
                     and blank_white_image_path
                     and blank_black_image_path
                 ):
@@ -5840,7 +6361,7 @@ def find_and_extract_cover(file, return_data_only=False):
     return False
 
 
-# Extracts the covers out from our cbz and epub files
+# Extracts the covers out from our manga and novel files.
 def extract_covers():
     global cached_paths
     print("\nLooking for covers to extract...")
@@ -5908,7 +6429,7 @@ def convert_webp_to_jpg(webp_file_path):
             # verify that the conversion worked
             if os.path.isfile(extenionless_webp_file + ".jpg"):
                 # delete the .webp file
-                os.remove(webp_file_path)
+                remove_file(webp_file_path, silent=True)
                 # verify that the .webp file was deleted
                 if not os.path.isfile(webp_file_path):
                     return extenionless_webp_file + ".jpg"
@@ -5966,7 +6487,7 @@ def process_cover_extraction(file, contains_volume_one):
                 else:
                     print("\t\tCover conversion failed.")
                     print("\t\tCleaning up webp file...")
-                    remove_file(result)
+                    remove_file(result, silent=True)
                     if not os.path.isfile(result):
                         print("\t\tWebp file successfully deleted.")
                     else:
@@ -6031,10 +6552,18 @@ def process_cover_extraction(file, contains_volume_one):
 
 
 def print_stats():
+    global file_counters
     print("\nFor all paths.")
-    print("Total Files Found: " + str(file_count))
-    print("\t" + str(cbz_count) + " were cbz files")
-    print("\t" + str(epub_count) + " were epub files")
+    if file_counters:
+        # get the total count from file_counters
+        total_count = sum(
+            [file_counters[extension] for extension in file_counters.keys()]
+        )
+        print("Total Files Found: " + str(total_count))
+        for extension in file_counters.keys():
+            count = file_counters[extension]
+            if count > 0:
+                print("\t" + str(count) + " were " + extension + " files")
     print("\tof those we found that " + str(image_count) + " had a cover image file.")
     if len(errors) != 0:
         print("\nErrors (" + str(len(errors)) + "):")
@@ -6043,8 +6572,9 @@ def print_stats():
 
 
 # Deletes any file with an extension in unaccepted_file_extensions from the download_folers
-def delete_unacceptable_files():
+def delete_unacceptable_files(group=False):
     global cached_paths
+    global grouped_notifications
     if unaccepted_file_extensions:
         print("Searching for unacceptable files...")
         try:
@@ -6101,31 +6631,49 @@ def delete_unacceptable_files():
                                                 + root,
                                                 discord=False,
                                             )
-                                            send_discord_message(
-                                                None,
-                                                "Unacceptable Match Found",
-                                                color=16776960,
-                                                fields=[
-                                                    {
-                                                        "name": "Found Regex/Keyword Match:",
-                                                        "value": "```"
-                                                        + unacceptable_keyword_search.group()
-                                                        + "```",
-                                                        "inline": False,
-                                                    },
-                                                    {
-                                                        "name": "In:",
-                                                        "value": "```" + file + "```",
-                                                        "inline": False,
-                                                    },
-                                                    {
-                                                        "name": "Location:",
-                                                        "value": "```" + root + "```",
-                                                        "inline": False,
-                                                    },
-                                                ],
-                                            )
-                                            remove_file(file_path)
+                                            embed = [
+                                                handle_fields(
+                                                    DiscordEmbed(
+                                                        title="Unacceptable Match Found",
+                                                        color=16776960,
+                                                    ),
+                                                    fields=[
+                                                        {
+                                                            "name": "Found Regex/Keyword Match:",
+                                                            "value": "```"
+                                                            + unacceptable_keyword_search.group()
+                                                            + "```",
+                                                            "inline": False,
+                                                        },
+                                                        {
+                                                            "name": "In:",
+                                                            "value": "```"
+                                                            + file
+                                                            + "```",
+                                                            "inline": False,
+                                                        },
+                                                        {
+                                                            "name": "Location:",
+                                                            "value": "```"
+                                                            + root
+                                                            + "```",
+                                                            "inline": False,
+                                                        },
+                                                    ],
+                                                )
+                                            ]
+                                            if group:
+                                                if len(grouped_notifications) == 10:
+                                                    send_discord_message(
+                                                        None, grouped_notifications
+                                                    )
+                                                grouped_notifications.append(embed[0])
+                                            else:
+                                                send_discord_message(
+                                                    None,
+                                                    embed,
+                                                )
+                                            remove_file(file_path, group=group)
                                             if not os.path.isfile(file_path):
                                                 print(
                                                     "\t\t\tSuccessfully removed unacceptable file: "
@@ -6152,6 +6700,8 @@ def delete_unacceptable_files():
                         print("\nERROR: Path cannot be empty.")
                     else:
                         print("\nERROR: " + path + " is an invalid path.\n")
+            if group and grouped_notifications:
+                send_discord_message(None, grouped_notifications)
         except Exception as e:
             send_message(e, error=True)
 
@@ -6686,6 +7236,8 @@ def search_bookwalker(query, type, print_info=False, alternative_search=False):
 # Checks the library against bookwalker for any missing volumes that are released or on pre-order
 # Doesn't work with NSFW results atm.
 def check_for_new_volumes_on_bookwalker():
+    global manga_extensions
+    global novel_extensions
     print("\nChecking for new volumes on bookwalker...")
     paths_clean = [p for p in paths if p not in download_folders]
     for path in paths_clean:
@@ -6727,14 +7279,14 @@ def check_for_new_volumes_on_bookwalker():
                 type = None
                 if (
                     get_percent_for_folder(
-                        [f.name for f in existing_dir_volumes], ".cbz"
+                        [f.name for f in existing_dir_volumes], manga_extensions
                     )
                     >= 70
                 ):
                     type = "m"
                 elif (
                     get_percent_for_folder(
-                        [f.name for f in existing_dir_volumes], ".epub"
+                        [f.name for f in existing_dir_volumes], novel_extensions
                     )
                     >= 70
                 ):
@@ -6781,13 +7333,10 @@ def check_for_new_volumes_on_bookwalker():
     # Get rid of the old released and pre-orders and replace them with new ones.
     if log_to_file:
         if os.path.isfile(os.path.join(ROOT_DIR, "released.txt")):
-            os.remove(os.path.join(ROOT_DIR, "released.txt"))
+            remove_file(os.path.join(ROOT_DIR, "released.txt"), silent=True)
         if os.path.isfile(os.path.join(ROOT_DIR, "pre-orders.txt")):
-            os.remove(os.path.join(ROOT_DIR, "pre-orders.txt"))
+            remove_file(os.path.join(ROOT_DIR, "pre-orders.txt"), silent=True)
     if len(released) > 0:
-        # send_discord_message(
-        #     "/clear amount:500", passed_webhook=bookwalker_webhook_urls[0]
-        # )
         print("\nNew Releases:")
         for r in released:
             print("\t" + r.title)
@@ -6808,14 +7357,6 @@ def check_for_new_volumes_on_bookwalker():
             if bookwalker_webhook_urls and len(bookwalker_webhook_urls) == 2:
                 send_discord_message(message, passed_webhook=bookwalker_webhook_urls[0])
     if len(pre_orders) > 0:
-        # if bookwalker_webhook_urls and len(bookwalker_webhook_urls) == 1:
-        #     send_discord_message(
-        #         "/clear amount:500", passed_webhook=bookwalker_webhook_urls[0]
-        #     )
-        # elif bookwalker_webhook_urls and len(bookwalker_webhook_urls) == 2:
-        #     send_discord_message(
-        #         "/clear amount:500", passed_webhook=bookwalker_webhook_urls[1]
-        #     )
         print("\nPre-orders:")
         for p in pre_orders:
             print("\t" + p.title)
@@ -6839,7 +7380,7 @@ def check_for_new_volumes_on_bookwalker():
                 send_discord_message(message, passed_webhook=bookwalker_webhook_urls[0])
 
 
-# Checks the epub for bonus.xhtml or bonus[0-9].xhtml
+# Checks the novel for bonus.xhtml or bonus[0-9].xhtml
 # then returns whether or not it was found.
 def check_for_bonus_xhtml(zip):
     with zipfile.ZipFile(zip) as zip:
@@ -6899,7 +7440,9 @@ def scan_komga_libraries():
                 )
                 if request.status_code == 202:
                     send_message(
-                        "Successfully Initiated Scan for: " + library_id + " Library.",
+                        "\n\t\tSuccessfully Initiated Scan for: "
+                        + library_id
+                        + " Library.",
                         discord=False,
                     )
                 else:
@@ -7263,12 +7806,12 @@ def main():
         download_folders and (unaccepted_file_extensions or unacceptable_keywords)
     ):
         start_time = time.time()
-        delete_unacceptable_files()
+        delete_unacceptable_files(group=True)
         if output_execution_times:
             print_function_execution_time(start_time, "delete_unacceptable_files()")
     if delete_chapters_from_downloads_toggle and download_folders:
         start_time = time.time()
-        delete_chapters_from_downloads()
+        delete_chapters_from_downloads(group=True)
         if output_execution_times:
             print_function_execution_time(
                 start_time, "delete_chapters_from_downloads()"
@@ -7277,14 +7820,14 @@ def main():
         generate_release_group_list_file()
     if rename_files_in_download_folders_toggle and download_folders:
         start_time = time.time()
-        rename_files_in_download_folders()
+        rename_files_in_download_folders(group=True)
         if output_execution_times:
             print_function_execution_time(
                 start_time, "rename_files_in_download_folders()"
             )
     if create_folders_for_items_in_download_folder_toggle and download_folders:
         start_time = time.time()
-        create_folders_for_items_in_download_folder()
+        create_folders_for_items_in_download_folder(group=True)
         if output_execution_times:
             print_function_execution_time(
                 start_time,
@@ -7292,14 +7835,14 @@ def main():
             )
     if rename_dirs_in_download_folder_toggle and download_folders:
         start_time = time.time()
-        rename_dirs_in_download_folder()
+        rename_dirs_in_download_folder(group=True)
         if output_execution_times:
             print_function_execution_time(
                 start_time, "rename_dirs_in_download_folder()"
             )
     if check_for_duplicate_volumes_toggle and download_folders:
         start_time = time.time()
-        check_for_duplicate_volumes(download_folders)
+        check_for_duplicate_volumes(download_folders, group=True)
         if output_execution_times:
             print_function_execution_time(start_time, "check_for_duplicate_volumes()")
     if extract_covers_toggle and paths and download_folder_in_paths:
@@ -7309,7 +7852,7 @@ def main():
             print_function_execution_time(start_time, "extract_covers()")
     if check_for_existing_series_toggle and download_folders and paths:
         start_time = time.time()
-        check_for_existing_series()
+        check_for_existing_series(group=True)
         if output_execution_times:
             print_function_execution_time(start_time, "check_for_existing_series()")
     if extract_covers_toggle and paths and not download_folder_in_paths:
