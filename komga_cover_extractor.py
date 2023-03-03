@@ -747,7 +747,7 @@ def handle_fields(embed, fields):
 last_hook_index = None
 
 # Handles picking a webhook url, to evenly distribute the load
-def pick_webhook(passed_webhook=None, url=None):
+def pick_webhook(hook, passed_webhook=None, url=None):
     global discord_webhook_url
     global last_hook_index
     if not passed_webhook:
@@ -784,7 +784,8 @@ def send_discord_message(
     global script_version
     global grouped_notifications
     global webhook_obj
-    hook = pick_webhook(passed_webhook, url)
+    hook = None
+    hook = pick_webhook(hook, passed_webhook, url)
     try:
         if hook:
             webhook_obj.url = hook
