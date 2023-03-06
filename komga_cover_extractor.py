@@ -38,7 +38,7 @@ from io import BytesIO
 from functools import lru_cache
 from skimage.metrics import structural_similarity as ssim
 
-script_version = "2.2.4"
+script_version = "2.2.5"
 
 # Paths = existing library
 # Download_folders = newly aquired manga/novels
@@ -173,6 +173,7 @@ chapter_keywords = [
     "Chaps?",
     "Chs?",
     "Cs?",
+    "D",
 ]
 
 # Keywords to be avoided in a chapter regex.
@@ -180,7 +181,6 @@ exclusion_keywords = [
     "Part",
     "Episode",
     "Season",
-    "Story",
     "Arc",
     "Prologue",
     "Epilogue",
@@ -217,7 +217,7 @@ chapter_searches = [
     r"\s-(\s+)?(#)?([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?(\s+)?-\s",
     r"(\b(%s)((\.)|)(\s+)?([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?\b)"
     % chapter_regex_keywords,
-    r"((\b(%s|)((\.)|)(\s+)?(%s)([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?(#([0-9]+)(([-_.])([0-9]+)|)+)?\b)(\s+)?((\(|\{|\[)\w+(([-_. ])+\w+)?(\]|\}|\))|(?<!\w(\s+)?)(%s)(?!\w)))"
+    r"((\b(%s|)((\.)|)(\s+)?(%s)([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?(#([0-9]+)(([-_.])([0-9]+)|)+)?\b)(\s+)?((\(|\{|\[)\w+(([-_. ])+\w+)?(\]|\}|\))|((?<!\w(\s))|(?<!\w))(%s)(?!\w)))"
     % (chapter_regex_keywords, exclusion_keywords_regex, manga_extensions_regex),
     r"(?<!([A-Za-z]|(Part|Episode|Season|Story|Arc|Epilogue)(\s+)?))(((%s)([-_. ]+)?([0-9]+))|\s+([0-9]+)(\.[0-9]+)?(x\d+((\.\d+)+)?)?(\s+|#\d+|%s))"
     % (chapter_regex_keywords, manga_extensions_regex),
@@ -6616,7 +6616,11 @@ def delete_unacceptable_files(group=False):
                                         + root,
                                         discord=False,
                                     )
-                                    remove_file(file_path)
+                                    if group and len(grouped_notifications) == 10:
+                                        send_discord_message(
+                                            None, grouped_notifications
+                                        )
+                                    remove_file(file_path, group=group)
                                 elif unacceptable_keywords:
                                     for keyword in unacceptable_keywords:
                                         unacceptable_keyword_search = re.search(
