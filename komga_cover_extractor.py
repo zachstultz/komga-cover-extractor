@@ -147,7 +147,7 @@ file_extensions = novel_extensions + manga_extensions
 
 
 # All the accepted image extensions
-image_extensions = [".jpg", ".jpeg", ".png", ".tbn", ".jxl", ".webp"]
+image_extensions = [".jpg", ".jpeg", ".png", ".tbn", ".webp"]
 
 # Volume Regex Keywords to be used throughout the script
 # ORDER IS IMPORTANT, if a single character volume keyword is checked first, then that can break
@@ -234,6 +234,26 @@ output_execution_times = False
 
 # Used to store multiple embeds to be sent in one message
 grouped_notifications = []
+
+# The maximum amount of embeds that can be sent in one message
+discord_embed_limit = 10
+
+# The time to wait before performing the next action
+sleep_timer = 10
+
+# The fill values for the chapter and volume files when renaming
+# VOLUME
+zfill_volume_int_value = 2  # 01
+zfill_volume_float_value = 4  # 01.0
+# CHAPTER
+zfill_chapter_int_value = 3  # 001
+zfill_chapter_float_value = 5  # 001.0
+
+# The Discord colors used for the embeds
+purple_color = 7615723  # Starting Script Notification
+red_color = 16711680  # Removing File Notification
+grey_color = 8421504  # Renaming, Reorganizing, Moving, and Series Matching Notification
+yellow_color = 16776960  # Not Upgradeable Notification
 
 # Folder Class
 class Folder:
@@ -332,12 +352,19 @@ class Watcher:
             self.observer.start()
             try:
                 while True:
-                    time.sleep(10)
+                    time.sleep(sleep_timer)
             except:
                 self.observer.stop()
                 print("Observer Stopped")
 
             self.observer.join()
+
+
+# Handles our embed object along with any associated file
+class Embed:
+    def __init__(self, embed, file=None):
+        self.embed = embed
+        self.file = file
 
 
 # Our array of file extensions and how many files have that extension
@@ -371,31 +398,32 @@ class Handler(FileSystemEventHandler):
             and os.path.isfile(event.src_path)
             and get_file_extension(os.path.basename(event.src_path)) in file_extensions
         ):
-            time.sleep(10)
+            time.sleep(sleep_timer)
             if os.path.isfile(event.src_path) and zipfile.is_zipfile(event.src_path):
                 last_watchdog_file = event.src_path
                 send_message("Starting Script (WATCHDOG) (EXPERIMENTAL)", discord=False)
+                embed = [
+                    handle_fields(
+                        DiscordEmbed(
+                            title="Starting Script (WATCHDOG) (EXPERIMENTAL)",
+                            color=purple_color,
+                        ),
+                        [
+                            {
+                                "name": "File Found:",
+                                "value": "```" + str(event.src_path) + "```",
+                                "inline": False,
+                            }
+                        ],
+                    )
+                ]
                 send_discord_message(
                     None,
-                    [
-                        handle_fields(
-                            DiscordEmbed(
-                                title="Starting Script (WATCHDOG) (EXPERIMENTAL)",
-                                color=7615723,
-                            ),
-                            [
-                                {
-                                    "name": "File Found:",
-                                    "value": "```" + str(event.src_path) + "```",
-                                    "inline": False,
-                                }
-                            ],
-                        )
-                    ],
+                    [Embed(embed[0], None)],
                 )
                 main()
                 send_message(
-                    "Finished Execution (WATCHDOG) (EXPERIMENTAL)", discord=False
+                    "\nFinished Execution (WATCHDOG) (EXPERIMENTAL)", discord=False
                 )
 
 
@@ -796,25 +824,21 @@ def send_discord_message(
                     embeds = embeds[:10]
                 for embed in embeds:
                     if script_version:
-                        embed.set_footer(text="v" + script_version)
+                        embed.embed.set_footer(text="v" + script_version)
                     if timestamp:
-                        embed.set_timestamp()
+                        embed.embed.set_timestamp()
                     if image and not image_local:
-                        embed.set_image(url=image)
-                    elif (
-                        (image_local and not image) or webhook_obj.files
-                    ) and re.search(r"Release", embed.title, re.IGNORECASE):
-                        # check that the file doesn't already exist, if it does then use that instead
-                        found = False
-                        for file in webhook_obj.files:
-                            if file == "cover.jpg" or file == "_cover.jpg":
-                                found = True
-                                break
-                        if not found:
-                            webhook_obj.add_file(file=image_local, filename="cover.jpg")
-                        if not embed.image:
-                            embed.set_image(url="attachment://cover.jpg")
-                    webhook_obj.add_embed(embed)
+                        embed.embed.set_image(url=image)
+                    elif embed.file:
+                        file_name = None
+                        if len(embeds) == 1:
+                            file_name = "cover.jpg"
+                        else:
+                            index = embeds.index(embed)
+                            file_name = "cover_" + str(index + 1) + ".jpg"
+                        webhook_obj.add_file(file=embed.file, filename=file_name)
+                        embed.embed.set_image(url="attachment://" + file_name)
+                    webhook_obj.add_embed(embed.embed)
             elif message:
                 webhook_obj.content = message
             webhook_obj.execute()
@@ -824,7 +848,7 @@ def send_discord_message(
             if embeds == grouped_notifications:
                 grouped_notifications = []
     except Exception as e:
-        send_message(e, discord=False, error=True)
+        send_message(e, error=True, discord=False)
         # print(e)
 
 
@@ -1183,15 +1207,26 @@ def move_images(file, folder_name, group=False):
     for extension in image_extensions:
         image = file.extensionless_path + extension
         if os.path.isfile(image):
-            shutil.move(image, folder_name)
+            # check that the image is not already in the folder
+            if not os.path.isfile(os.path.join(folder_name, os.path.basename(image))):
+                shutil.move(image, folder_name)
+            else:
+                remove_file(
+                    os.path.join(folder_name, os.path.basename(image)), silent=True
+                )
+                shutil.move(image, folder_name)
         for cover_file_name in series_cover_file_names:
             cover_image_file_name = cover_file_name + extension
             cover_image_file_path = os.path.join(file.root, cover_image_file_name)
             if os.path.isfile(cover_image_file_path):
+                # check that the image is not already in the folder
                 if not os.path.isfile(os.path.join(folder_name, cover_image_file_name)):
                     shutil.move(cover_image_file_path, folder_name)
-                else:
-                    remove_file(cover_image_file_path, group=group)
+                elif file.volume_number == 1:
+                    remove_file(
+                        os.path.join(folder_name, cover_image_file_name), silent=True
+                    )
+                    shutil.move(cover_image_file_path, folder_name)
 
 
 # Retrieves the series name through various regexes
@@ -1427,13 +1462,6 @@ def create_folders_for_items_in_download_folder(group=False):
                                         ) and not os.path.isfile(
                                             os.path.join(root, dir, file.name)
                                         ):
-                                            if (
-                                                group
-                                                and len(grouped_notifications) == 10
-                                            ):
-                                                send_discord_message(
-                                                    None, grouped_notifications
-                                                )
                                             # it doesn't, we move it and the image associated with it, to that folder
                                             move_file(
                                                 file,
@@ -1465,8 +1493,6 @@ def create_folders_for_items_in_download_folder(group=False):
                                 does_folder_exist = os.path.exists(folder_location)
                                 if not does_folder_exist:
                                     os.mkdir(folder_location)
-                                if group and len(grouped_notifications) == 10:
-                                    send_discord_message(None, grouped_notifications)
                                 move_file(file, folder_location, group=group)
             except Exception as e:
                 send_message(e, error=True)
@@ -1875,6 +1901,13 @@ def remove_images(path):
                 break
 
 
+def add_to_grouped_notifications(embed):
+    global grouped_notifications
+    if len(grouped_notifications) == discord_embed_limit:
+        send_discord_message(None, grouped_notifications)
+    grouped_notifications.append(embed)
+
+
 # Removes a file
 def remove_file(full_file_path, silent=False, group=False):
     global grouped_notifications
@@ -1888,7 +1921,7 @@ def remove_file(full_file_path, silent=False, group=False):
                         handle_fields(
                             DiscordEmbed(
                                 title="Removed File",
-                                color=16711680,
+                                color=red_color,
                             ),
                             fields=[
                                 {
@@ -1908,13 +1941,7 @@ def remove_file(full_file_path, silent=False, group=False):
                             ],
                         )
                     ]
-                    if group:
-                        grouped_notifications.append(embed[0])
-                    else:
-                        send_discord_message(
-                            None,
-                            embed,
-                        )
+                    add_to_grouped_notifications(Embed(embed[0], None))
                 if get_file_extension(full_file_path) not in image_extensions:
                     remove_images(full_file_path)
                 return True
@@ -1950,7 +1977,7 @@ def move_file(file, new_location, silent=False, group=False):
                         handle_fields(
                             DiscordEmbed(
                                 title="Moved File",
-                                color=8421504,
+                                color=grey_color,
                             ),
                             fields=[
                                 {
@@ -1966,13 +1993,7 @@ def move_file(file, new_location, silent=False, group=False):
                             ],
                         )
                     ]
-                    if group:
-                        grouped_notifications.append(embed[0])
-                    else:
-                        send_discord_message(
-                            None,
-                            embed,
-                        )
+                    add_to_grouped_notifications(Embed(embed[0], None))
                 move_images(file, new_location, group=group)
                 return True
             else:
@@ -2009,7 +2030,7 @@ def replace_file(old_file, new_file, group=False):
                         handle_fields(
                             DiscordEmbed(
                                 title="Moved File",
-                                color=8421504,
+                                color=grey_color,
                             ),
                             fields=[
                                 {
@@ -2025,13 +2046,7 @@ def replace_file(old_file, new_file, group=False):
                             ],
                         )
                     ]
-                    if group:
-                        grouped_notifications.append(embed[0])
-                    else:
-                        send_discord_message(
-                            None,
-                            embed,
-                        )
+                    add_to_grouped_notifications(Embed(embed[0], None))
                 else:
                     send_message(
                         "\tFailed to replace: "
@@ -2244,7 +2259,7 @@ def remove_duplicate_releases_from_download(
                             )
                         if not upgrade_status.is_upgrade:
                             send_message(
-                                "\t\tNOT UPGRADE: "
+                                "\t\tNOT UPGRADEABLE: "
                                 + download.name
                                 + " is not an upgrade to: "
                                 + original.name
@@ -2256,19 +2271,13 @@ def remove_duplicate_releases_from_download(
                             embed = [
                                 handle_fields(
                                     DiscordEmbed(
-                                        title="Upgrade Process (Not Upgrade)",
+                                        title="Upgrade Process (Not Upgradeable)",
                                         color=16776960,
                                     ),
                                     fields=fields,
                                 )
                             ]
-                            if group:
-                                grouped_notifications.append(embed[0])
-                            else:
-                                send_discord_message(
-                                    None,
-                                    embed,
-                                )
+                            add_to_grouped_notifications(Embed(embed[0], None))
                             if download in downloaded_releases:
                                 downloaded_releases.remove(download)
                             remove_file(download.path, group=group)
@@ -2291,13 +2300,7 @@ def remove_duplicate_releases_from_download(
                                     fields=fields,
                                 )
                             ]
-                            if group:
-                                grouped_notifications.append(embed[0])
-                            else:
-                                send_discord_message(
-                                    None,
-                                    embed,
-                                )
+                            add_to_grouped_notifications(Embed(embed[0], None))
                             if download.multi_volume and not original.multi_volume:
                                 for original_volume in original_releases[:]:
                                     for volume_number in download.volume_number:
@@ -2331,7 +2334,7 @@ def remove_duplicate_releases_from_download(
                         upgrade_status = is_upgradeable(download, original)
                         if not upgrade_status.is_upgrade:
                             send_message(
-                                "\t\tNOT UPGRADE: "
+                                "\t\tNOT UPGRADEABLE: "
                                 + download.name
                                 + " is not an upgrade to: "
                                 + original.name
@@ -2343,19 +2346,13 @@ def remove_duplicate_releases_from_download(
                             embed = [
                                 handle_fields(
                                     DiscordEmbed(
-                                        title="Upgrade Process (Not Upgrade)",
+                                        title="Upgrade Process (Not Upgradeable)",
                                         color=16776960,
                                     ),
                                     fields=fields,
                                 )
                             ]
-                            if group:
-                                grouped_notifications.append(embed[0])
-                            else:
-                                send_discord_message(
-                                    None,
-                                    embed,
-                                )
+                            add_to_grouped_notifications(Embed(embed[0], None))
                             if download in downloaded_releases:
                                 downloaded_releases.remove(download)
                             remove_file(download.path, group=group)
@@ -2378,13 +2375,7 @@ def remove_duplicate_releases_from_download(
                                     fields=fields,
                                 )
                             ]
-                            if group:
-                                grouped_notifications.append(embed[0])
-                            else:
-                                send_discord_message(
-                                    None,
-                                    embed,
-                                )
+                            add_to_grouped_notifications(Embed(embed[0], None))
                             send_message(
                                 "\t\tRemoving remaining part files with matching release numbers:"
                             )
@@ -2694,11 +2685,11 @@ def reorganize_and_rename(files, dir, group=False):
                 else:
                     numbers.append(file.volume_number)
                 number_string = ""
-                zfill_int = 2  # 01
-                zfill_float = 4  # 01.0
+                zfill_int = zfill_volume_int_value
+                zfill_float = zfill_volume_float_value  # 01.0
                 if file.file_type == "chapter":
-                    zfill_int = 3  # 001
-                    zfill_float = 5  # 001.0
+                    zfill_int = zfill_chapter_int_value  # 001
+                    zfill_float = zfill_chapter_float_value  # 001.0
                 for number in numbers:
                     if not isinstance(number, str) and number.is_integer():
                         if number < 10 or file.file_type == "chapter" and number < 100:
@@ -2862,7 +2853,7 @@ def reorganize_and_rename(files, dir, group=False):
                                     handle_fields(
                                         DiscordEmbed(
                                             title="Reorganized & Renamed File",
-                                            color=8421504,
+                                            color=grey_color,
                                         ),
                                         fields=[
                                             {
@@ -2878,18 +2869,7 @@ def reorganize_and_rename(files, dir, group=False):
                                         ],
                                     )
                                 ]
-                                if group:
-                                    if len(grouped_notifications) == 10:
-                                        send_discord_message(
-                                            None,
-                                            grouped_notifications,
-                                        )
-                                    grouped_notifications.append(embed[0])
-                                else:
-                                    send_discord_message(
-                                        None,
-                                        embed,
-                                    )
+                                add_to_grouped_notifications(Embed(embed[0], None))
                         else:
                             user_input = input("\tReorganize & Rename (y or n): ")
                             if (
@@ -2917,7 +2897,7 @@ def reorganize_and_rename(files, dir, group=False):
                                             handle_fields(
                                                 DiscordEmbed(
                                                     title="Reorganized & Renamed File",
-                                                    color=8421504,
+                                                    color=grey_color,
                                                 ),
                                                 fields=[
                                                     {
@@ -2935,18 +2915,9 @@ def reorganize_and_rename(files, dir, group=False):
                                                 ],
                                             )
                                         ]
-                                        if group:
-                                            if len(grouped_notifications) == 10:
-                                                send_discord_message(
-                                                    None,
-                                                    grouped_notifications,
-                                                )
-                                            grouped_notifications.append(embed[0])
-                                        else:
-                                            send_discord_message(
-                                                None,
-                                                embed,
-                                            )
+                                        add_to_grouped_notifications(
+                                            Embed(embed[0], None)
+                                        )
                                 else:
                                     print(
                                         "\t\tFile already exists, skipping rename of "
@@ -3183,7 +3154,6 @@ def check_upgrade(
     global manga_extensions
     global novel_extensions
     global grouped_notifications
-    global webhook_obj
     existing_dir = os.path.join(existing_root, dir)
     clean_existing = os.listdir(existing_dir)
     clean_existing = clean_and_sort(existing_dir, clean_existing)[0]
@@ -3344,18 +3314,12 @@ def check_upgrade(
                     handle_fields(
                         DiscordEmbed(
                             title="Found Series Match (CACHE)",
-                            color=8421504,
+                            color=grey_color,
                         ),
                         fields=fields,
                     )
                 ]
-                if group:
-                    grouped_notifications.append(embed[0])
-                else:
-                    send_discord_message(
-                        None,
-                        embed,
-                    )
+                add_to_grouped_notifications(Embed(embed[0], None))
         elif isbn:
             send_message("\n\t\tFound existing series: " + existing_dir, discord=False)
             if fields:
@@ -3363,18 +3327,12 @@ def check_upgrade(
                     handle_fields(
                         DiscordEmbed(
                             title="Found Series Match (Matching Identifier)",
-                            color=8421504,
+                            color=grey_color,
                         ),
                         fields=fields,
                     ),
                 ]
-                if group:
-                    grouped_notifications.append(embed[0])
-                else:
-                    send_discord_message(
-                        None,
-                        embed,
-                    )
+                add_to_grouped_notifications(Embed(embed[0], None))
         else:
             send_message("\n\t\tFound existing series: " + existing_dir, discord=False)
             if fields:
@@ -3382,18 +3340,12 @@ def check_upgrade(
                     handle_fields(
                         DiscordEmbed(
                             title="Found Series Match",
-                            color=8421504,
+                            color=grey_color,
                         ),
                         fields=fields,
                     ),
                 ]
-                if group:
-                    grouped_notifications.append(embed[0])
-                else:
-                    send_discord_message(
-                        None,
-                        embed,
-                    )
+                add_to_grouped_notifications(Embed(embed[0], None))
         remove_duplicate_releases_from_download(
             clean_existing,
             download_dir_volumes,
@@ -3441,7 +3393,7 @@ def check_upgrade(
                         "inline": False,
                     },
                 ]
-                if volume.volume_part:
+                if volume.volume_part and volume.file_type == "volume":
                     # insert after volume number in fields
                     fields.insert(
                         1,
@@ -3462,70 +3414,40 @@ def check_upgrade(
                     volume.path = os.path.join(existing_dir, volume.name)
                     volume.root = existing_dir
                     moved_files.append(volume)
-                if volume.file_type == "volume":
-                    embed = [
-                        handle_fields(
-                            DiscordEmbed(
-                                title=title,
-                                color=green_color,
-                            ),
-                            fields=fields,
+                embed = [
+                    handle_fields(
+                        DiscordEmbed(
+                            title=title,
+                            color=green_color,
                         ),
-                    ]
-                    if new_volume_webhook:
+                        fields=fields,
+                    ),
+                ]
+                if new_volume_webhook:
+                    if volume.file_type == "chapter":
+                        messages_to_send.append(
+                            NewReleaseNotification(
+                                volume.volume_number,
+                                title,
+                                green_color,
+                                fields,
+                                new_volume_webhook,
+                                volume.series_name,
+                                volume,
+                            )
+                        )
+                    elif volume.file_type == "volume":
                         if grouped_notifications:
                             send_discord_message(None, grouped_notifications)
                         send_discord_message(
                             None,
-                            embed,
-                            image_local=cover,
+                            [Embed(embed[0], cover)],
                             passed_webhook=new_volume_webhook,
                         )
-                    else:
-                        if group:
-                            grouped_notifications.append(embed[0])
-                            if grouped_notifications:
-                                if cover:
-                                    webhook_obj.add_file(cover, filename="cover.jpg")
-                                send_discord_message(None, grouped_notifications)
-                        else:
-                            send_discord_message(
-                                None,
-                                embed,
-                                image_local=cover,
-                            )
-                elif volume.file_type == "chapter" and new_volume_webhook:
-                    messages_to_send.append(
-                        NewReleaseNotification(
-                            volume.volume_number,
-                            title,
-                            green_color,
-                            fields,
-                            new_volume_webhook,
-                            volume.series_name,
-                            volume,
-                        )
-                    )
-                elif volume.file_type == "chapter" and not new_volume_webhook:
-                    embed = [
-                        handle_fields(
-                            DiscordEmbed(
-                                title=title,
-                                color=green_color,
-                            ),
-                            fields=fields,
-                        ),
-                    ]
-                    if group:
-                        grouped_notifications.append(embed[0])
-                        if grouped_notifications:
-                            send_discord_message(None, grouped_notifications)
-                    else:
-                        send_discord_message(
-                            None,
-                            embed,
-                            image_local=cover,
-                        )
+                else:
+                    add_to_grouped_notifications(Embed(embed[0], cover))
+                    if grouped_notifications:
+                        send_discord_message(None, grouped_notifications)
                 return True
         else:
             if grouped_notifications:
@@ -3776,33 +3698,9 @@ def check_for_duplicate_volumes(paths_to_search=[], group=False):
                                                                 ],
                                                             )
                                                         ]
-                                                        if group:
-                                                            if (
-                                                                len(
-                                                                    grouped_notifications
-                                                                )
-                                                                == 10
-                                                            ):
-                                                                send_discord_message(
-                                                                    None,
-                                                                    grouped_notifications,
-                                                                )
-                                                            grouped_notifications.append(
-                                                                embed[0]
-                                                            )
-                                                        else:
-                                                            send_discord_message(
-                                                                None,
-                                                                embed,
-                                                            )
-                                                        if (
-                                                            len(grouped_notifications)
-                                                            == 10
-                                                        ):
-                                                            send_discord_message(
-                                                                None,
-                                                                grouped_notifications,
-                                                            )
+                                                        add_to_grouped_notifications(
+                                                            Embed(embed[0], None)
+                                                        )
                                                         if not manual_delete:
                                                             remove_file(
                                                                 duplicate_file.path,
@@ -3867,25 +3765,9 @@ def check_for_duplicate_volumes(paths_to_search=[], group=False):
                                                                 ],
                                                             )
                                                         ]
-                                                        if group:
-                                                            if (
-                                                                len(
-                                                                    grouped_notifications
-                                                                )
-                                                                == 10
-                                                            ):
-                                                                send_discord_message(
-                                                                    None,
-                                                                    grouped_notifications,
-                                                                )
-                                                            grouped_notifications.append(
-                                                                embed[0]
-                                                            )
-                                                        else:
-                                                            send_discord_message(
-                                                                None,
-                                                                embed,
-                                                            )
+                                                        add_to_grouped_notifications(
+                                                            Embed(embed[0], None)
+                                                        )
                                                         print("\t\t\t\t\tSkipping...")
                                         except Exception as e:
                                             send_message(
@@ -3995,7 +3877,12 @@ def check_for_existing_series(group=False):
                         if (
                             file.name in processed_files or not processed_files
                         ) and os.path.isfile(file.path):
-                            if unmatched_series:
+                            if unmatched_series and (
+                                (
+                                    not match_through_isbn_or_series_id
+                                    or file.file_type == "chapter"
+                                )
+                            ):
                                 if (
                                     file.series_name
                                     + " - "
@@ -4324,7 +4211,10 @@ def check_for_existing_series(group=False):
                                                     )
                                                 )
                                                 reorganized = True
-                                            if root in cached_paths:
+                                            if (
+                                                not match_through_isbn_or_series_id
+                                                and root in cached_paths
+                                            ):
                                                 continue
                                             clean_two = clean_and_sort(
                                                 root, files, dirs
@@ -4704,15 +4594,16 @@ def check_for_existing_series(group=False):
                                 )
                                 print("No match found.")
     if messages_to_send:
+        webhook_use = None
         grouped_by_series_names = []
         # go through messages_to_send and group them by series name,
         # one group per series name and each group will contian all the messages for that series
         for message in messages_to_send:
             if grouped_by_series_names:
                 found = False
-                for group in grouped_by_series_names:
-                    if message.series_name == group["series_name"]:
-                        group["messages"].append(message)
+                for grouped_series_name in grouped_by_series_names:
+                    if message.series_name == grouped_series_name["series_name"]:
+                        grouped_series_name["messages"].append(message)
                         found = True
                         break
                 if not found:
@@ -4733,52 +4624,39 @@ def check_for_existing_series(group=False):
         if grouped_by_series_names:
             # sort them alphabetically by series name
             grouped_by_series_names.sort(key=lambda x: x["series_name"])
-            for group in grouped_by_series_names:
+            for grouped_by_series_name in grouped_by_series_names:
                 # sort the group's messages lowest to highest by the number field
                 # the number can be a float or an array of floats
-                group["messages"].sort(key=lambda x: x.fields[0]["value"].split(",")[0])
+                grouped_by_series_name["messages"].sort(
+                    key=lambda x: x.fields[0]["value"].split(",")[0]
+                )
                 if output_chapter_covers_to_discord:
-                    for message in group["messages"][:]:
+                    for message in grouped_by_series_name["messages"][:]:
                         cover = find_and_extract_cover(
                             message.volume_obj, return_data_only=True
                         )
-                        if cover:
-                            send_discord_message(
-                                None,
-                                [
-                                    handle_fields(
-                                        DiscordEmbed(
-                                            title=message.title,
-                                            color=message.color,
-                                        ),
-                                        fields=message.fields,
-                                    )
-                                ],
-                                image_local=cover,
-                                passed_webhook=message.webhook,
+                        embed = [
+                            handle_fields(
+                                DiscordEmbed(
+                                    title=message.title,
+                                    color=message.color,
+                                ),
+                                fields=message.fields,
                             )
-                            group["messages"].remove(message)
-                        else:
-                            send_discord_message(
-                                None,
-                                [
-                                    handle_fields(
-                                        DiscordEmbed(
-                                            title=message.title,
-                                            color=message.color,
-                                        ),
-                                        fields=message.fields,
-                                    )
-                                ],
-                                passed_webhook=message.webhook,
-                            )
+                        ]
+                        if not webhook_use:
+                            webhook_use = message.webhook
+                        add_to_grouped_notifications(Embed(embed[0], cover))
+                        grouped_by_series_name["messages"].remove(message)
                 else:
                     volume_numbers_mts = []
                     volume_names_mts = []
-                    title = group["messages"][0].fields[0]["name"]
-                    title_2 = group["messages"][0].fields[1]["name"] + "(s)"
-                    series_name = group["messages"][0].series_name
-                    for message in group["messages"]:
+                    title = grouped_by_series_name["messages"][0].fields[0]["name"]
+                    title_2 = (
+                        grouped_by_series_name["messages"][0].fields[1]["name"] + "(s)"
+                    )
+                    series_name = grouped_by_series_name["messages"][0].series_name
+                    for message in grouped_by_series_name["messages"]:
                         if message.fields and len(message.fields) >= 2:
                             # remove ``` from the start and end of the value
                             volume_numbers_mts.append(
@@ -4805,19 +4683,25 @@ def check_for_existing_series(group=False):
                                 "inline": False,
                             },
                         ]
-                        send_discord_message(
-                            None,
-                            [
-                                handle_fields(
-                                    DiscordEmbed(
-                                        title=group["messages"][0].title + "(s)",
-                                        color=group["messages"][0].color,
-                                    ),
-                                    fields=new_fields,
-                                )
-                            ],
-                            passed_webhook=group["messages"][0].webhook,
-                        )
+                        embed = [
+                            handle_fields(
+                                DiscordEmbed(
+                                    title=grouped_by_series_name["messages"][0].title
+                                    + "(s)",
+                                    color=grouped_by_series_name["messages"][0].color,
+                                ),
+                                fields=new_fields,
+                            )
+                        ]
+                        if not webhook_use:
+                            webhook_use = grouped_by_series_name["messages"][0].webhook
+                        add_to_grouped_notifications(Embed(embed[0], None))
+    if grouped_notifications:
+        send_discord_message(
+            None,
+            grouped_notifications,
+            passed_webhook=webhook_use,
+        )
 
 
 # Removes any unnecessary junk through regex in the folder name and returns the result
@@ -5022,13 +4906,6 @@ def rename_dirs_in_download_folder(group=False):
                                                     v.name,
                                                 )
                                             ):
-                                                if (
-                                                    group
-                                                    and len(grouped_notifications) == 10
-                                                ):
-                                                    send_discord_message(
-                                                        None, grouped_notifications
-                                                    )
                                                 move_file(
                                                     v,
                                                     os.path.join(
@@ -5229,14 +5106,6 @@ def rename_dirs_in_download_folder(group=False):
                                                         file.name,
                                                     )
                                                 ):
-                                                    if (
-                                                        group
-                                                        and len(grouped_notifications)
-                                                        == 10
-                                                    ):
-                                                        send_discord_message(
-                                                            None, grouped_notifications
-                                                        )
                                                     move_file(
                                                         file,
                                                         os.path.join(
@@ -5682,11 +5551,11 @@ def rename_files_in_download_folders(only_these_files=[], group=False):
                                 )
                             ):
                                 combined = ""
-                                zfill_int = 2  # 01
-                                zfill_float = 4  # 01.5
+                                zfill_int = zfill_volume_int_value  # 01
+                                zfill_float = zfill_volume_float_value  # 01.5
                                 if file.file_type == "chapter":
-                                    zfill_int = 3  # 001
-                                    zfill_float = 5  # 001.5
+                                    zfill_int = zfill_chapter_int_value  # 001
+                                    zfill_float = zfill_chapter_float_value  # 001.5
                                 for item in modified:
                                     if type(item) == int:
                                         if item < 10 or (
@@ -5871,7 +5740,7 @@ def rename_files_in_download_folders(only_these_files=[], group=False):
                                                             handle_fields(
                                                                 DiscordEmbed(
                                                                     title="Renamed File",
-                                                                    color=8421504,
+                                                                    color=grey_color,
                                                                 ),
                                                                 fields=[
                                                                     {
@@ -5891,25 +5760,9 @@ def rename_files_in_download_folders(only_these_files=[], group=False):
                                                                 ],
                                                             )
                                                         ]
-                                                        if group:
-                                                            if (
-                                                                len(
-                                                                    grouped_notifications
-                                                                )
-                                                                == 10
-                                                            ):
-                                                                send_discord_message(
-                                                                    None,
-                                                                    grouped_notifications,
-                                                                )
-                                                            grouped_notifications.append(
-                                                                embed[0]
-                                                            )
-                                                        else:
-                                                            send_discord_message(
-                                                                None,
-                                                                embed,
-                                                            )
+                                                        add_to_grouped_notifications(
+                                                            Embed(embed[0], None)
+                                                        )
                                                     for (
                                                         image_extension
                                                     ) in image_extensions:
@@ -6051,7 +5904,7 @@ def delete_chapters_from_downloads(group=False):
                                     handle_fields(
                                         DiscordEmbed(
                                             title="Chapter Release Found",
-                                            color=8421504,
+                                            color=grey_color,
                                         ),
                                         fields=[
                                             {
@@ -6076,17 +5929,7 @@ def delete_chapters_from_downloads(group=False):
                                         ],
                                     )
                                 ]
-                                if group:
-                                    if len(grouped_notifications) == 10:
-                                        send_discord_message(
-                                            None, grouped_notifications
-                                        )
-                                    grouped_notifications.append(embed[0])
-                                else:
-                                    send_discord_message(
-                                        None,
-                                        embed,
-                                    )
+                                add_to_grouped_notifications(Embed(embed[0], None))
                                 remove_file(os.path.join(root, file), group=group)
                 for root, dirs, files in scandir.walk(path):
                     clean_two = clean_and_sort(root, files, dirs)
@@ -6616,10 +6459,6 @@ def delete_unacceptable_files(group=False):
                                         + root,
                                         discord=False,
                                     )
-                                    if group and len(grouped_notifications) == 10:
-                                        send_discord_message(
-                                            None, grouped_notifications
-                                        )
                                     remove_file(file_path, group=group)
                                 elif unacceptable_keywords:
                                     for keyword in unacceptable_keywords:
@@ -6667,17 +6506,9 @@ def delete_unacceptable_files(group=False):
                                                     ],
                                                 )
                                             ]
-                                            if group:
-                                                if len(grouped_notifications) == 10:
-                                                    send_discord_message(
-                                                        None, grouped_notifications
-                                                    )
-                                                grouped_notifications.append(embed[0])
-                                            else:
-                                                send_discord_message(
-                                                    None,
-                                                    embed,
-                                                )
+                                            add_to_grouped_notifications(
+                                                Embed(embed[0], None)
+                                            )
                                             remove_file(file_path, group=group)
                                             if not os.path.isfile(file_path):
                                                 print(
@@ -6819,7 +6650,7 @@ def combine_series(series_list):
 
 def search_bookwalker(query, type, print_info=False, alternative_search=False):
     global volume_regex_keywords
-    sleep_timer = 8
+    sleep_timer_bk = 8
     # The total amount of pages to scrape
     total_pages_to_scrape = 5
     # The books returned from the search
@@ -6923,7 +6754,7 @@ def search_bookwalker(query, type, print_info=False, alternative_search=False):
                 alternate_result = search_bookwalker(
                     query, type, print_info, alternative_search=True
                 )
-                time.sleep(sleep_timer / 2)
+                time.sleep(sleep_timer_bk / 2)
             if alternate_result:
                 return alternate_result
             if not alternative_search:
@@ -7223,8 +7054,8 @@ def search_bookwalker(query, type, print_info=False, alternative_search=False):
                     print("\t" + url)
                 no_book_result_searches = []
     series_list = combine_series(series_list)
-    # print("\tSleeping for " + str(sleep_timer) + " to avoid being rate-limited...")
-    time.sleep(sleep_timer)
+    # print("\tSleeping for " + str(sleep_timer_bk) + " to avoid being rate-limited...")
+    time.sleep(sleep_timer_bk)
     if len(series_list) == 1:
         if len(series_list[0].books) > 0:
             return series_list[0].books
@@ -7296,8 +7127,6 @@ def check_for_new_volumes_on_bookwalker():
                     >= 70
                 ):
                     type = "l"
-                # if len(new_releases_on_bookwalker) >= 10:  # used for quick testing
-                #     break
                 if type and dir:
                     bookwalker_volumes = search_bookwalker(dir, type, False)
                 if existing_dir_volumes and bookwalker_volumes:
