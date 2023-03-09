@@ -254,6 +254,7 @@ purple_color = 7615723  # Starting Script Notification
 red_color = 16711680  # Removing File Notification
 grey_color = 8421504  # Renaming, Reorganizing, Moving, and Series Matching Notification
 yellow_color = 16776960  # Not Upgradeable Notification
+green_color = 65280  # Upgradeable and New Release Notification
 
 # Folder Class
 class Folder:
@@ -2272,7 +2273,7 @@ def remove_duplicate_releases_from_download(
                                 handle_fields(
                                     DiscordEmbed(
                                         title="Upgrade Process (Not Upgradeable)",
-                                        color=16776960,
+                                        color=yellow_color,
                                     ),
                                     fields=fields,
                                 )
@@ -2295,7 +2296,7 @@ def remove_duplicate_releases_from_download(
                                 handle_fields(
                                     DiscordEmbed(
                                         title="Upgrade Process (Upgrade)",
-                                        color=65280,
+                                        color=green_color,
                                     ),
                                     fields=fields,
                                 )
@@ -2347,7 +2348,7 @@ def remove_duplicate_releases_from_download(
                                 handle_fields(
                                     DiscordEmbed(
                                         title="Upgrade Process (Not Upgradeable)",
-                                        color=16776960,
+                                        color=yellow_color,
                                     ),
                                     fields=fields,
                                 )
@@ -2370,7 +2371,7 @@ def remove_duplicate_releases_from_download(
                                 handle_fields(
                                     DiscordEmbed(
                                         title="Upgrade Process (Upgrade)",
-                                        color=65280,
+                                        color=green_color,
                                     ),
                                     fields=fields,
                                 )
@@ -3404,7 +3405,6 @@ def check_upgrade(
                         },
                     )
                 title = "New " + volume.file_type.capitalize() + " Release"
-                green_color = 65280
                 move_status = move_file(volume, existing_dir, group=group)
                 if move_status:
                     check_and_delete_empty_folder(volume.root)
@@ -3670,8 +3670,8 @@ def check_for_duplicate_volumes(paths_to_search=[], group=False):
                                                         embed = [
                                                             handle_fields(
                                                                 DiscordEmbed(
-                                                                    title="Duplicate Download Release (UPGRADE)",
-                                                                    color=16776960,
+                                                                    title="Duplicate Download Release (NOT UPGRADEABLE)",
+                                                                    color=yellow_color,
                                                                 ),
                                                                 fields=[
                                                                     {
@@ -3738,7 +3738,7 @@ def check_for_duplicate_volumes(paths_to_search=[], group=False):
                                                             handle_fields(
                                                                 DiscordEmbed(
                                                                     title="Duplicate Download Release (REQUIRES MANUAL DECISION)",
-                                                                    color=16776960,
+                                                                    color=yellow_color,
                                                                 ),
                                                                 fields=[
                                                                     {
@@ -6479,7 +6479,7 @@ def delete_unacceptable_files(group=False):
                                                 handle_fields(
                                                     DiscordEmbed(
                                                         title="Unacceptable Match Found",
-                                                        color=16776960,
+                                                        color=yellow_color,
                                                     ),
                                                     fields=[
                                                         {
