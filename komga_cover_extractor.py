@@ -256,6 +256,9 @@ grey_color = 8421504  # Renaming, Reorganizing, Moving, and Series Matching Noti
 yellow_color = 16776960  # Not Upgradeable Notification
 green_color = 65280  # Upgradeable and New Release Notification
 
+# The similarity score required for a publisher to be considered a match
+publisher_similarity_score = 0.9
+
 # Folder Class
 class Folder:
     def __init__(self, root, dirs, basename, folder_name, files):
@@ -1691,11 +1694,11 @@ def remove_everything_but_volume_num(files, chapter=False):
                 files.remove(file)
     if output_execution_times:
         print_function_execution_time(start_time, "remove_everything_but_volume_num()")
-    if is_multi_volume == True and len(results) != 0:
+    if is_multi_volume == True and results:
         return results
-    elif len(results) != 0 and (len(results) == len(files)):
+    elif results and (len(results) == len(files)):
         return results[0]
-    elif len(results) == 0:
+    elif not results:
         return ""
 
 
@@ -1902,10 +1905,10 @@ def remove_images(path):
                 break
 
 
-def add_to_grouped_notifications(embed):
+def add_to_grouped_notifications(embed, passed_webhook=None):
     global grouped_notifications
     if len(grouped_notifications) == discord_embed_limit:
-        send_discord_message(None, grouped_notifications)
+        send_discord_message(None, grouped_notifications, passed_webhook=passed_webhook)
     grouped_notifications.append(embed)
 
 
@@ -2110,7 +2113,7 @@ def remove_duplicate_releases_from_download(
                 error=True,
             )
             downloaded_releases.remove(download)
-        if len(downloaded_releases) != 0:
+        if downloaded_releases:
             for original in original_releases[:]:
                 if (
                     (
@@ -2753,7 +2756,7 @@ def reorganize_and_rename(files, dir, group=False):
                                 item,
                                 re.IGNORECASE,
                             )
-                            or score >= 0.90
+                            or score >= publisher_similarity_score
                         ):
                             file.extras.remove(item)
                     if add_publisher_name_to_file_name_when_renaming:
@@ -4595,31 +4598,7 @@ def check_for_existing_series(group=False):
                                 print("No match found.")
     if messages_to_send:
         webhook_use = None
-        grouped_by_series_names = []
-        # go through messages_to_send and group them by series name,
-        # one group per series name and each group will contian all the messages for that series
-        for message in messages_to_send:
-            if grouped_by_series_names:
-                found = False
-                for grouped_series_name in grouped_by_series_names:
-                    if message.series_name == grouped_series_name["series_name"]:
-                        grouped_series_name["messages"].append(message)
-                        found = True
-                        break
-                if not found:
-                    grouped_by_series_names.append(
-                        {
-                            "series_name": message.series_name,
-                            "messages": [message],
-                        }
-                    )
-            else:
-                grouped_by_series_names.append(
-                    {
-                        "series_name": message.series_name,
-                        "messages": [message],
-                    }
-                )
+        grouped_by_series_names = group_similar_series(messages_to_send)
         messages_to_send = []
         if grouped_by_series_names:
             # sort them alphabetically by series name
@@ -4646,7 +4625,9 @@ def check_for_existing_series(group=False):
                         ]
                         if not webhook_use:
                             webhook_use = message.webhook
-                        add_to_grouped_notifications(Embed(embed[0], cover))
+                        add_to_grouped_notifications(
+                            Embed(embed[0], cover), webhook_use
+                        )
                         grouped_by_series_name["messages"].remove(message)
                 else:
                     volume_numbers_mts = []
@@ -4695,13 +4676,44 @@ def check_for_existing_series(group=False):
                         ]
                         if not webhook_use:
                             webhook_use = grouped_by_series_name["messages"][0].webhook
-                        add_to_grouped_notifications(Embed(embed[0], None))
+                        add_to_grouped_notifications(Embed(embed[0], None), webhook_use)
     if grouped_notifications:
         send_discord_message(
             None,
             grouped_notifications,
             passed_webhook=webhook_use,
         )
+
+
+# Groups messages by series name
+def group_similar_series(messages_to_send):
+    grouped_by_series_names = []
+    # go through messages_to_send and group them by series name,
+    # one group per series name and each group will contian all the messages for that series
+    for message in messages_to_send:
+        if grouped_by_series_names:
+            found = False
+            for grouped_series_name in grouped_by_series_names:
+                if message.series_name == grouped_series_name["series_name"]:
+                    grouped_series_name["messages"].append(message)
+                    found = True
+                    break
+            if not found:
+                grouped_by_series_names.append(
+                    {
+                        "series_name": message.series_name,
+                        "messages": [message],
+                    }
+                )
+        else:
+            grouped_by_series_names.append(
+                {
+                    "series_name": message.series_name,
+                    "messages": [message],
+                }
+            )
+
+    return grouped_by_series_names
 
 
 # Removes any unnecessary junk through regex in the folder name and returns the result
@@ -7592,7 +7604,6 @@ def print_function_execution_time(start_time, function_name):
 # Optional features below, use at your own risk.
 # Activate them in settings.py
 def main():
-    global bookwalker_check
     global cached_paths
     global processed_files
     global moved_files
