@@ -18,6 +18,7 @@ import io
 import concurrent.futures
 import numpy as np
 import cv2
+import hashlib
 from PIL import Image
 from PIL import ImageFile
 from lxml import etree
@@ -3727,51 +3728,111 @@ def check_for_duplicate_volumes(paths_to_search=[], group=False):
                                                                 + duplicate_file.name
                                                             )
                                                     else:
-                                                        send_message(
-                                                            "\n\t\t\tDuplicate found in: "
-                                                            + compare_file.root
-                                                            + "\n\t\t\t\t"
-                                                            + file.name
-                                                            + "\n\t\t\t\t"
-                                                            + compare_file.name
-                                                            + "\n\t\t\t\t\tRanking scores are equal, REQUIRES MANUAL DECISION.",
-                                                            discord=False,
+
+                                                        file_hash = get_file_hash(
+                                                            file.path
                                                         )
-                                                        embed = [
-                                                            handle_fields(
-                                                                DiscordEmbed(
-                                                                    title="Duplicate Download Release (REQUIRES MANUAL DECISION)",
-                                                                    color=yellow_color,
-                                                                ),
-                                                                fields=[
-                                                                    {
-                                                                        "name": "Location:",
-                                                                        "value": "```"
-                                                                        + compare_file.root
-                                                                        + "```",
-                                                                        "inline": False,
-                                                                    },
-                                                                    {
-                                                                        "name": "Duplicate:",
-                                                                        "value": "```"
-                                                                        + file.name
-                                                                        + "```",
-                                                                        "inline": False,
-                                                                    },
-                                                                    {
-                                                                        "name": "has an equal score to:",
-                                                                        "value": "```"
-                                                                        + compare_file.name
-                                                                        + "```",
-                                                                        "inline": False,
-                                                                    },
-                                                                ],
+                                                        compare_hash = get_file_hash(
+                                                            compare_file.path
+                                                        )
+                                                        # Check if the file hashes are the same
+                                                        # instead of defaulting to requiring the user to decide.
+                                                        if (
+                                                            compare_hash and file_hash
+                                                        ) and (
+                                                            compare_hash == file_hash
+                                                        ):
+                                                            embed = [
+                                                                handle_fields(
+                                                                    DiscordEmbed(
+                                                                        title="Duplicate Download Release (HASH MATCH)",
+                                                                        color=yellow_color,
+                                                                    ),
+                                                                    fields=[
+                                                                        {
+                                                                            "name": "Location:",
+                                                                            "value": "```"
+                                                                            + file.root
+                                                                            + "```",
+                                                                            "inline": False,
+                                                                        },
+                                                                        {
+                                                                            "name": "File Names:",
+                                                                            "value": "```"
+                                                                            + file.name
+                                                                            + "\n"
+                                                                            + compare_file.name
+                                                                            + "```",
+                                                                            "inline": False,
+                                                                        },
+                                                                        {
+                                                                            "name": "File Hashes:",
+                                                                            "value": "```"
+                                                                            + file_hash
+                                                                            + " "
+                                                                            + compare_hash
+                                                                            + "```",
+                                                                            "inline": False,
+                                                                        },
+                                                                    ],
+                                                                )
+                                                            ]
+                                                            add_to_grouped_notifications(
+                                                                Embed(embed[0], None)
                                                             )
-                                                        ]
-                                                        add_to_grouped_notifications(
-                                                            Embed(embed[0], None)
-                                                        )
-                                                        print("\t\t\t\t\tSkipping...")
+                                                            # Delete the compare file
+                                                            remove_file(
+                                                                compare_file.path,
+                                                                group=group,
+                                                            )
+                                                        else:
+                                                            send_message(
+                                                                "\n\t\t\tDuplicate found in: "
+                                                                + compare_file.root
+                                                                + "\n\t\t\t\t"
+                                                                + file.name
+                                                                + "\n\t\t\t\t"
+                                                                + compare_file.name
+                                                                + "\n\t\t\t\t\tRanking scores are equal, REQUIRES MANUAL DECISION.",
+                                                                discord=False,
+                                                            )
+                                                            embed = [
+                                                                handle_fields(
+                                                                    DiscordEmbed(
+                                                                        title="Duplicate Download Release (REQUIRES MANUAL DECISION)",
+                                                                        color=yellow_color,
+                                                                    ),
+                                                                    fields=[
+                                                                        {
+                                                                            "name": "Location:",
+                                                                            "value": "```"
+                                                                            + compare_file.root
+                                                                            + "```",
+                                                                            "inline": False,
+                                                                        },
+                                                                        {
+                                                                            "name": "Duplicate:",
+                                                                            "value": "```"
+                                                                            + file.name
+                                                                            + "```",
+                                                                            "inline": False,
+                                                                        },
+                                                                        {
+                                                                            "name": "has an equal score to:",
+                                                                            "value": "```"
+                                                                            + compare_file.name
+                                                                            + "```",
+                                                                            "inline": False,
+                                                                        },
+                                                                    ],
+                                                                )
+                                                            ]
+                                                            add_to_grouped_notifications(
+                                                                Embed(embed[0], None)
+                                                            )
+                                                            print(
+                                                                "\t\t\t\t\tSkipping..."
+                                                            )
                                         except Exception as e:
                                             send_message(
                                                 "\n\t\t\tError: "
@@ -3796,6 +3857,15 @@ def check_for_duplicate_volumes(paths_to_search=[], group=False):
             send_discord_message(None, grouped_notifications)
     except Exception as e:
         send_message("\n\t\tError: " + str(e), error=True)
+
+
+# Gets the hash of the passed file and returns it as a string
+def get_file_hash(file):
+    try:
+        return hashlib.md5(open(file, "rb").read()).hexdigest()
+    except Exception as e:
+        send_message("\n\t\t\tError: " + str(e), error=True)
+        return None
 
 
 # regex out underscore from passed string and return it
