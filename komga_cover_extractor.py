@@ -2299,7 +2299,7 @@ def remove_duplicate_releases_from_download(
                             embed = [
                                 handle_fields(
                                     DiscordEmbed(
-                                        title="Upgrade Process (Upgrade)",
+                                        title="Upgrade Process (Upgradeable)",
                                         color=green_color,
                                     ),
                                     fields=fields,
@@ -2374,7 +2374,7 @@ def remove_duplicate_releases_from_download(
                             embed = [
                                 handle_fields(
                                     DiscordEmbed(
-                                        title="Upgrade Process (Upgrade)",
+                                        title="Upgrade Process (Upgradeable)",
                                         color=green_color,
                                     ),
                                     fields=fields,
@@ -3472,6 +3472,7 @@ def remove_duplicates(items):
 
 
 # Return the zip comment for the passed zip file
+@lru_cache(maxsize=None)
 def get_zip_comment(zip_file):
     try:
         with zipfile.ZipFile(zip_file, "r") as zip_ref:
@@ -4191,6 +4192,7 @@ def check_for_existing_series(group=False):
                                     send_discord_message(None, grouped_notifications)
                                 continue
                             download_file_zip_comment = get_zip_comment(file.path)
+                            # print(get_zip_comment.cache_info()) # only for testing
                             download_file_meta = None
                             if download_file_zip_comment and re.search(
                                 r"Identifiers", download_file_zip_comment, re.IGNORECASE
@@ -4500,6 +4502,9 @@ def check_for_existing_series(group=False):
                                                             existing_file_zip_comment = get_zip_comment(
                                                                 f.path
                                                             )
+                                                            # print(
+                                                            #     get_zip_comment.cache_info()
+                                                            # ) # only for testing
                                                             existing_file_meta = None
                                                             if (
                                                                 existing_file_zip_comment
@@ -4753,6 +4758,8 @@ def check_for_existing_series(group=False):
             grouped_notifications,
             passed_webhook=webhook_use,
         )
+    # clear the cache for get_zip_comment
+    get_zip_comment.cache_clear()
 
 
 # Groups messages by series name
