@@ -163,6 +163,7 @@ volume_keywords = [
     "Discs?",
     "Tomo",
     "Tome",
+    "Von",
     "V",
     "第",
     "T",
@@ -259,6 +260,11 @@ green_color = 65280  # Upgradeable and New Release Notification
 
 # The similarity score required for a publisher to be considered a match
 publisher_similarity_score = 0.9
+
+# If True, instead of grouping discord notifications based on their context.
+# They will instead be grouped until the maximum of 10 is reached, regardless of context
+# then sent.
+group_discord_notifications_until_max = True
 
 # Folder Class
 class Folder:
@@ -422,10 +428,13 @@ class Handler(FileSystemEventHandler):
                         ],
                     )
                 ]
-                send_discord_message(
-                    None,
-                    [Embed(embed[0], None)],
-                )
+                if not group_discord_notifications_until_max:
+                    send_discord_message(
+                        None,
+                        [Embed(embed[0], None)],
+                    )
+                else:
+                    add_to_grouped_notifications(Embed(embed[0], None))
                 main()
                 send_message(
                     "\nFinished Execution (WATCHDOG) (EXPERIMENTAL)", discord=False
@@ -896,14 +905,18 @@ def contains_chapter_keywords(file_name):
         re.search(pattern, file_name_clean, re.IGNORECASE)
         for pattern in chapter_searches
     ]
+    # remove empty results
+    chapter_search_results = [x for x in chapter_search_results if x]
     found = any(
         result and not re.search(r"^((\(|\{|\[)\d{4}(\]|\}|\)))$", result.group(0))
         for result in chapter_search_results
     )
     if not found and not contains_volume_keywords(file_name):
         without_year = re.sub(volume_year_regex, "", file_name, flags=re.IGNORECASE)
+        # checks for any number in the file name that isn't at the beginning of the string
+        # numbers at the beginning of the string are considered part of the series_name
         chapter_numbers_found = re.search(
-            r"([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?(#([0-9]+)(([-_.])([0-9]+)|)+)?",
+            r"(?<!^)(?<!\d\.)\b([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?(#([0-9]+)(([-_.])([0-9]+)|)+)?(\.\d+)?\b",
             without_year,
         )
         if chapter_numbers_found:
@@ -1164,28 +1177,14 @@ def is_volume_one(volume_name):
 
 # Checks for volume keywords and chapter keywords.
 # If neither are present, the volume is assumed to be a one-shot volume.
-def is_one_shot_bk(file_name):
-    number_status = re.search(r"\d+", file_name)
-    chapter_file_status = contains_chapter_keywords(file_name)
-    exception_keyword_status = check_for_exception_keywords(
-        file_name, exception_keywords
-    )
-    if (not number_status and not chapter_file_status) and (
-        not exception_keyword_status
-    ):
-        return True
-    return False
-
-
-# Checks for volume keywords and chapter keywords.
-# If neither are present, the volume is assumed to be a one-shot volume.
-def is_one_shot(file_name, root):
+def is_one_shot(file_name, root=None, skip_folder_check=False):
     global volume_year_regex
-    files = clean_and_sort(root, os.listdir(root))[0]
-    continue_logic = False
-    if len(files) == 1 or (download_folders and root == download_folders[0]):
-        continue_logic = True
-    if continue_logic == True:
+    files = []
+    if not skip_folder_check:
+        files = clean_and_sort(root, os.listdir(root))[0]
+    if (len(files) == 1 or skip_folder_check) or (
+        download_folders and root == download_folders[0]
+    ):
         volume_file_status = contains_volume_keywords(file_name)
         chapter_file_status = contains_chapter_keywords(file_name)
         exception_keyword_status = check_for_exception_keywords(
@@ -1508,7 +1507,7 @@ def create_folders_for_items_in_download_folder(group=False):
                 send_message(
                     "\nERROR: " + download_folder + " is an invalid path.\n", error=True
                 )
-    if group and len(grouped_notifications):
+    if group and grouped_notifications and not group_discord_notifications_until_max:
         send_discord_message(None, grouped_notifications)
 
 
@@ -2326,7 +2325,10 @@ def remove_duplicate_releases_from_download(
                             moved_files.append(download)
                             if download in downloaded_releases:
                                 downloaded_releases.remove(download)
-                            if grouped_notifications:
+                            if (
+                                grouped_notifications
+                                and not group_discord_notifications_until_max
+                            ):
                                 send_discord_message(
                                     None,
                                     grouped_notifications,
@@ -2401,7 +2403,10 @@ def remove_duplicate_releases_from_download(
                             moved_files.append(download)
                             if download in downloaded_releases:
                                 downloaded_releases.remove(download)
-                            if grouped_notifications:
+                            if (
+                                grouped_notifications
+                                and not group_discord_notifications_until_max
+                            ):
                                 send_discord_message(
                                     None,
                                     grouped_notifications,
@@ -2437,7 +2442,7 @@ def check_and_delete_empty_folder(folder):
 
 # Writes a log file
 def write_to_file(
-    file, message, without_date=False, overwrite=False, check_for_dup=False
+    file, message, without_timestamp=False, overwrite=False, check_for_dup=False
 ):
     if log_to_file:
         message = re.sub("\t|\n", "", str(message), flags=re.IGNORECASE).strip()
@@ -2462,7 +2467,7 @@ def write_to_file(
                         now = datetime.now()
                         dt_string = now.strftime("%d/%m/%Y %H:%M:%S")
                         file = open(file_path, append_write)
-                        if without_date:
+                        if without_timestamp:
                             file.write("\n " + message)
                         else:
                             file.write("\n" + dt_string + " " + message)
@@ -2978,94 +2983,115 @@ def remove_dual_space(s):
 # Removes common words to improve string matching accuracy between a series_name
 # from a file name, and a folder name, useful for when releasers sometimes include them,
 # and sometimes don't.
-def normalize_string_for_matching(s):
+def normalize_string_for_matching(
+    s,
+    skip_common_words=False,
+    skip_editions=False,
+    skip_type_keywords=False,
+    skip_japanese_particles=False,
+    skip_misc_words=False,
+):
     if len(s) > 1:
         words_to_remove = []
-        common_words = [
-            "the",
-            "a",
-            "à",
-            "and",
-            "&",
-            "I",
-            "of",
-        ]
-        words_to_remove.extend(common_words)
-        editions = [
-            "Collection",
-            "Master Edition",
-            "(2|3|4|5)-in-1 Edition",
-            "Edition",
-            "Exclusive",
-            "Anniversary",
-            "Deluxe",
-            "Omnibus",
-            "Digital",
-            "Official",
-            "Anthology",
-            "Limited",
-            "Complete",
-            "Collector",
-            "Ultimate",
-            "Special",
-        ]
-        words_to_remove.extend(editions)
-        type_keywords = [
-            "Novel",
-            "Light Novel",
-            "Manga",
-            "Comic",
-            "LN",
-            "Series",
-            "Volume",
-            "Chapter",
-            "Book",
-            "MANHUA",
-        ]
-        words_to_remove.extend(type_keywords)
-        japanese_particles = [
-            "wa",
-            "o",
-            "mo",
-            "ni",
-            "e",
-            "de",
-            "ga",
-            "kara",
-            "to",
-            "ya",
-            "no",
-            "ne",
-            "yo",
-        ]
-        words_to_remove.extend(japanese_particles)
-        misc_words = [
-            "((\d+)([-_. ]+)?th)",
-            "x",
-            "×",
-        ]
-        words_to_remove.extend(misc_words)
+        if not skip_common_words:
+            common_words = [
+                "the",
+                "a",
+                "à",
+                "and",
+                "&",
+                "I",
+                "of",
+            ]
+            words_to_remove.extend(common_words)
+        if not skip_editions:
+            editions = [
+                "Collection",
+                "Master Edition",
+                "(2|3|4|5)-in-1 Edition",
+                "Edition",
+                "Exclusive",
+                "Anniversary",
+                "Deluxe",
+                "Omnibus",
+                "Digital",
+                "Official",
+                "Anthology",
+                "Limited",
+                "Complete",
+                "Collector",
+                "Ultimate",
+                "Special",
+            ]
+            words_to_remove.extend(editions)
+        if not skip_type_keywords:
+            # (?<!^) = Cannot start with this word
+            # EX: "Book Girl" is a light novel series
+            # and you wouldn't want to remove that from the series name.
+            type_keywords = [
+                "(?<!^)Novel",
+                "(?<!^)Light Novel",
+                "(?<!^)Manga",
+                "(?<!^)Comic",
+                "(?<!^)LN",
+                "(?<!^)Series",
+                "(?<!^)Volume",
+                "(?<!^)Chapter",
+                "(?<!^)Book",
+                "(?<!^)MANHUA",
+            ]
+            words_to_remove.extend(type_keywords)
+        if not skip_japanese_particles:
+            japanese_particles = [
+                "wa",
+                "o",
+                "mo",
+                "ni",
+                "e",
+                "de",
+                "ga",
+                "kara",
+                "to",
+                "ya",
+                "no(?!\.)",
+                "ne",
+                "yo",
+            ]
+            words_to_remove.extend(japanese_particles)
+        if not skip_misc_words:
+            misc_words = [
+                "((\d+)([-_. ]+)?th)",
+                "x",
+                "×",
+            ]
+            words_to_remove.extend(misc_words)
         for word in words_to_remove:
             s = re.sub(rf"\b{word}\b", " ", s, flags=re.IGNORECASE).strip()
             s = remove_dual_space(s)
     return s.strip()
 
 
+# Removes the s from any words that end in s
+def remove_s(s):
+    return re.sub(r"\b(\w+)(s)\b", r"\1", s, flags=re.IGNORECASE).strip()
+
+
 # Returns a string without punctuation.
 def remove_punctuation(s, disable_lang=False):
-    s = re.sub(r":", "", s)
+    s = re.sub(r":", " ", s)
+    s = remove_dual_space(s)
     language = ""
     if not disable_lang and not s.isdigit():
         language = detect_language(s)
     if language and language != "en" and not disable_lang:
         return remove_dual_space(
-            normalize_string_for_matching(re.sub(r"[^\w\s+]", " ", s))
+            remove_s(re.sub(r"[^\w\s+]", " ", normalize_string_for_matching(s)))
         )
     else:
         return convert_to_ascii(
             unidecode(
                 remove_dual_space(
-                    normalize_string_for_matching(re.sub(r"[^\w\s+]", " ", s))
+                    remove_s(re.sub(r"[^\w\s+]", " ", normalize_string_for_matching(s)))
                 )
             )
         )
@@ -3450,11 +3476,14 @@ def check_upgrade(
                         )
                 else:
                     add_to_grouped_notifications(Embed(embed[0], cover))
-                    if grouped_notifications:
+                    if (
+                        grouped_notifications
+                        and not group_discord_notifications_until_max
+                    ):
                         send_discord_message(None, grouped_notifications)
                 return True
         else:
-            if grouped_notifications:
+            if grouped_notifications and not group_discord_notifications_until_max:
                 send_discord_message(
                     None,
                     grouped_notifications,
@@ -3854,7 +3883,11 @@ def check_for_duplicate_volumes(paths_to_search=[], group=False):
                             continue
             else:
                 print("\n\t\tPath does not exist: " + p)
-        if group and grouped_notifications:
+        if (
+            group
+            and grouped_notifications
+            and not group_discord_notifications_until_max
+        ):
             send_discord_message(None, grouped_notifications)
     except Exception as e:
         send_message("\n\t\tError: " + str(e), error=True)
@@ -3991,7 +4024,7 @@ def check_for_existing_series(group=False):
                                             write_to_file(
                                                 "cached_paths.txt",
                                                 cached_identifier.path,
-                                                without_date=True,
+                                                without_timestamp=True,
                                                 check_for_dup=True,
                                             )
                                         found = True
@@ -4166,7 +4199,11 @@ def check_for_existing_series(group=False):
                                                 group=group,
                                             )
                                             if done:
-                                                if group and grouped_notifications:
+                                                if (
+                                                    group
+                                                    and grouped_notifications
+                                                    and not group_discord_notifications_until_max
+                                                ):
                                                     send_discord_message(
                                                         None, grouped_notifications
                                                     )
@@ -4175,7 +4212,7 @@ def check_for_existing_series(group=False):
                                                     write_to_file(
                                                         "cached_paths.txt",
                                                         p,
-                                                        without_date=True,
+                                                        without_timestamp=True,
                                                         check_for_dup=True,
                                                     )
                                                 if (
@@ -4188,7 +4225,11 @@ def check_for_existing_series(group=False):
                                                     exclude = p
                                                 break
                             if done:
-                                if group and grouped_notifications:
+                                if (
+                                    group
+                                    and grouped_notifications
+                                    and not group_discord_notifications_until_max
+                                ):
                                     send_discord_message(None, grouped_notifications)
                                 continue
                             download_file_zip_comment = get_zip_comment(file.path)
@@ -4319,7 +4360,7 @@ def check_for_existing_series(group=False):
                                                     write_to_file(
                                                         "cached_paths.txt",
                                                         root,
-                                                        without_date=True,
+                                                        without_timestamp=True,
                                                         check_for_dup=True,
                                                     )
                                                 if done:
@@ -4428,6 +4469,7 @@ def check_for_existing_series(group=False):
                                                             if (
                                                                 group
                                                                 and grouped_notifications
+                                                                and not group_discord_notifications_until_max
                                                             ):
                                                                 send_discord_message(
                                                                     None,
@@ -4452,7 +4494,7 @@ def check_for_existing_series(group=False):
                                                                         folder_accessor.root,
                                                                         dir,
                                                                     ),
-                                                                    without_date=True,
+                                                                    without_timestamp=True,
                                                                     check_for_dup=True,
                                                                 )
                                                             if (
@@ -4629,7 +4671,11 @@ def check_for_existing_series(group=False):
                                             group=group,
                                         )
                                         if done:
-                                            if group and grouped_notifications:
+                                            if (
+                                                group
+                                                and grouped_notifications
+                                                and not group_discord_notifications_until_max
+                                            ):
                                                 send_discord_message(
                                                     None, grouped_notifications
                                                 )
@@ -4640,7 +4686,7 @@ def check_for_existing_series(group=False):
                                                 write_to_file(
                                                     "cached_paths.txt",
                                                     directories_found[0],
-                                                    without_date=True,
+                                                    without_timestamp=True,
                                                     check_for_dup=True,
                                                 )
                                             if (
@@ -4671,6 +4717,11 @@ def check_for_existing_series(group=False):
                                     + file.extension
                                 )
                                 print("No match found.")
+    if grouped_notifications:
+        send_discord_message(
+            None,
+            grouped_notifications,
+        )
     if messages_to_send:
         webhook_use = None
         grouped_by_series_names = group_similar_series(messages_to_send)
@@ -5233,7 +5284,7 @@ def rename_dirs_in_download_folder(group=False):
                 send_message(
                     "\nERROR: " + download_folder + " is an invalid path.\n", error=True
                 )
-    if group and grouped_notifications:
+    if group and grouped_notifications and not group_discord_notifications_until_max:
         send_discord_message(None, grouped_notifications)
 
 
@@ -5417,7 +5468,10 @@ def rename_files_in_download_folders(only_these_files=[], group=False):
                     and check_for_existing_series_toggle
                 ):
                     write_to_file(
-                        "cached_paths.txt", root, without_date=True, check_for_dup=True
+                        "cached_paths.txt",
+                        root,
+                        without_timestamp=True,
+                        check_for_dup=True,
                     )
                 clean = clean_and_sort(root, files, dirs)
                 files, dirs = clean[0], clean[1]
@@ -5936,7 +5990,7 @@ def rename_files_in_download_folders(only_these_files=[], group=False):
                 print("\nERROR: Path cannot be empty.")
             else:
                 print("\nERROR: " + path + " is an invalid path.\n")
-    if group and grouped_notifications:
+    if group and grouped_notifications and not group_discord_notifications_until_max:
         send_discord_message(None, grouped_notifications)
 
 
@@ -5965,7 +6019,7 @@ def delete_chapters_from_downloads(group=False):
                         write_to_file(
                             "cached_paths.txt",
                             root,
-                            without_date=True,
+                            without_timestamp=True,
                             check_for_dup=True,
                         )
                     # clean = clean_and_sort(root, files, dirs)
@@ -6030,7 +6084,11 @@ def delete_chapters_from_downloads(group=False):
                     print("\nERROR: Path cannot be empty.")
                 else:
                     print("\nERROR: " + path + " is an invalid path.\n")
-        if group and grouped_notifications:
+        if (
+            group
+            and grouped_notifications
+            and not group_discord_notifications_until_max
+        ):
             send_discord_message(None, grouped_notifications)
     except Exception as e:
         send_message(e, error=True)
@@ -6309,7 +6367,10 @@ def extract_covers():
                     and path not in download_folders
                 ):
                     write_to_file(
-                        "cached_paths.txt", root, without_date=True, check_for_dup=True
+                        "cached_paths.txt",
+                        root,
+                        without_timestamp=True,
+                        check_for_dup=True,
                     )
                 clean = clean_and_sort(root, files, dirs)
                 files, dirs = clean[0], clean[1]
@@ -6525,7 +6586,7 @@ def delete_unacceptable_files(group=False):
                             write_to_file(
                                 "cached_paths.txt",
                                 root,
-                                without_date=True,
+                                without_timestamp=True,
                                 check_for_dup=True,
                             )
                         dirs = remove_ignored_folder_names(dirs)
@@ -6625,7 +6686,11 @@ def delete_unacceptable_files(group=False):
                         print("\nERROR: Path cannot be empty.")
                     else:
                         print("\nERROR: " + path + " is an invalid path.\n")
-            if group and grouped_notifications:
+            if (
+                group
+                and grouped_notifications
+                and not group_discord_notifications_until_max
+            ):
                 send_discord_message(None, grouped_notifications)
         except Exception as e:
             send_message(e, error=True)
@@ -6695,8 +6760,26 @@ def scrape_url(url, strainer=None, headers=None, cookies=None):
 
 def get_all_matching_books(books, book_type, title):
     matching_books = []
+    short_title = get_shortened_title(title)
     for book in books:
-        if book.book_type == book_type and book.title == title:
+        short_title_two = get_shortened_title(book.title)
+        if book.book_type == book_type and (
+            book.title == title
+            or (
+                (
+                    similar(remove_punctuation(book.title), remove_punctuation(title))
+                    >= required_similarity_score
+                )
+                or (
+                    (short_title and short_title_two)
+                    and similar(
+                        remove_punctuation(short_title_two),
+                        remove_punctuation(short_title),
+                    )
+                    >= required_similarity_score
+                )
+            )
+        ):
             matching_books.append(book)
     # remove them from books
     for book in matching_books:
@@ -6708,23 +6791,27 @@ def get_all_matching_books(books, book_type, title):
 def combine_series(series_list):
     combined_series = []
     for series in series_list:
+        # sort by volume number
+        # because volume number can either be a float or an array of floats
+        # cast it to a string and split it by the comma, and then sort by the first element
+        series.books.sort(
+            key=lambda x: str(x.volume_number) + " " + str(x.part).strip().split(",")[0]
+        )
         if len(combined_series) == 0:
             combined_series.append(series)
         else:
             for combined_series_item in combined_series:
-                if (
-                    similar(
+                if series.book_type == combined_series_item.book_type and (
+                    series.title.lower().strip()
+                    == combined_series_item.title.lower().strip()
+                    or similar(
                         remove_punctuation(series.title).lower().strip(),
                         remove_punctuation(combined_series_item.title).lower().strip(),
                     )
                     >= required_similarity_score
-                    and series.book_type == combined_series_item.book_type
                 ):
                     combined_series_item.books.extend(series.books)
                     combined_series_item.book_count = len(combined_series_item.books)
-                    # combined_series_item.books = sorted(
-                    #     combined_series_item.books, key=lambda x: x.volume_number
-                    # )
                     break
             if series not in combined_series and not (
                 similar(
@@ -6737,9 +6824,19 @@ def combine_series(series_list):
     return combined_series
 
 
-def search_bookwalker(query, type, print_info=False, alternative_search=False):
+def get_shortened_title(title):
+    shortened_title = ""
+    if re.search(r"((\s(-|\+)|:)\s)", title):
+        shortened_title = re.sub(r"((\s(-|\+)|:)\s.*)", "", title).strip()
+    return shortened_title
+
+
+def search_bookwalker(
+    query, type, print_info=False, alternative_search=False, shortened_search=False
+):
     global volume_regex_keywords
-    sleep_timer_bk = 8
+    global required_similarity_score
+    sleep_timer_bk = 3
     # The total amount of pages to scrape
     total_pages_to_scrape = 5
     # The books returned from the search
@@ -6767,11 +6864,17 @@ def search_bookwalker(query, type, print_info=False, alternative_search=False):
     page_count_url = "&page=" + str(page_count)
     search = urllib.parse.quote(query)
     base_url = "https://global.bookwalker.jp/search/?word="
+    series_only = "&np=0"
+    series_url = base_url + search + series_only
     if not alternative_search:
+        keyword = "\n\tSearch: "
+        if shortened_search:
+            keyword = "\n\tShortened Search: "
         if search_type.lower() == "m":
-            print("\tChecking: " + query + " [MANGA]")
+            print(keyword + query + "\n\tCategory: MANGA")
         elif search_type.lower() == "l":
-            print("\tChecking: " + query + " [NOVEL]")
+            print(keyword + query + "\n\tCategory: NOVEL")
+    chapter_exclusion_url = "&np=1&qnot%5B%5D=Chapter&x=13&y=16"
     while page_count < total_pages_to_scrape + 1:
         page_count_url = "&page=" + str(page_count)
         alternate_url = ""
@@ -6779,10 +6882,36 @@ def search_bookwalker(query, type, print_info=False, alternative_search=False):
         if search_type.lower() == "m":
             if not alternative_search:
                 url += bookwalker_manga_category
+                series_url += bookwalker_manga_category
             else:
                 url += bookwalker_intll_manga_category
+                series_url += bookwalker_intll_manga_category
         elif search_type.lower() == "l":
             url += bookwalker_light_novel_category
+            series_url += bookwalker_light_novel_category
+        series_page = scrape_url(
+            series_url,
+            cookies={"glSafeSearch": "1", "safeSearch": "111"},
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.88 Safari/537.36"
+            },
+        )
+        series_list_li = None
+        if series_page:
+            # find ul class o-tile-list in series_page
+            series_list_ul = series_page.find_all("ul", class_="o-tile-list")
+            if series_list_ul:
+                # find all li class="o-tile"
+                series_list_li = series_list_ul[0].find_all("li", class_="o-tile")
+        if series_list_li:
+            series_list_li = len(series_list_li)
+        original_similarity_score = required_similarity_score
+        if series_list_li == 1:
+            required_similarity_score = original_similarity_score - 0.03
+        if shortened_search and series_list_li and series_list_li != 1:
+            print("\t\tsearch does not contain exactly one series, skipping...\n")
+            return []
+        url += chapter_exclusion_url
         page_count += 1
         # scrape url page
         page = scrape_url(
@@ -6848,9 +6977,23 @@ def search_bookwalker(query, type, print_info=False, alternative_search=False):
                 return alternate_result
             if not alternative_search:
                 print("\t\t! NO BOOKS FOUND ON BOOKWALKER !")
+                write_to_file(
+                    "bookwalker_no_results.txt",
+                    query,
+                    without_timestamp=True,
+                    check_for_dup=True,
+                )
             no_book_result_searches.append(query)
             continue
         o_tile_list = list_area_ul.find_all("li", class_="o-tile")
+        print(
+            "\t\tPage: "
+            + str(page_count - 1)
+            + " of "
+            + str(total_pages_to_scrape)
+            + "\n\t\t\tItems: "
+            + str(len(o_tile_list))
+        )
         for item in o_tile_list:
             try:
                 o_tile_book_info = item.find("div", class_="o-tile-book-info")
@@ -6894,9 +7037,15 @@ def search_bookwalker(query, type, print_info=False, alternative_search=False):
                 else:
                     book_type = "Unknown"
                 book_type = re.sub(r"\n|\t|\r", "", book_type).strip()
-                title = o_tile_book_info.find("h2", class_="a-tile-ttl").text
-                title = re.sub(r"[\n\t\r]", " ", title)
-                # replace any unicode characters in the title with spaces
+                title = o_tile_book_info.find("h2", class_="a-tile-ttl").text.strip()
+                item_index = o_tile_list.index(item)
+                if title:
+                    print("\t\t\t\t[" + str(item_index + 1) + "] " + title)
+                # remove brackets
+                title = remove_bracketed_info_from_name(title)
+                # unidecode the title
+                title = unidecode(title)
+                # replace any remaining unicode characters in the title with spaces
                 title = re.sub(r"[^\x00-\x7F]+", " ", title)
                 title = remove_dual_space(title).strip()
                 if (
@@ -6914,12 +7063,17 @@ def search_bookwalker(query, type, print_info=False, alternative_search=False):
                 if a_tag_chapter or a_tag_simulpub:
                     chapter_releases.append(title)
                     continue
-                if part and re.search(r"(\b(Part)([-_. ]|)\b)", title):
-                    title = re.sub(r"(\b(Part)([-_. ]|)\b)", " ", title)
-                    title = re.sub(str(part), " ", title)
+                if part and re.search(r"(\b(Part)([-_. ]+|)\d+(\.\d+)?)", title):
+                    title = re.sub(r"(\b(Part)([-_. ]+|)\d+(\.\d+)?)", "", title)
                     title = remove_dual_space(title).strip()
                 volume_number = ""
-                if not re.search(r"(\b(Vol)([-_. ]|)\b)", title):
+                modified_volume_regex_keywords = volume_regex_keywords
+                # split on | and remove any single character words, then rejoin on |
+                # use len(x) == 1 to remove any single character words
+                modified_volume_regex_keywords = "|".join(
+                    [x for x in modified_volume_regex_keywords.split("|") if len(x) > 1]
+                )
+                if not re.search(r"(\b(%s)([-_. ]|)\b)" % volume_regex_keywords, title):
                     if not re.search(
                         r"(([0-9]+)((([-_.]|)([0-9]+))+|))(\s+)?-(\s+)?(([0-9]+)((([-_.]|)([0-9]+))+|))",
                         title,
@@ -6949,7 +7103,7 @@ def search_bookwalker(query, type, print_info=False, alternative_search=False):
                             if title not in no_volume_number:
                                 no_volume_number.append(title)
                             continue
-                    elif title and is_one_shot_bk(title):
+                    elif title and is_one_shot(title, skip_folder_check=True):
                         volume_number = 1
                     elif not volume_number and not isinstance(volume_number, list):
                         if title not in no_volume_number:
@@ -6957,7 +7111,7 @@ def search_bookwalker(query, type, print_info=False, alternative_search=False):
                         continue
                 else:
                     volume_number = remove_everything_but_volume_num([title])
-                if not re.search(r"(\b(Vol)([-_. ]|)\b)", title):
+                if not re.search(r"(\b(%s)([-_. ]|)\b)" % volume_regex_keywords, title):
                     title = re.sub(
                         r"(\b|\s)((\s|)-(\s|)|)(Part|)(\[|\(|\{)?(%s|)(\.|)([-_. ]|)(([0-9]+)(\b|\s))$.*"
                         % volume_regex_keywords,
@@ -6979,10 +7133,68 @@ def search_bookwalker(query, type, print_info=False, alternative_search=False):
                         title,
                         flags=re.IGNORECASE,
                     ).strip()
+                shortened_title = get_shortened_title(title)
+                shortened_query = get_shortened_title(query)
+                clean_shortened_title = ""
+                clean_shortened_query = ""
+                if shortened_title:
+                    clean_shortened_title = (
+                        remove_punctuation(shortened_title).lower().strip()
+                    )
+                if shortened_query:
+                    clean_shortened_query = unidecode(
+                        (remove_punctuation(shortened_query).lower().strip())
+                    )
                 clean_title = remove_punctuation(title).lower().strip()
-                clean_query = remove_punctuation(query).lower().strip()
+                clean_query = unidecode(remove_punctuation(query).lower().strip())
                 score = similar(clean_title, clean_query)
-                if not (score >= required_similarity_score):
+                print(
+                    "\t\t\t\t\tBookwalker: "
+                    + clean_title
+                    + "\n\t\t\t\t\tLibrary:    "
+                    + clean_query
+                    + "\n\t\t\t\t\tVolume Number: "
+                    + str(volume_number)
+                    + "\n\t\t\t\t\tScore: "
+                    + str(score)
+                    + "\n\t\t\t\t\tMatch: "
+                    + str(score >= required_similarity_score)
+                )
+                score_two = 0
+                if series_list_li == 1 and not score >= required_similarity_score:
+                    if shortened_title and clean_shortened_title:
+                        score_two = similar(clean_shortened_title, clean_query)
+                        print(
+                            "\n\t\t\t\t\tBookwalker: "
+                            + clean_shortened_title
+                            + "\n\t\t\t\t\tLibrary:    "
+                            + clean_query
+                            + "\n\t\t\t\t\tVolume Number: "
+                            + str(volume_number)
+                            + "\n\t\t\t\t\tScore: "
+                            + str(score_two)
+                            + "\n\t\t\t\t\tMatch: "
+                            + str(score_two >= required_similarity_score)
+                            + "\n"
+                        )
+                    elif shortened_query and clean_shortened_query:
+                        score_two = similar(clean_title, clean_shortened_query)
+                        print(
+                            "\n\t\t\t\t\tBookwalker: "
+                            + clean_title
+                            + "\n\t\t\t\t\tLibrary:    "
+                            + clean_shortened_query
+                            + "\n\t\t\t\t\tVolume Number: "
+                            + str(volume_number)
+                            + "\n\t\t\t\t\tScore: "
+                            + str(score_two)
+                            + "\n\t\t\t\t\tMatch: "
+                            + str(score_two >= required_similarity_score)
+                            + "\n"
+                        )
+                if not (score >= required_similarity_score) and not (
+                    score_two >= required_similarity_score
+                ):
                     message = (
                         '"'
                         + clean_title
@@ -6995,6 +7207,7 @@ def search_bookwalker(query, type, print_info=False, alternative_search=False):
                     )
                     if message not in similarity_match_failures:
                         similarity_match_failures.append(message)
+                    required_similarity_score = original_similarity_score
                     continue
                 # html from url
                 page_two = scrape_url(
@@ -7015,6 +7228,20 @@ def search_bookwalker(query, type, print_info=False, alternative_search=False):
                         detail.text,
                         re.IGNORECASE,
                     )
+                    # get the th from the detail
+                    th = detail.find_previous_sibling("th")
+                    # get the text from the th
+                    th_text = th.text
+                    if th_text == "Series Title" or th_text == "Alternative Title":
+                        series_title = detail.text
+                        # remove punctuation
+                        series_title = remove_punctuation(series_title).lower().strip()
+                        if not similar(
+                            series_title, clean_query
+                        ) >= required_similarity_score and not similar(
+                            series_title, clean_shortened_query
+                        ):
+                            continue
                     if date:
                         date = date.group(0)
                         date = re.sub(r"[^\s\w]", "", date)
@@ -7052,8 +7279,6 @@ def search_bookwalker(query, type, print_info=False, alternative_search=False):
                 send_message(e, error=True)
                 errors.append(url)
                 continue
-        # if books is not None and len(books) > 1:
-        #     books = sorted(books, key=lambda x: x.volume_number)
         for book in books:
             matching_books = get_all_matching_books(books, book.book_type, book.title)
             if len(matching_books) > 0:
@@ -7143,6 +7368,7 @@ def search_bookwalker(query, type, print_info=False, alternative_search=False):
                     print("\t" + url)
                 no_book_result_searches = []
     series_list = combine_series(series_list)
+    required_similarity_score = original_similarity_score
     # print("\tSleeping for " + str(sleep_timer_bk) + " to avoid being rate-limited...")
     time.sleep(sleep_timer_bk)
     if len(series_list) == 1:
@@ -7151,11 +7377,17 @@ def search_bookwalker(query, type, print_info=False, alternative_search=False):
     elif len(series_list) > 1:
         print("\t\tNumber of series from bookwalker search is greater than one.")
         print("\t\tNum: " + str(len(series_list)))
-        return None
+        return []
     else:
         if not alternative_search:
             print("\t\tNo matching books found.")
-        return None
+            write_to_file(
+                "bookwalker_no_matching_books.txt",
+                query,
+                without_timestamp=True,
+                check_for_dup=True,
+            )
+        return []
 
 
 # Checks the library against bookwalker for any missing volumes that are released or on pre-order
@@ -7166,6 +7398,7 @@ def check_for_new_volumes_on_bookwalker():
     print("\nChecking for new volumes on bookwalker...")
     paths_clean = [p for p in paths if p not in download_folders]
     for path in paths_clean:
+        path_index = paths_clean.index(path)
         if os.path.exists(path):
             os.chdir(path)
             # get list of folders from path directory
@@ -7181,6 +7414,26 @@ def check_for_new_volumes_on_bookwalker():
                 [""],
             )
             for dir in folder_accessor.dirs:
+                dir_index = folder_accessor.dirs.index(dir)
+                print(
+                    "\n\t[Folder "
+                    + str(dir_index)
+                    + " of "
+                    + str(len(folder_accessor.dirs))
+                    + " - Path "
+                    + str(path_index)
+                    + " of "
+                    + str(len(paths_clean))
+                    + "]"
+                )
+                print("\tPath: " + os.path.join(folder_accessor.root, dir))
+                series = normalize_string_for_matching(
+                    dir,
+                    skip_common_words=True,
+                    skip_japanese_particles=True,
+                    skip_misc_words=True,
+                )
+                series = unidecode(series)
                 current_folder_path = os.path.join(folder_accessor.root, dir)
                 existing_dir_full_file_path = os.path.dirname(
                     os.path.join(folder_accessor.root, dir)
@@ -7216,9 +7469,61 @@ def check_for_new_volumes_on_bookwalker():
                     >= 70
                 ):
                     type = "l"
-                if type and dir:
-                    bookwalker_volumes = search_bookwalker(dir, type, False)
+                if type and series:
+                    bookwalker_volumes = search_bookwalker(series, type, False)
+                    shortened_series_title = get_shortened_title(series)
+                    if shortened_series_title:
+                        shortened_bookwalker_volumes = search_bookwalker(
+                            shortened_series_title, type, False, shortened_search=True
+                        )
+                        if shortened_bookwalker_volumes:
+                            for vol in shortened_bookwalker_volumes:
+                                found = False
+                                if bookwalker_volumes:
+                                    for compare_vol in bookwalker_volumes:
+                                        if vol.url == compare_vol.url:
+                                            found = True
+                                            break
+                                    if not found:
+                                        bookwalker_volumes.append(vol)
+                                else:
+                                    bookwalker_volumes.append(vol)
+                if existing_dir_volumes and bookwalker_volumes and type == "l":
+                    # Go through each bookwalker volume and find a matching volume number in the existing directory
+                    # if the bookwalker volume has a part and the existing volume doesn't, remove the bookwalker volume
+                    # Avoids outputting part releases as missing volumes when the full volume already exists
+                    for vol in bookwalker_volumes[:]:
+                        for existing_vol in existing_dir_volumes:
+                            if (
+                                vol.volume_number == existing_vol.volume_number
+                                and vol.part
+                                and not existing_vol.volume_part
+                            ):
+                                print(
+                                    "\tRemoving Bookwalker Volume: "
+                                    + str(vol.volume_number)
+                                    + " Part "
+                                    + str(vol.part)
+                                    + " because the full volume already exists."
+                                )
+                                bookwalker_volumes.remove(vol)
                 if existing_dir_volumes and bookwalker_volumes:
+                    if len(existing_dir_volumes) > len(bookwalker_volumes):
+                        write_to_file(
+                            "bookwalker_missing_volumes.txt",
+                            series
+                            + " - Existing Volumes: "
+                            + str(len(existing_dir_volumes))
+                            + " Bookwalker Volumes: "
+                            + str(len(bookwalker_volumes))
+                            + "\n",
+                            without_timestamp=True,
+                            check_for_dup=True,
+                        )
+                    print("\tExisting Volumes: " + str(len(existing_dir_volumes)))
+                    print(
+                        "\tBookwalker Volumes: " + str(len(bookwalker_volumes)) + "\n"
+                    )
                     for existing_vol in existing_dir_volumes:
                         for bookwalker_vol in bookwalker_volumes[:]:
                             if (
@@ -7229,6 +7534,7 @@ def check_for_new_volumes_on_bookwalker():
                                 bookwalker_volumes.remove(bookwalker_vol)
                     if len(bookwalker_volumes) > 0:
                         new_releases_on_bookwalker.extend(bookwalker_volumes)
+                        print("\tNew/Upcoming Releases on Bookwalker:")
                         for vol in bookwalker_volumes:
                             if vol.is_released:
                                 print("\n\t\t[RELEASED]")
@@ -7238,6 +7544,8 @@ def check_for_new_volumes_on_bookwalker():
                                 "\t\tVolume Number: "
                                 + str(set_num_as_float_or_int(vol.volume_number))
                             )
+                            if vol.part:
+                                print("\t\tPart: " + str(vol.part))
                             print("\t\tDate: " + vol.date)
                             if vol == bookwalker_volumes[-1]:
                                 print("\t\tURL: " + vol.url + "\n")
@@ -7253,8 +7561,8 @@ def check_for_new_volumes_on_bookwalker():
                 pre_orders.append(release)
     pre_orders.sort(key=lambda x: x.date, reverse=True)
     released.sort(key=lambda x: x.date, reverse=False)
-    # Get rid of the old released and pre-orders and replace them with new ones.
     if log_to_file:
+        # Get rid of the old released and pre-orders and replace them with new ones.
         if os.path.isfile(os.path.join(ROOT_DIR, "released.txt")):
             remove_file(os.path.join(ROOT_DIR, "released.txt"), silent=True)
         if os.path.isfile(os.path.join(ROOT_DIR, "pre-orders.txt")):
@@ -7269,16 +7577,54 @@ def check_for_new_volumes_on_bookwalker():
             print("\n")
             message = (
                 r.date
-                + " "
+                + " | "
                 + r.title
                 + " Volume "
                 + str(set_num_as_float_or_int(r.volume_number))
                 + " "
                 + r.url
             )
-            write_to_file("released.txt", message, without_date=True, overwrite=False)
+            write_to_file(
+                "released.txt", message, without_timestamp=True, overwrite=False
+            )
+            embed = [
+                handle_fields(
+                    DiscordEmbed(
+                        title=r.title,
+                        color=grey_color,
+                    ),
+                    fields=[
+                        {
+                            "name": "Date:",
+                            "value": "```" + r.date + "```",
+                            "inline": False,
+                        },
+                        {
+                            "name": "Volume:",
+                            "value": "```"
+                            + str(set_num_as_float_or_int(r.volume_number))
+                            + "```",
+                            "inline": False,
+                        },
+                        {
+                            "name": "URL:",
+                            "value": "```" + r.url + "```",
+                            "inline": False,
+                        },
+                    ],
+                )
+            ]
             if bookwalker_webhook_urls and len(bookwalker_webhook_urls) == 2:
-                send_discord_message(message, passed_webhook=bookwalker_webhook_urls[0])
+                add_to_grouped_notifications(
+                    Embed(embed[0], None), passed_webhook=bookwalker_webhook_urls[0]
+                )
+        if grouped_notifications:
+            if bookwalker_webhook_urls and len(bookwalker_webhook_urls) == 2:
+                send_discord_message(
+                    None,
+                    grouped_notifications,
+                    passed_webhook=bookwalker_webhook_urls[1],
+                )
     if len(pre_orders) > 0:
         print("\nPre-orders:")
         for p in pre_orders:
@@ -7289,18 +7635,64 @@ def check_for_new_volumes_on_bookwalker():
             print("\n")
             message = (
                 p.date
-                + " "
+                + " | "
                 + p.title
                 + " Volume "
                 + str(set_num_as_float_or_int(p.volume_number))
                 + " "
                 + p.url
             )
-            write_to_file("pre-orders.txt", message, without_date=True, overwrite=False)
+            write_to_file(
+                "pre-orders.txt", message, without_timestamp=True, overwrite=False
+            )
+            embed = [
+                handle_fields(
+                    DiscordEmbed(
+                        title=p.title,
+                        color=grey_color,
+                    ),
+                    fields=[
+                        {
+                            "name": "Date:",
+                            "value": "```" + p.date + "```",
+                            "inline": False,
+                        },
+                        {
+                            "name": "Volume:",
+                            "value": "```"
+                            + str(set_num_as_float_or_int(p.volume_number))
+                            + "```",
+                            "inline": False,
+                        },
+                        {
+                            "name": "URL:",
+                            "value": "```" + p.url + "```",
+                            "inline": False,
+                        },
+                    ],
+                )
+            ]
             if bookwalker_webhook_urls and len(bookwalker_webhook_urls) == 2:
-                send_discord_message(message, passed_webhook=bookwalker_webhook_urls[1])
+                add_to_grouped_notifications(
+                    Embed(embed[0], None), passed_webhook=bookwalker_webhook_urls[1]
+                )
             elif bookwalker_webhook_urls and len(bookwalker_webhook_urls) == 1:
-                send_discord_message(message, passed_webhook=bookwalker_webhook_urls[0])
+                add_to_grouped_notifications(
+                    Embed(embed[0], None), passed_webhook=bookwalker_webhook_urls[0]
+                )
+        if grouped_notifications:
+            if bookwalker_webhook_urls and len(bookwalker_webhook_urls) == 2:
+                send_discord_message(
+                    None,
+                    grouped_notifications,
+                    passed_webhook=bookwalker_webhook_urls[1],
+                )
+            elif bookwalker_webhook_urls and len(bookwalker_webhook_urls) == 1:
+                send_discord_message(
+                    None,
+                    grouped_notifications,
+                    passed_webhook=bookwalker_webhook_urls[0],
+                )
 
 
 # Checks the novel for bonus.xhtml or bonus[0-9].xhtml
@@ -7330,7 +7722,7 @@ def cache_paths():
                             write_to_file(
                                 "cached_paths.txt",
                                 root,
-                                without_date=True,
+                                without_timestamp=True,
                                 check_for_dup=True,
                             )
                 except Exception as e:
@@ -7347,6 +7739,7 @@ def cache_paths():
 def scan_komga_libraries():
     komga_url = f"{komga_ip}:{komga_port}"
     if komga_library_ids and komga_url and komga_login_email and komga_login_password:
+        print("\n\tSending Komga Scan Request...")
         for library_id in komga_library_ids:
             try:
                 request = requests.post(
@@ -7363,14 +7756,14 @@ def scan_komga_libraries():
                 )
                 if request.status_code == 202:
                     send_message(
-                        "\n\t\tSuccessfully Initiated Scan for: "
+                        "\t\tSuccessfully Initiated Scan for: "
                         + library_id
                         + " Library.",
                         discord=False,
                     )
                 else:
                     send_message(
-                        "Failed to Initiate Scan for: "
+                        "\t\tFailed to Initiate Scan for: "
                         + library_id
                         + " Library"
                         + " Status Code: "
@@ -7462,7 +7855,7 @@ def generate_release_group_list_file():
                                             write_to_file(
                                                 "skipped_files.txt",
                                                 file.name,
-                                                without_date=True,
+                                                without_timestamp=True,
                                                 check_for_dup=True,
                                             )
                                             if file.name not in skipped_files:
@@ -7519,7 +7912,7 @@ def generate_release_group_list_file():
                                             write_to_file(
                                                 "skipped_files.txt",
                                                 file.name,
-                                                without_date=True,
+                                                without_timestamp=True,
                                                 check_for_dup=True,
                                             )
                                             if file.name not in skipped_files:
@@ -7549,7 +7942,7 @@ def generate_release_group_list_file():
                                             write_to_file(
                                                 "release_groups.txt",
                                                 group,
-                                                without_date=True,
+                                                without_timestamp=True,
                                                 check_for_dup=True,
                                             )
                                             if group not in release_groups:
@@ -7675,7 +8068,7 @@ def print_function_execution_time(start_time, function_name):
         + " seconds to complete.",
         discord=False,
     )
-    write_to_file(function_name + ".txt", str(rounded_time), without_date=True)
+    write_to_file(function_name + ".txt", str(rounded_time), without_timestamp=True)
 
 
 # Optional features below, use at your own risk.
@@ -7798,6 +8191,8 @@ def main():
         print_stats()
         if output_execution_times:
             print_function_execution_time(start_time, "print_stats()")
+    if grouped_notifications:
+        send_discord_message(None, grouped_notifications)
 
 
 if __name__ == "__main__":
