@@ -243,6 +243,9 @@ discord_embed_limit = 10
 # The time to wait before performing the next action
 sleep_timer = 10
 
+# The time to wait before scraping another bookwalker page
+sleep_timer_bk = 2
+
 # The fill values for the chapter and volume files when renaming
 # VOLUME
 zfill_volume_int_value = 2  # 01
@@ -257,6 +260,7 @@ red_color = 16711680  # Removing File Notification
 grey_color = 8421504  # Renaming, Reorganizing, Moving, and Series Matching Notification
 yellow_color = 16776960  # Not Upgradeable Notification
 green_color = 65280  # Upgradeable and New Release Notification
+preorder_blue_color = 5919485  # Bookwalker Preorder Notification
 
 # The similarity score required for a publisher to be considered a match
 publisher_similarity_score = 0.9
@@ -652,9 +656,11 @@ def parse_my_args():
         image_quality = set_num_as_float_or_int(parser.compress_quality)
     if parser.bookwalker_webhook_urls is not None:
         global bookwalker_webhook_urls
-        bookwalker_webhook_urls = list(
-            set([hook for item in parser.bookwalker_webhook_urls for hook in item])
-        )
+        for url in parser.bookwalker_webhook_urls:
+            if url:
+                for hook in url:
+                    if hook not in bookwalker_webhook_urls:
+                        bookwalker_webhook_urls.append(hook)
     if parser.watchdog is not None:
         if parser.watchdog.lower() == "true":
             if download_folders:
@@ -839,7 +845,7 @@ def send_discord_message(
                 for embed in embeds:
                     if script_version:
                         embed.embed.set_footer(text="v" + script_version)
-                    if timestamp:
+                    if timestamp and not embed.embed.timestamp:
                         embed.embed.set_timestamp()
                     if image and not image_local:
                         embed.embed.set_image(url=image)
@@ -863,6 +869,7 @@ def send_discord_message(
                 grouped_notifications = []
     except Exception as e:
         send_message(e, error=True, discord=False)
+        webhook_obj = DiscordWebhook()
         # print(e)
 
 
@@ -1907,8 +1914,13 @@ def remove_images(path):
 
 def add_to_grouped_notifications(embed, passed_webhook=None):
     global grouped_notifications
-    if len(grouped_notifications) == discord_embed_limit:
+    if len(grouped_notifications) >= discord_embed_limit:
         send_discord_message(None, grouped_notifications, passed_webhook=passed_webhook)
+
+    # set timestamp on embed
+    embed.embed.set_timestamp()
+
+    # add embed to list
     grouped_notifications.append(embed)
 
 
@@ -2653,6 +2665,7 @@ def reorganize_and_rename(files, dir, group=False):
                         novel_info_html = parse_html_tags(novel_package_opf)
                 release_year_from_file = ""
                 publisher = ""
+                subtitle = get_subtitle_from_title(file)
                 if comic_info_xml:
                     if "Year" in comic_info_xml:
                         release_year_from_file = comic_info_xml["Year"]
@@ -2726,6 +2739,8 @@ def reorganize_and_rename(files, dir, group=False):
                     and number_string
                 ):
                     rename += " #" + number_string
+                # if subtitle:
+                #     rename += " - " + subtitle
                 if file.extension in manga_extensions:
                     if isinstance(file.volume_year, int):
                         rename += " (" + str(file.volume_year) + ")"
@@ -3100,7 +3115,7 @@ def remove_punctuation(s, disable_lang=False):
 # detect language of the passed string using langdetect
 def detect_language(s):
     language = ""
-    if s:
+    if s and len(s) >= 5:
         try:
             language = detect(s)
         except Exception as e:
@@ -6708,6 +6723,8 @@ class BookwalkerBook:
         url,
         thumbnail,
         book_type,
+        description,
+        preview_image_url,
     ):
         self.title = title
         self.volume_number = volume_number
@@ -6718,6 +6735,8 @@ class BookwalkerBook:
         self.url = url
         self.thumbnail = thumbnail
         self.book_type = book_type
+        self.description = description
+        self.preview_image_url = preview_image_url
 
 
 class BookwalkerSeries:
@@ -6831,12 +6850,38 @@ def get_shortened_title(title):
     return shortened_title
 
 
+# Extracts the subtitle from a file.name
+# (year required in brackets at the end of the subtitle)
+# EX: Sword Art Online v13 - Alicization Dividing [2018].epub --> Alicization Dividing
+def get_subtitle_from_title(file):
+    subtitle = ""
+
+    # remove the series name from the title
+    without_series_name = re.sub(
+        file.series_name, "", file.name, flags=re.IGNORECASE
+    ).strip()
+
+    if re.search(r"((\s(-|\+)|:)\s)", without_series_name) and re.search(
+        r"([\[\{\(]((\d{4}))[\]\}\)])", without_series_name
+    ):
+        # remove everything to the left of the marker
+        subtitle = re.sub(r"(.*)((\s(-|\+)|:)\s)", "", without_series_name)
+        # remove everything to the right of the release year
+        subtitle = re.sub(r"([\[\{\(]((\d{4}))[\]\}\)])(.*)", "", subtitle)
+        # remove any extra spaces
+        subtitle = remove_dual_space(subtitle).strip()
+        # check that the subtitle isn't present in the folder name, otherwise it's probably not a subtitle
+        if re.search(subtitle, os.path.basename(file.path), re.IGNORECASE):
+            subtitle = ""
+    return subtitle
+
+
 def search_bookwalker(
     query, type, print_info=False, alternative_search=False, shortened_search=False
 ):
     global volume_regex_keywords
     global required_similarity_score
-    sleep_timer_bk = 3
+    global sleep_timer_bk
     # The total amount of pages to scrape
     total_pages_to_scrape = 5
     # The books returned from the search
@@ -6867,14 +6912,33 @@ def search_bookwalker(
     series_only = "&np=0"
     series_url = base_url + search + series_only
     if not alternative_search:
-        keyword = "\n\tSearch: "
+        keyword = "\t\tSearch: "
         if shortened_search:
-            keyword = "\n\tShortened Search: "
+            keyword = "\t\tShortened Search: "
         if search_type.lower() == "m":
-            print(keyword + query + "\n\tCategory: MANGA")
+            print(keyword + query + "\n\t\tCategory: MANGA")
         elif search_type.lower() == "l":
-            print(keyword + query + "\n\tCategory: NOVEL")
+            print(keyword + query + "\n\t\tCategory: NOVEL")
     chapter_exclusion_url = "&np=1&qnot%5B%5D=Chapter&x=13&y=16"
+    series_list_li = None
+    series_page = scrape_url(
+        series_url,
+        cookies={"glSafeSearch": "1", "safeSearch": "111"},
+        headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.88 Safari/537.36"
+        },
+    )
+    if series_page:
+        # find ul class o-tile-list in series_page
+        series_list_ul = series_page.find_all("ul", class_="o-tile-list")
+        if series_list_ul:
+            # find all li class="o-tile"
+            series_list_li = series_list_ul[0].find_all("li", class_="o-tile")
+    if series_list_li:
+        series_list_li = len(series_list_li)
+    original_similarity_score = required_similarity_score
+    if series_list_li == 1:
+        required_similarity_score = original_similarity_score - 0.03
     while page_count < total_pages_to_scrape + 1:
         page_count_url = "&page=" + str(page_count)
         alternate_url = ""
@@ -6889,27 +6953,8 @@ def search_bookwalker(
         elif search_type.lower() == "l":
             url += bookwalker_light_novel_category
             series_url += bookwalker_light_novel_category
-        series_page = scrape_url(
-            series_url,
-            cookies={"glSafeSearch": "1", "safeSearch": "111"},
-            headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.88 Safari/537.36"
-            },
-        )
-        series_list_li = None
-        if series_page:
-            # find ul class o-tile-list in series_page
-            series_list_ul = series_page.find_all("ul", class_="o-tile-list")
-            if series_list_ul:
-                # find all li class="o-tile"
-                series_list_li = series_list_ul[0].find_all("li", class_="o-tile")
-        if series_list_li:
-            series_list_li = len(series_list_li)
-        original_similarity_score = required_similarity_score
-        if series_list_li == 1:
-            required_similarity_score = original_similarity_score - 0.03
         if shortened_search and series_list_li and series_list_li != 1:
-            print("\t\tsearch does not contain exactly one series, skipping...\n")
+            print("\t\t\tsearch does not contain exactly one series, skipping...\n")
             return []
         url += chapter_exclusion_url
         page_count += 1
@@ -6932,7 +6977,7 @@ def search_bookwalker(
                     },
                 )
             if not alternate_page:
-                print("\t\tError: Empty page")
+                print("\t\t\tError: Empty page")
                 errors.append("Empty page")
                 continue
             else:
@@ -6955,7 +7000,7 @@ def search_bookwalker(
                     if int(text) > highest_num:
                         highest_num = int(text)
             if highest_num == 0:
-                print("\t\tNo pages found.")
+                print("\t\t\tNo pages found.")
                 errors.append("No pages found.")
                 continue
             elif highest_num < total_pages_to_scrape:
@@ -6976,7 +7021,7 @@ def search_bookwalker(
             if alternate_result:
                 return alternate_result
             if not alternative_search:
-                print("\t\t! NO BOOKS FOUND ON BOOKWALKER !")
+                print("\t\t\t! NO BOOKS FOUND ON BOOKWALKER !")
                 write_to_file(
                     "bookwalker_no_results.txt",
                     query,
@@ -6987,14 +7032,16 @@ def search_bookwalker(
             continue
         o_tile_list = list_area_ul.find_all("li", class_="o-tile")
         print(
-            "\t\tPage: "
+            "\t\t\tPage: "
             + str(page_count - 1)
             + " of "
             + str(total_pages_to_scrape)
-            + "\n\t\t\tItems: "
+            + "\n\t\t\t\tItems: "
             + str(len(o_tile_list))
         )
         for item in o_tile_list:
+            preview_image_url = None
+            description = ""
             try:
                 o_tile_book_info = item.find("div", class_="o-tile-book-info")
                 o_tile_thumb_box = o_tile_book_info.find(
@@ -7040,7 +7087,7 @@ def search_bookwalker(
                 title = o_tile_book_info.find("h2", class_="a-tile-ttl").text.strip()
                 item_index = o_tile_list.index(item)
                 if title:
-                    print("\t\t\t\t[" + str(item_index + 1) + "] " + title)
+                    print("\t\t\t\t\t[" + str(item_index + 1) + "] " + title)
                 # remove brackets
                 title = remove_bracketed_info_from_name(title)
                 # unidecode the title
@@ -7149,47 +7196,56 @@ def search_bookwalker(
                 clean_query = unidecode(remove_punctuation(query).lower().strip())
                 score = similar(clean_title, clean_query)
                 print(
-                    "\t\t\t\t\tBookwalker: "
+                    "\t\t\t\t\t\tBookwalker: "
                     + clean_title
-                    + "\n\t\t\t\t\tLibrary:    "
+                    + "\n\t\t\t\t\t\tLibrary:    "
                     + clean_query
-                    + "\n\t\t\t\t\tVolume Number: "
+                    + "\n\t\t\t\t\t\tVolume Number: "
                     + str(volume_number)
-                    + "\n\t\t\t\t\tScore: "
+                    + "\n\t\t\t\t\t\tScore: "
                     + str(score)
-                    + "\n\t\t\t\t\tMatch: "
+                    + "\n\t\t\t\t\t\tMatch: "
                     + str(score >= required_similarity_score)
+                    + " (>= "
+                    + str(required_similarity_score)
+                    + ")"
                 )
                 score_two = 0
                 if series_list_li == 1 and not score >= required_similarity_score:
                     if shortened_title and clean_shortened_title:
                         score_two = similar(clean_shortened_title, clean_query)
                         print(
-                            "\n\t\t\t\t\tBookwalker: "
+                            "\n\t\t\t\t\t\tBookwalker: "
                             + clean_shortened_title
-                            + "\n\t\t\t\t\tLibrary:    "
+                            + "\n\t\t\t\t\t\tLibrary:    "
                             + clean_query
-                            + "\n\t\t\t\t\tVolume Number: "
+                            + "\n\t\t\t\t\t\tVolume Number: "
                             + str(volume_number)
-                            + "\n\t\t\t\t\tScore: "
+                            + "\n\t\t\t\t\t\tScore: "
                             + str(score_two)
-                            + "\n\t\t\t\t\tMatch: "
+                            + "\n\t\t\t\t\t\tMatch: "
                             + str(score_two >= required_similarity_score)
+                            + " (>= "
+                            + str(required_similarity_score)
+                            + ")"
                             + "\n"
                         )
                     elif shortened_query and clean_shortened_query:
                         score_two = similar(clean_title, clean_shortened_query)
                         print(
-                            "\n\t\t\t\t\tBookwalker: "
+                            "\n\t\t\t\t\t\tBookwalker: "
                             + clean_title
-                            + "\n\t\t\t\t\tLibrary:    "
+                            + "\n\t\t\t\t\t\tLibrary:    "
                             + clean_shortened_query
-                            + "\n\t\t\t\t\tVolume Number: "
+                            + "\n\t\t\t\t\t\tVolume Number: "
                             + str(volume_number)
-                            + "\n\t\t\t\t\tScore: "
+                            + "\n\t\t\t\t\t\tScore: "
                             + str(score_two)
-                            + "\n\t\t\t\t\tMatch: "
+                            + "\n\t\t\t\t\t\tMatch: "
                             + str(score_two >= required_similarity_score)
+                            + " (>= "
+                            + str(required_similarity_score)
+                            + ")"
                             + "\n"
                         )
                 if not (score >= required_similarity_score) and not (
@@ -7209,13 +7265,47 @@ def search_bookwalker(
                         similarity_match_failures.append(message)
                     required_similarity_score = original_similarity_score
                     continue
+
                 # html from url
-                page_two = scrape_url(
-                    url, SoupStrainer("div", class_="product-detail-inner")
-                )
-                # print(str((datetime.now() - startTime)))
+                page_two = scrape_url(url)
+
                 # parse html
                 soup_two = page_two
+
+                soup_two = soup_two.find("div", class_="product-detail-inner")
+                if not soup_two:
+                    print("No soup_two")
+                    continue
+
+                # Find the book's preview image
+                # find the img src inside of <div class="book-img">
+                div_book_img = page_two.find("div", class_="book-img")
+                if div_book_img:
+                    img_src = div_book_img.find("img")["src"]
+                    if img_src and img_src.startswith("http"):
+                        preview_image_url = img_src
+
+                # Find the book's description
+                div_itemprop_description = page_two.find(
+                    "div", {"itemprop": "description"}
+                )
+                if div_itemprop_description:
+                    # find all <p> in div_itemprop_description
+                    p_items = div_itemprop_description.find_all("p")
+                    if p_items:
+                        if len(p_items) > 1:
+                            for p_item in p_items:
+                                # to avoid advertisement, advertisements tend to be
+                                # the synopsis-lead
+                                if (
+                                    p_item.has_attr("class")
+                                    and p_item["class"][0] != "synopsis-lead"
+                                ):
+                                    if p_item.text.strip():
+                                        description += p_item.text.strip() + "\n"
+                        else:
+                            description = p_items[0].text.strip()
+
                 # find table class="product-detail"
                 product_detail = soup_two.find("table", class_="product-detail")
                 # print(str((datetime.now() - startTime)))
@@ -7273,6 +7363,8 @@ def search_bookwalker(
                     url,
                     thumbnail,
                     book_type,
+                    description,
+                    preview_image_url,
                 )
                 books.append(book)
             except Exception as e:
@@ -7307,41 +7399,41 @@ def search_bookwalker(
                     + str(series.book_count)
                     + ")"
                 )
-                print("\tBooks:")
+                print("\t\tBooks:")
                 for book in series.books:
                     # print the current books index
                     if not book.is_released:
                         print(
-                            "\t\t("
+                            "\t\t\t("
                             + str(series.books.index(book) + 1)
                             + ")------------------------------ [PRE-ORDER]"
                         )
                     else:
                         print(
-                            "\t\t("
+                            "\t\t\t("
                             + str(series.books.index(book) + 1)
                             + ")------------------------------"
                         )
-                    print("\t\t\tNumber: " + str(book.volume_number))
-                    # print("\t\t\tTitle: " + book.title)
-                    print("\t\t\tDate: " + book.date)
-                    print("\t\t\tReleased: " + str(book.is_released))
-                    # print("\t\t\tPrice: " + str(book.price))
-                    print("\t\t\tURL: " + book.url)
-                    print("\t\t\tThumbnail: " + book.thumbnail)
-                    # print("\t\t\tBook Type: " + book.book_type)
+                    print("\t\t\t\tNumber: " + str(book.volume_number))
+                    # print("\t\t\t\tTitle: " + book.title)
+                    print("\t\t\t\tDate: " + book.date)
+                    print("\t\t\t\tReleased: " + str(book.is_released))
+                    # print("\t\t\t\tPrice: " + str(book.price))
+                    print("\t\t\t\tURL: " + book.url)
+                    print("\t\t\t\tThumbnail: " + book.thumbnail)
+                    # print("\t\t\t\tBook Type: " + book.book_type)
             else:
-                print("\n\tNo results found.")
+                print("\n\t\tNo results found.")
 
             if len(no_volume_number) > 0:
                 print("\nNo Volume Results (" + str(len(no_volume_number)) + "):")
                 for title in no_volume_number:
-                    print("\t" + title)
+                    print("\t\t" + title)
                 no_volume_number = []
             if len(chapter_releases) > 0:
                 print("\nChapter Releases: (" + str(len(chapter_releases)) + ")")
                 for title in chapter_releases:
-                    print("\t" + title)
+                    print("\t\t" + title)
                 chapter_releases = []
             if len(similarity_match_failures) > 0:
                 print(
@@ -7352,7 +7444,7 @@ def search_bookwalker(
                 )
                 for title in similarity_match_failures:
                     print(
-                        "\t["
+                        "\t\t["
                         + str(similarity_match_failures.index(title) + 1)
                         + "] "
                         + title
@@ -7365,22 +7457,22 @@ def search_bookwalker(
                     + "):"
                 )
                 for url in no_book_result_searches:
-                    print("\t" + url)
+                    print("\t\t" + url)
                 no_book_result_searches = []
     series_list = combine_series(series_list)
     required_similarity_score = original_similarity_score
-    # print("\tSleeping for " + str(sleep_timer_bk) + " to avoid being rate-limited...")
+    # print("\t\tSleeping for " + str(sleep_timer_bk) + " to avoid being rate-limited...")
     time.sleep(sleep_timer_bk)
     if len(series_list) == 1:
         if len(series_list[0].books) > 0:
             return series_list[0].books
     elif len(series_list) > 1:
-        print("\t\tNumber of series from bookwalker search is greater than one.")
-        print("\t\tNum: " + str(len(series_list)))
+        print("\t\t\tNumber of series from bookwalker search is greater than one.")
+        print("\t\t\tNum: " + str(len(series_list)))
         return []
     else:
         if not alternative_search:
-            print("\t\tNo matching books found.")
+            print("\t\t\tNo matching books found.")
             write_to_file(
                 "bookwalker_no_matching_books.txt",
                 query,
@@ -7395,6 +7487,9 @@ def search_bookwalker(
 def check_for_new_volumes_on_bookwalker():
     global manga_extensions
     global novel_extensions
+    global discord_embed_limit
+    original_limit = discord_embed_limit
+    discord_embed_limit = 1
     print("\nChecking for new volumes on bookwalker...")
     paths_clean = [p for p in paths if p not in download_folders]
     for path in paths_clean:
@@ -7414,14 +7509,16 @@ def check_for_new_volumes_on_bookwalker():
                 [""],
             )
             for dir in folder_accessor.dirs:
+                # if len(new_releases_on_bookwalker) == 5:
+                #     break
                 dir_index = folder_accessor.dirs.index(dir)
                 print(
                     "\n\t[Folder "
-                    + str(dir_index)
+                    + str(dir_index + 1)
                     + " of "
                     + str(len(folder_accessor.dirs))
                     + " - Path "
-                    + str(path_index)
+                    + str(path_index + 1)
                     + " of "
                     + str(len(paths_clean))
                     + "]"
@@ -7500,7 +7597,7 @@ def check_for_new_volumes_on_bookwalker():
                                 and not existing_vol.volume_part
                             ):
                                 print(
-                                    "\tRemoving Bookwalker Volume: "
+                                    "\t\tRemoving Bookwalker Volume: "
                                     + str(vol.volume_number)
                                     + " Part "
                                     + str(vol.part)
@@ -7514,15 +7611,15 @@ def check_for_new_volumes_on_bookwalker():
                             series
                             + " - Existing Volumes: "
                             + str(len(existing_dir_volumes))
-                            + " Bookwalker Volumes: "
+                            + ", Bookwalker Volumes: "
                             + str(len(bookwalker_volumes))
                             + "\n",
                             without_timestamp=True,
                             check_for_dup=True,
                         )
-                    print("\tExisting Volumes: " + str(len(existing_dir_volumes)))
+                    print("\t\tExisting Volumes: " + str(len(existing_dir_volumes)))
                     print(
-                        "\tBookwalker Volumes: " + str(len(bookwalker_volumes)) + "\n"
+                        "\t\tBookwalker Volumes: " + str(len(bookwalker_volumes)) + "\n"
                     )
                     for existing_vol in existing_dir_volumes:
                         for bookwalker_vol in bookwalker_volumes[:]:
@@ -7534,23 +7631,23 @@ def check_for_new_volumes_on_bookwalker():
                                 bookwalker_volumes.remove(bookwalker_vol)
                     if len(bookwalker_volumes) > 0:
                         new_releases_on_bookwalker.extend(bookwalker_volumes)
-                        print("\tNew/Upcoming Releases on Bookwalker:")
+                        print("\t\tNew/Upcoming Releases on Bookwalker:")
                         for vol in bookwalker_volumes:
                             if vol.is_released:
-                                print("\n\t\t[RELEASED]")
+                                print("\n\t\t\t[RELEASED]")
                             else:
-                                print("\n\t\t[PRE-ORDER]")
+                                print("\n\t\t\t[PRE-ORDER]")
                             print(
-                                "\t\tVolume Number: "
+                                "\t\t\tVolume Number: "
                                 + str(set_num_as_float_or_int(vol.volume_number))
                             )
                             if vol.part:
-                                print("\t\tPart: " + str(vol.part))
-                            print("\t\tDate: " + vol.date)
+                                print("\t\t\tPart: " + str(vol.part))
+                            print("\t\t\tDate: " + vol.date)
                             if vol == bookwalker_volumes[-1]:
-                                print("\t\tURL: " + vol.url + "\n")
+                                print("\t\t\tURL: " + vol.url + "\n")
                             else:
-                                print("\t\tURL: " + vol.url)
+                                print("\t\t\tURL: " + vol.url)
     pre_orders = []
     released = []
     if len(new_releases_on_bookwalker) > 0:
@@ -7570,10 +7667,11 @@ def check_for_new_volumes_on_bookwalker():
     if len(released) > 0:
         print("\nNew Releases:")
         for r in released:
-            print("\t" + r.title)
-            print("\tVolume " + str(set_num_as_float_or_int(r.volume_number)))
-            print("\tDate: " + r.date)
-            print("\tURL: " + r.url)
+            print("\t\t" + r.title)
+            print("\t\tType: " + r.book_type)
+            print("\t\tVolume " + str(set_num_as_float_or_int(r.volume_number)))
+            print("\t\tDate: " + r.date)
+            print("\t\tURL: " + r.url)
             print("\n")
             message = (
                 r.date
@@ -7581,7 +7679,9 @@ def check_for_new_volumes_on_bookwalker():
                 + r.title
                 + " Volume "
                 + str(set_num_as_float_or_int(r.volume_number))
-                + " "
+                + " | "
+                + r.book_type
+                + " | "
                 + r.url
             )
             write_to_file(
@@ -7590,48 +7690,69 @@ def check_for_new_volumes_on_bookwalker():
             embed = [
                 handle_fields(
                     DiscordEmbed(
-                        title=r.title,
+                        title=r.title
+                        + " Volume "
+                        + str(set_num_as_float_or_int(r.volume_number)),
                         color=grey_color,
                     ),
                     fields=[
                         {
-                            "name": "Date:",
-                            "value": "```" + r.date + "```",
+                            "name": "Type:",
+                            "value": r.book_type,
                             "inline": False,
                         },
                         {
-                            "name": "Volume:",
-                            "value": "```"
-                            + str(set_num_as_float_or_int(r.volume_number))
-                            + "```",
-                            "inline": False,
-                        },
-                        {
-                            "name": "URL:",
-                            "value": "```" + r.url + "```",
+                            "name": "Release Date:",
+                            "value": r.date,
                             "inline": False,
                         },
                     ],
-                )
+                ),
             ]
+
+            # Add the description if it exists
+            if r.description:
+                if len(r.description) > 350:
+                    r.description = r.description[:347] + "..."
+                embed[0].fields.append(
+                    {
+                        "name": "Description:",
+                        "value": unidecode(r.description),
+                        "inline": False,
+                    }
+                )
+
+            # set the url
+            embed[0].url = r.url
+
+            # set the pfp and bottom image
+            if r.preview_image_url:
+                # set the image to the image url
+                embed[0].set_image(url=r.preview_image_url)
+                # set the pfp to the image url
+                embed[0].set_thumbnail(url=r.preview_image_url)
+
             if bookwalker_webhook_urls and len(bookwalker_webhook_urls) == 2:
                 add_to_grouped_notifications(
                     Embed(embed[0], None), passed_webhook=bookwalker_webhook_urls[0]
                 )
+
         if grouped_notifications:
             if bookwalker_webhook_urls and len(bookwalker_webhook_urls) == 2:
                 send_discord_message(
                     None,
                     grouped_notifications,
-                    passed_webhook=bookwalker_webhook_urls[1],
+                    passed_webhook=bookwalker_webhook_urls[0],
                 )
+
     if len(pre_orders) > 0:
         print("\nPre-orders:")
         for p in pre_orders:
-            print("\t" + p.title)
-            print("\tVolume: " + str(set_num_as_float_or_int(p.volume_number)))
-            print("\tDate: " + p.date)
-            print("\tURL: " + p.url)
+            print("\t\t" + p.title)
+            print("\t\tType: " + p.book_type)
+            print("\t\tVolume: " + str(set_num_as_float_or_int(p.volume_number)))
+            print("\t\tDate: " + p.date)
+            print("\t\tURL: " + p.url)
             print("\n")
             message = (
                 p.date
@@ -7639,7 +7760,9 @@ def check_for_new_volumes_on_bookwalker():
                 + p.title
                 + " Volume "
                 + str(set_num_as_float_or_int(p.volume_number))
-                + " "
+                + " | "
+                + p.book_type
+                + " | "
                 + p.url
             )
             write_to_file(
@@ -7648,38 +7771,53 @@ def check_for_new_volumes_on_bookwalker():
             embed = [
                 handle_fields(
                     DiscordEmbed(
-                        title=p.title,
-                        color=grey_color,
+                        title=p.title
+                        + " Volume "
+                        + str(set_num_as_float_or_int(p.volume_number)),
+                        color=preorder_blue_color,
                     ),
                     fields=[
                         {
-                            "name": "Date:",
-                            "value": "```" + p.date + "```",
+                            "name": "Type:",
+                            "value": p.book_type,
                             "inline": False,
                         },
                         {
-                            "name": "Volume:",
-                            "value": "```"
-                            + str(set_num_as_float_or_int(p.volume_number))
-                            + "```",
-                            "inline": False,
-                        },
-                        {
-                            "name": "URL:",
-                            "value": "```" + p.url + "```",
+                            "name": "Release Date:",
+                            "value": p.date,
                             "inline": False,
                         },
                     ],
-                )
+                ),
             ]
+
+            # Add the description if it exists
+            if p.description:
+                if len(p.description) > 350:
+                    p.description = p.description[:347] + "..."
+                embed[0].fields.append(
+                    {
+                        "name": "Description:",
+                        "value": unidecode(p.description),
+                        "inline": False,
+                    }
+                )
+
+            # set the url
+            embed[0].url = p.url
+
+            # get the preview image
+            if p.preview_image_url:
+                # set the image to the image url
+                embed[0].set_image(url=p.preview_image_url)
+                # set the pfp to the image url
+                embed[0].set_thumbnail(url=p.preview_image_url)
+
             if bookwalker_webhook_urls and len(bookwalker_webhook_urls) == 2:
                 add_to_grouped_notifications(
                     Embed(embed[0], None), passed_webhook=bookwalker_webhook_urls[1]
                 )
-            elif bookwalker_webhook_urls and len(bookwalker_webhook_urls) == 1:
-                add_to_grouped_notifications(
-                    Embed(embed[0], None), passed_webhook=bookwalker_webhook_urls[0]
-                )
+
         if grouped_notifications:
             if bookwalker_webhook_urls and len(bookwalker_webhook_urls) == 2:
                 send_discord_message(
@@ -7687,12 +7825,7 @@ def check_for_new_volumes_on_bookwalker():
                     grouped_notifications,
                     passed_webhook=bookwalker_webhook_urls[1],
                 )
-            elif bookwalker_webhook_urls and len(bookwalker_webhook_urls) == 1:
-                send_discord_message(
-                    None,
-                    grouped_notifications,
-                    passed_webhook=bookwalker_webhook_urls[0],
-                )
+    discord_embed_limit = original_limit
 
 
 # Checks the novel for bonus.xhtml or bonus[0-9].xhtml
