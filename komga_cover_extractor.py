@@ -411,10 +411,24 @@ class Handler(FileSystemEventHandler):
             and not os.path.basename(event.src_path).startswith(".")
             and event.event_type == "created"
             and os.path.isfile(event.src_path)
-            and get_file_extension(os.path.basename(event.src_path)) in file_extensions
+            and (
+                get_file_extension(os.path.basename(event.src_path)) in file_extensions
+                or (
+                    delete_unacceptable_files_toggle
+                    and get_file_extension(os.path.basename(event.src_path))
+                    in unaccepted_file_extensions
+                )
+            )
         ):
             time.sleep(sleep_timer)
-            if os.path.isfile(event.src_path) and zipfile.is_zipfile(event.src_path):
+            if os.path.isfile(event.src_path) and (
+                zipfile.is_zipfile(event.src_path)
+                or (
+                    delete_unacceptable_files_toggle
+                    and get_file_extension(os.path.basename(event.src_path))
+                    in unaccepted_file_extensions
+                )
+            ):
                 last_watchdog_file = event.src_path
                 send_message("Starting Script (WATCHDOG) (EXPERIMENTAL)", discord=False)
                 embed = [
@@ -7712,8 +7726,8 @@ def check_for_new_volumes_on_bookwalker():
 
             # Add the description if it exists
             if r.description:
-                if len(r.description) > 350:
-                    r.description = r.description[:347] + "..."
+                # if len(r.description) > 350:
+                #     r.description = r.description[:347] + "..."
                 embed[0].fields.append(
                     {
                         "name": "Description:",
@@ -7793,8 +7807,8 @@ def check_for_new_volumes_on_bookwalker():
 
             # Add the description if it exists
             if p.description:
-                if len(p.description) > 350:
-                    p.description = p.description[:347] + "..."
+                # if len(p.description) > 350:
+                #     p.description = p.description[:347] + "..."
                 embed[0].fields.append(
                     {
                         "name": "Description:",
