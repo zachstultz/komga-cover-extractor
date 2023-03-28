@@ -996,6 +996,9 @@ def send_discord_message(
     global webhook_obj
     hook = None
     hook = pick_webhook(hook, passed_webhook, url)
+    # Reset the grouped notifications if the embeds are the same as the grouped notifications
+    if embeds == grouped_notifications:
+        grouped_notifications = []
     try:
         if hook:
             webhook_obj.url = hook
@@ -1026,9 +1029,6 @@ def send_discord_message(
             webhook_obj.execute()
             # Reset the webhook object
             webhook_obj = DiscordWebhook()
-            # Reset the grouped notifications if the embeds are the same as the grouped notifications
-            if embeds == grouped_notifications:
-                grouped_notifications = []
     except Exception as e:
         send_message(e, error=True, discord=False)
         webhook_obj = DiscordWebhook()
