@@ -4966,8 +4966,8 @@ def check_for_existing_series(group=False):
             None,
             grouped_notifications,
         )
+    webhook_use = None
     if messages_to_send:
-        webhook_use = None
         grouped_by_series_names = group_similar_series(messages_to_send)
         messages_to_send = []
         if grouped_by_series_names:
