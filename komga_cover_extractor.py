@@ -270,6 +270,12 @@ publisher_similarity_score = 0.9
 # then sent.
 group_discord_notifications_until_max = True
 
+# Used to store the files and their associated dirs that have been marked as fully transferred
+# When using watchdog, this is used to prevent the script from
+# trying to process the same file multiple times.
+transferred_files = []
+transferred_dirs = []
+
 # Folder Class
 class Folder:
     def __init__(self, root, dirs, basename, folder_name, files):
@@ -401,62 +407,204 @@ def send_message(message, discord=True, error=False):
 # The last valid file that was found by the watchdog
 last_watchdog_file = None
 
+# Checks if the file is fully transferred by checking the file size
+def check_if_file_is_transferred_by_size(file_path):
+    before_file_size = get_file_size(file_path)
+    time.sleep(1)
+    after_file_size = get_file_size(file_path)
+    if before_file_size and after_file_size:
+        if before_file_size != after_file_size:
+            return False
+        elif before_file_size == after_file_size:
+            return True
+    elif not (before_file_size and after_file_size):
+        return False
+    elif before_file_size and not after_file_size:
+        return False
+
+
+# Gets the file's file size
+def get_file_size(file_path):
+    if os.path.isfile(file_path):
+        file_info = os.stat(file_path)
+        return file_info.st_size
+    else:
+        return None
+
+
+# Resursively gets all files in a directory
+def get_all_files_recursively_in_dir(dir_path):
+    results = []
+    for root, dirs, files in os.walk(dir_path):
+        files = remove_hidden_files(files)
+        for file in files:
+            file_path = os.path.join(root, file)
+            if file_path not in results:
+                extension = get_file_extension(file_path)
+                if extension not in image_extensions:
+                    results.append(file_path)
+                elif not compress_image_option and download_folders[0] in paths:
+                    results.append(file_path)
+    return results
+
 
 class Handler(FileSystemEventHandler):
-    @staticmethod
-    def on_any_event(event):
-        global last_watchdog_file
-        if (
-            not event.is_directory
-            and not os.path.basename(event.src_path).startswith(".")
-            and event.event_type == "created"
-            and os.path.isfile(event.src_path)
-            and (
-                get_file_extension(os.path.basename(event.src_path)) in file_extensions
-                or (
-                    delete_unacceptable_files_toggle
-                    and get_file_extension(os.path.basename(event.src_path))
-                    in unaccepted_file_extensions
-                )
-            )
+    def on_any_event(self, event):
+        global transferred_files
+        global transferred_dirs
+
+        # time.sleep(5)
+
+        extension = get_file_extension(event.src_path)
+
+        if not extension:
+            return None
+
+        if event.is_directory:
+            return None
+
+        elif os.path.basename(event.src_path).startswith("."):
+            return None
+
+        elif not os.path.isfile(event.src_path):
+            return None
+
+        elif transferred_files and event.src_path in transferred_files:
+            return None
+
+        elif extension in image_extensions:
+            return None
+
+        elif extension not in file_extensions and not delete_unacceptable_files_toggle:
+            return None
+
+        elif (
+            extension not in file_extensions
+            and delete_unacceptable_files_toggle
+            and extension not in unaccepted_file_extensions
         ):
-            time.sleep(sleep_timer)
-            if os.path.isfile(event.src_path) and (
-                zipfile.is_zipfile(event.src_path)
-                or (
-                    delete_unacceptable_files_toggle
-                    and get_file_extension(os.path.basename(event.src_path))
-                    in unaccepted_file_extensions
-                )
-            ):
-                last_watchdog_file = event.src_path
-                send_message("Starting Script (WATCHDOG) (EXPERIMENTAL)", discord=False)
-                embed = [
-                    handle_fields(
-                        DiscordEmbed(
-                            title="Starting Script (WATCHDOG) (EXPERIMENTAL)",
-                            color=purple_color,
-                        ),
-                        [
-                            {
-                                "name": "File Found:",
-                                "value": "```" + str(event.src_path) + "```",
-                                "inline": False,
-                            }
-                        ],
+            return None
+
+        elif event.event_type == "created":
+            # Take any action here when a file is first created.
+            print("\nWatchdog file found:  %s." % event.src_path)
+
+            if not os.path.isfile(event.src_path):
+                return None
+
+            # Get a list of all files in the root directory and its subdirectories.
+            files = get_all_files_recursively_in_dir(download_folders[0])
+
+            # Check if all files in the root directory and its subdirectories are fully transferred.
+            while True:
+                all_files_transferred = True
+                print("\nTotal files: %s" % len(files))
+                for file in files:
+                    index = files.index(file)
+                    print(
+                        "\t["
+                        + str(index + 1)
+                        + "/"
+                        + str(len(files))
+                        + "] "
+                        + os.path.basename(file)
                     )
-                ]
-                if not group_discord_notifications_until_max:
-                    send_discord_message(
-                        None,
-                        [Embed(embed[0], None)],
-                    )
-                else:
-                    add_to_grouped_notifications(Embed(embed[0], None))
-                main()
-                send_message(
-                    "\nFinished Execution (WATCHDOG) (EXPERIMENTAL)", discord=False
+                    if file in transferred_files:
+                        print("\t\t-already transferred")
+                        continue
+                    is_transferred = check_if_file_is_transferred_by_size(file)
+                    if is_transferred:
+                        print("\t\t-fully transferred")
+                        transferred_files.append(file)
+                        dir_path = os.path.dirname(file)
+                        if (
+                            dir_path not in download_folders
+                            and dir_path not in transferred_dirs
+                        ):
+                            transferred_dirs.append(os.path.dirname(file))
+                    elif not os.path.isfile(file):
+                        print("\t\t-file no longer exists")
+                        all_files_transferred = False
+                        files.remove(file)
+                        break
+                    else:
+                        print("\t\t-still transferreing...")
+                        all_files_transferred = False
+                        break
+
+                if all_files_transferred:
+                    time.sleep(5)
+
+                    # The current list of files in the root directory and its subdirectories.
+                    new_files = get_all_files_recursively_in_dir(download_folders[0])
+
+                    # If any new files started transferring while we were checking the current files,
+                    # then we have more files to check.
+                    if files != new_files:
+                        all_files_transferred = False
+                        if len(new_files) > len(files):
+                            print(
+                                "\tNew transfers: %s" % str(len(new_files) - len(files))
+                            )
+                            files = new_files
+                        elif len(new_files) < len(files):
+                            break
+                    elif files == new_files:
+                        break
+
+                time.sleep(5)
+
+            # Proceed with the next steps here.
+            print("\nAll files are transferred.")
+            new_transferred_dirs = []
+            if transferred_dirs:
+                # if it's already a folder object, then just add it to the new list
+                for x in transferred_dirs:
+                    if isinstance(x, Folder):
+                        new_transferred_dirs.append(x)
+                    # if it's not a folder object, then make it a folder object
+                    elif not isinstance(x, Folder):
+                        new_transferred_dirs.append(
+                            Folder(
+                                x,
+                                None,
+                                os.path.basename(os.path.dirname(x)),
+                                os.path.basename(x),
+                                get_all_files_recursively_in_dir(x),
+                            )
+                        )
+                transferred_dirs = new_transferred_dirs
+            last_watchdog_file = event.src_path
+            send_message("\nStarting Script (WATCHDOG) (EXPERIMENTAL)", discord=False)
+            embed = [
+                handle_fields(
+                    DiscordEmbed(
+                        title="Starting Script (WATCHDOG) (EXPERIMENTAL)",
+                        color=purple_color,
+                    ),
+                    [
+                        {
+                            "name": "File Found:",
+                            "value": "```" + str(event.src_path) + "```",
+                            "inline": False,
+                        }
+                    ],
                 )
+            ]
+            if not group_discord_notifications_until_max:
+                send_discord_message(
+                    None,
+                    [Embed(embed[0], None)],
+                )
+            else:
+                add_to_grouped_notifications(Embed(embed[0], None))
+            main()
+            send_message(
+                "\nFinished Execution (WATCHDOG) (EXPERIMENTAL)", discord=False
+            )
+            send_message(
+                "\nWatching for changes... (WATCHDOG) (EXPERIMENTAL)", discord=False
+            )
 
 
 # Read all the lines of a text file and return them
@@ -978,7 +1126,13 @@ def filter_non_chapters(files):
 
 # Cleans up the files array before usage
 def clean_and_sort(
-    root, files=[], dirs=[], sort=False, chapters=chapter_support_toggle
+    root,
+    files=[],
+    dirs=[],
+    sort=False,
+    chapters=chapter_support_toggle,
+    just_these_files=[],
+    just_these_dirs=[],
 ):
     global ignored_folder_names
     global file_extensions
@@ -1012,6 +1166,9 @@ def clean_and_sort(
                 remove_unnaccepted_file_types_start,
                 "remove_unaccepted_file_types() in clean_and_sort()",
             )
+        if just_these_files:
+            # just_these_basenames = [os.path.basename(x) for x in just_these_files]
+            files = [x for x in files if os.path.join(root, x) in just_these_files]
         if not chapters:
             filter_non_chapters_start = time.time()
             files = filter_non_chapters(files)
@@ -1030,6 +1187,19 @@ def clean_and_sort(
                 remove_hidden_folders_start,
                 "remove_hidden_folders() in clean_and_sort()",
             )
+        if just_these_dirs:
+            allowed_dirs = []
+            for transferred_dir in just_these_dirs:
+                for dir in dirs:
+                    if transferred_dir.folder_name == dir:
+                        current_files = get_all_files_recursively_in_dir(
+                            os.path.join(root, dir)
+                        )
+                        if len(transferred_dir.files) == len(current_files) or len(
+                            current_files
+                        ) < len(transferred_dir.files):
+                            allowed_dirs.append(dir)
+            dirs = allowed_dirs
         remove_ignored_folder_names_start = time.time()
         dirs = remove_ignored_folder_names(dirs)
         if output_execution_times:
@@ -1402,7 +1572,21 @@ def create_folders_for_items_in_download_folder(group=False):
         if os.path.exists(download_folder):
             try:
                 for root, dirs, files in scandir.walk(download_folder):
-                    clean = clean_and_sort(root, files, dirs)
+                    clean = None
+                    if (
+                        watchdog_toggle
+                        and download_folders
+                        and any(x for x in download_folders if root.startswith(x))
+                    ):
+                        clean = clean_and_sort(
+                            root,
+                            files,
+                            dirs,
+                            just_these_files=transferred_files,
+                            just_these_dirs=transferred_dirs,
+                        )
+                    else:
+                        clean = clean_and_sort(root, files, dirs)
                     files, dirs = clean[0], clean[1]
                     if not files:
                         continue
@@ -2641,6 +2825,7 @@ def reorganize_and_rename(files, dir, group=False):
     global manga_extensions
     global novel_extensions
     global grouped_notifications
+    global transferred_files
     base_dir = os.path.basename(dir)
     for file in files:
         preferred_naming_format = preferred_volume_renaming_format
@@ -2872,6 +3057,8 @@ def reorganize_and_rename(files, dir, group=False):
                 rename = rename.strip()
                 processed_files.append(rename)
                 if file.name != rename:
+                    if watchdog_toggle:
+                        transferred_files.append(os.path.join(file.root, rename))
                     try:
                         print("\n\t\tOriginal: " + file.name)
                         print("\t\tRename:   " + rename)
@@ -3584,7 +3771,21 @@ def check_for_duplicate_volumes(paths_to_search=[], group=False):
                 print("\nSearching " + p + " for duplicate releases...")
                 for root, dirs, files in scandir.walk(p):
                     print("\t" + root)
-                    clean = clean_and_sort(root, files, dirs)
+                    clean = None
+                    if (
+                        watchdog_toggle
+                        and download_folders
+                        and any(x for x in download_folders if root.startswith(x))
+                    ):
+                        clean = clean_and_sort(
+                            root,
+                            files,
+                            dirs,
+                            just_these_files=transferred_files,
+                            just_these_dirs=transferred_dirs,
+                        )
+                    else:
+                        clean = clean_and_sort(root, files, dirs)
                     files, dirs = clean[0], clean[1]
                     if not files:
                         continue
@@ -3990,7 +4191,21 @@ def check_for_existing_series(group=False):
                 unmatched_series = []
                 for root, dirs, files in scandir.walk(download_folder):
                     print("\n" + root)
-                    clean = clean_and_sort(root, files, dirs)
+                    clean = None
+                    if (
+                        watchdog_toggle
+                        and download_folders
+                        and any(x for x in download_folders if root.startswith(x))
+                    ):
+                        clean = clean_and_sort(
+                            root,
+                            files,
+                            dirs,
+                            just_these_files=transferred_files,
+                            just_these_dirs=transferred_dirs,
+                        )
+                    else:
+                        clean = clean_and_sort(root, files, dirs)
                     files, dirs = clean[0], clean[1]
                     if not files:
                         continue
@@ -4839,7 +5054,8 @@ def check_for_existing_series(group=False):
             passed_webhook=webhook_use,
         )
     # clear the cache for get_zip_comment
-    get_zip_comment.cache_clear()
+    if not watchdog_toggle:
+        get_zip_comment.cache_clear()
 
 
 # Groups messages by series name
@@ -4896,6 +5112,8 @@ def get_series_name(dir):
 # If volume releases are available, it will rename based on those.
 # Otherwise it will fallback to just cleaning the name of any brackets.
 def rename_dirs_in_download_folder(group=False):
+    global transferred_dirs
+    global transferred_files
     print("\nLooking for folders to rename...")
     for download_folder in download_folders:
         if os.path.exists(download_folder):
@@ -4912,9 +5130,25 @@ def rename_dirs_in_download_folder(group=False):
                     for f in os.listdir(download_folder)
                     if os.path.isfile(join(download_folder, f))
                 ]
-                clean = clean_and_sort(
-                    download_folder, download_folder_files, download_folder_dirs
-                )
+                clean = None
+                if (
+                    watchdog_toggle
+                    and download_folders
+                    and any(
+                        x for x in download_folders if download_folder.startswith(x)
+                    )
+                ):
+                    clean = clean_and_sort(
+                        download_folder,
+                        download_folder_files,
+                        download_folder_dirs,
+                        just_these_files=transferred_files,
+                        just_these_dirs=transferred_dirs,
+                    )
+                else:
+                    clean = clean_and_sort(
+                        download_folder, download_folder_files, download_folder_dirs
+                    )
                 download_folder_files, download_folder_dirs = clean[0], clean[1]
                 global folder_accessor
                 global volume_regex_keywords
@@ -5049,6 +5283,57 @@ def rename_dirs_in_download_folder(group=False):
                                                     volume_one.series_name,
                                                 ),
                                             )
+                                            new_folder_path = os.path.join(
+                                                folder_accessor.root,
+                                                volume_one.series_name,
+                                            )
+                                            if watchdog_toggle:
+                                                replaced_transferred_files = []
+                                                # Go through all the transferred_files and update any that have the old folderDir as their path with the new series_name
+                                                for f in transferred_files:
+                                                    if f.startswith(
+                                                        os.path.join(
+                                                            folder_accessor.root,
+                                                            folderDir,
+                                                        )
+                                                    ):
+                                                        replacement = f.replace(
+                                                            os.path.join(
+                                                                folder_accessor.root,
+                                                                folderDir,
+                                                            ),
+                                                            os.path.join(
+                                                                folder_accessor.root,
+                                                                volume_one.series_name,
+                                                            ),
+                                                        )
+                                                        replaced_transferred_files.append(
+                                                            replacement
+                                                        )
+                                                    else:
+                                                        replaced_transferred_files.append(
+                                                            f
+                                                        )
+                                                transferred_files = (
+                                                    replaced_transferred_files
+                                                )
+                                                transferred_dirs.append(
+                                                    Folder(
+                                                        new_folder_path,
+                                                        None,
+                                                        os.path.basename(
+                                                            os.path.dirname(
+                                                                new_folder_path
+                                                            )
+                                                        ),
+                                                        os.path.basename(
+                                                            new_folder_path
+                                                        ),
+                                                        get_all_files_recursively_in_dir(
+                                                            new_folder_path
+                                                        ),
+                                                    )
+                                                )
                                             done = True
                                             print(
                                                 "\t\tRenamed: "
@@ -5231,6 +5516,56 @@ def rename_dirs_in_download_folder(group=False):
                                                         dir_clean,
                                                     ),
                                                 )
+                                                new_folder_path_two = os.path.join(
+                                                    folder_accessor.root, dir_clean
+                                                )
+                                                if watchdog_toggle:
+                                                    replaced_transferred_files_two = []
+                                                    # Go through all the transferred_files and update any that have the old folderDir as their path with the new dir_clean
+                                                    for f in transferred_files:
+                                                        if f.startswith(
+                                                            os.path.join(
+                                                                folder_accessor.root,
+                                                                folderDir,
+                                                            )
+                                                        ):
+                                                            replacement = f.replace(
+                                                                os.path.join(
+                                                                    folder_accessor.root,
+                                                                    folderDir,
+                                                                ),
+                                                                os.path.join(
+                                                                    folder_accessor.root,
+                                                                    dir_clean,
+                                                                ),
+                                                            )
+                                                            replaced_transferred_files_two.append(
+                                                                replacement
+                                                            )
+                                                        else:
+                                                            replaced_transferred_files_two.append(
+                                                                f
+                                                            )
+                                                    transferred_files = (
+                                                        replaced_transferred_files_two
+                                                    )
+                                                    transferred_dirs.append(
+                                                        Folder(
+                                                            new_folder_path_two,
+                                                            None,
+                                                            os.path.basename(
+                                                                os.path.dirname(
+                                                                    new_folder_path_two
+                                                                )
+                                                            ),
+                                                            os.path.basename(
+                                                                new_folder_path_two
+                                                            ),
+                                                            get_all_files_recursively_in_dir(
+                                                                new_folder_path_two
+                                                            ),
+                                                        )
+                                                    )
                                             except Exception as e:
                                                 send_message(
                                                     "Error renaming folder: " + str(e),
@@ -5485,6 +5820,7 @@ def rename_files_in_download_folders(only_these_files=[], group=False):
     global novel_extensions
     global file_extensions
     global grouped_notifications
+    global transferred_files
     print("\nSearching for files to rename...")
     for path in download_folders:
         if os.path.exists(path):
@@ -5502,7 +5838,21 @@ def rename_files_in_download_folders(only_these_files=[], group=False):
                         without_timestamp=True,
                         check_for_dup=True,
                     )
-                clean = clean_and_sort(root, files, dirs)
+                clean = None
+                if (
+                    watchdog_toggle
+                    and download_folders
+                    and any(x for x in download_folders if root.startswith(x))
+                ):
+                    clean = clean_and_sort(
+                        root,
+                        files,
+                        dirs,
+                        just_these_files=transferred_files,
+                        just_these_dirs=transferred_dirs,
+                    )
+                else:
+                    clean = clean_and_sort(root, files, dirs)
                 files, dirs = clean[0], clean[1]
                 if not files:
                     continue
@@ -5865,6 +6215,10 @@ def rename_files_in_download_folders(only_these_files=[], group=False):
                                 replacement = remove_dual_space(replacement)
                                 processed_files.append(replacement)
                                 if file.name != replacement:
+                                    if watchdog_toggle:
+                                        transferred_files.append(
+                                            os.path.join(file.root, replacement)
+                                        )
                                     try:
                                         if not (
                                             os.path.isfile(
@@ -6055,6 +6409,33 @@ def delete_chapters_from_downloads(group=False):
                     # files, dirs = clean[0], clean[1]
                     dirs = remove_ignored_folder_names(dirs)
                     files = remove_hidden_files(files)
+                    if (
+                        watchdog_toggle
+                        and download_folders
+                        and any(x for x in download_folders if root.startswith(x))
+                    ):
+                        if transferred_files:
+                            transferred_basenames = [
+                                os.path.basename(x) for x in transferred_files
+                            ]
+                            files = [x for x in files if x in transferred_basenames]
+                        if transferred_dirs:
+                            allowed_dirs = []
+                            for transferred_dir in transferred_dirs:
+                                for dir in dirs:
+                                    if transferred_dir.folder_name == dir:
+                                        current_files = (
+                                            get_all_files_recursively_in_dir(
+                                                os.path.join(root, dir)
+                                            )
+                                        )
+                                        if len(transferred_dir.files) == len(
+                                            current_files
+                                        ) or len(current_files) < len(
+                                            transferred_dir.files
+                                        ):
+                                            allowed_dirs.append(dir)
+                            dirs = allowed_dirs
                     for file in files:
                         if (
                             contains_chapter_keywords(file)
@@ -6104,7 +6485,21 @@ def delete_chapters_from_downloads(group=False):
                                 add_to_grouped_notifications(Embed(embed[0], None))
                                 remove_file(os.path.join(root, file), group=group)
                 for root, dirs, files in scandir.walk(path):
-                    clean_two = clean_and_sort(root, files, dirs)
+                    clean_two = None
+                    if (
+                        watchdog_toggle
+                        and download_folders
+                        and any(x for x in download_folders if root.startswith(x))
+                    ):
+                        clean_two = clean_and_sort(
+                            root,
+                            files,
+                            dirs,
+                            just_these_files=transferred_files,
+                            just_these_dirs=transferred_dirs,
+                        )
+                    else:
+                        clean_two = clean_and_sort(root, files, dirs)
                     files, dirs = clean_two[0], clean_two[1]
                     for dir in dirs:
                         check_and_delete_empty_folder(os.path.join(root, dir))
@@ -6401,7 +6796,21 @@ def extract_covers():
                         without_timestamp=True,
                         check_for_dup=True,
                     )
-                clean = clean_and_sort(root, files, dirs)
+                clean = None
+                if (
+                    watchdog_toggle
+                    and download_folders
+                    and any(x for x in download_folders if root.startswith(x))
+                ):
+                    clean = clean_and_sort(
+                        root,
+                        files,
+                        dirs,
+                        just_these_files=transferred_files,
+                        just_these_dirs=transferred_dirs,
+                    )
+                else:
+                    clean = clean_and_sort(root, files, dirs)
                 files, dirs = clean[0], clean[1]
                 global folder_accessor
                 print("\nRoot: " + root)
@@ -6532,6 +6941,7 @@ def process_cover_extraction(file, contains_volume_one):
             image_count += 1
         if (
             file.number == 1
+            and file.root not in download_folders
             and not any(
                 os.path.isfile(os.path.join(file.root, f"cover{ext}"))
                 for ext in image_extensions
@@ -6620,6 +7030,33 @@ def delete_unacceptable_files(group=False):
                             )
                         dirs = remove_ignored_folder_names(dirs)
                         files = remove_hidden_files(files)
+                        if (
+                            watchdog_toggle
+                            and download_folders
+                            and any(x for x in download_folders if root.startswith(x))
+                        ):
+                            if transferred_files:
+                                transferred_basenames = [
+                                    os.path.basename(x) for x in transferred_files
+                                ]
+                                files = [x for x in files if x in transferred_basenames]
+                            if transferred_dirs:
+                                allowed_dirs = []
+                                for transferred_dir in transferred_dirs:
+                                    for dir in dirs:
+                                        if transferred_dir.folder_name == dir:
+                                            current_files = (
+                                                get_all_files_recursively_in_dir(
+                                                    os.path.join(root, dir)
+                                                )
+                                            )
+                                            if len(transferred_dir.files) == len(
+                                                current_files
+                                            ) or len(current_files) < len(
+                                                transferred_dir.files
+                                            ):
+                                                allowed_dirs.append(dir)
+                                dirs = allowed_dirs
                         for file in files:
                             file_path = os.path.join(root, file)
                             if os.path.isfile(file_path):
@@ -6706,7 +7143,21 @@ def delete_unacceptable_files(group=False):
                                                 )
                                             break
                     for root, dirs, files in scandir.walk(path):
-                        clean_two = clean_and_sort(root, files, dirs)
+                        clean_two = None
+                        if (
+                            watchdog_toggle
+                            and download_folders
+                            and any(x for x in download_folders if root.startswith(x))
+                        ):
+                            clean_two = clean_and_sort(
+                                root,
+                                files,
+                                dirs,
+                                just_these_files=transferred_files,
+                                just_these_dirs=transferred_dirs,
+                            )
+                        else:
+                            clean_two = clean_and_sort(root, files, dirs)
                         files, dirs = clean_two[0], clean_two[1]
                         for dir in dirs:
                             check_and_delete_empty_folder(os.path.join(root, dir))
@@ -8226,6 +8677,8 @@ def main():
     global moved_files
     global release_groups
     global skipped_files
+    global transferred_files
+    global transferred_dirs
     processed_files = []
     moved_files = []
     download_folder_in_paths = False
@@ -8340,6 +8793,13 @@ def main():
             print_function_execution_time(start_time, "print_stats()")
     if grouped_notifications:
         send_discord_message(None, grouped_notifications)
+    if watchdog_toggle:
+        if transferred_files:
+            # remove any deleted/renamed/moved files
+            transferred_files = [x for x in transferred_files if os.path.isfile(x)]
+        if transferred_dirs:
+            # remove any deleted/renamed/moved directories
+            transferred_dirs = [x for x in transferred_dirs if os.path.isdir(x.root)]
 
 
 if __name__ == "__main__":
