@@ -39,7 +39,7 @@ from io import BytesIO
 from functools import lru_cache
 from skimage.metrics import structural_similarity as ssim
 
-script_version = "2.2.5"
+script_version = "2.2.6"
 
 # Paths = existing library
 # Download_folders = newly aquired manga/novels
@@ -911,7 +911,7 @@ def compress_image(image_path, quality=image_quality, to_jpg=False, raw_data=Non
             os.path.isfile(new_filename) and os.path.isfile(image_path) and not raw_data
         ):
             remove_file(image_path, silent=True)
-            return image_path
+            return os.path.join(os.path.dirname(image_path), new_filename)
     except OSError as ose:
         send_message(
             "\t\tFailed to compress image: " + image_path + " \n\t\tERROR: " + str(ose),
@@ -6655,13 +6655,16 @@ def find_and_extract_cover(file, return_data_only=False):
                                     image_data = image_file_ref.read()
                             if compress_image_option or return_data_only:
                                 if not return_data_only:
-                                    compress_image(
+                                    result = compress_image(
                                         os.path.join(
                                             file.root,
                                             file.extensionless_name + image_extension,
                                         )
                                     )
-                                    return file.extensionless_path + image_extension
+                                    if result:
+                                        return result
+                                    else:
+                                        return file.extensionless_path + image_extension
                                 elif return_data_only and image_data:
                                     compress_result_data = compress_image(
                                         os.path.join(
@@ -6748,13 +6751,16 @@ def find_and_extract_cover(file, return_data_only=False):
                         image_data = default_cover_ref.read()
                 if compress_image_option or return_data_only:
                     if not return_data_only:
-                        compress_image(
+                        result = compress_image(
                             os.path.join(
                                 file.root,
                                 file.extensionless_name + image_extension,
                             )
                         )
-                        return file.extensionless_path + image_extension
+                        if result:
+                            return result
+                        else:
+                            return file.extensionless_path + image_extension
                     elif return_data_only and image_data:
                         compress_result_data = compress_image(
                             os.path.join(
