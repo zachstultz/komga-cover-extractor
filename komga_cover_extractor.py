@@ -1678,9 +1678,10 @@ def create_folders_for_items_in_download_folder(group=False):
                                                 os.path.join(root, dir),
                                                 group=group,
                                             )
-                                            transferred_files.append(
-                                                os.path.join(root, dir, file.name)
-                                            )
+                                            if watchdog_toggle:
+                                                transferred_files.append(
+                                                    os.path.join(root, dir, file.name)
+                                                )
                                             done = True
                                             break
                                         else:
@@ -1707,9 +1708,10 @@ def create_folders_for_items_in_download_folder(group=False):
                                 if not does_folder_exist:
                                     os.mkdir(folder_location)
                                 move_file(file, folder_location, group=group)
-                                transferred_files.append(
-                                    os.path.join(folder_location, file.name)
-                                )
+                                if watchdog_toggle:
+                                    transferred_files.append(
+                                        os.path.join(folder_location, file.name)
+                                    )
             except Exception as e:
                 send_message(e, error=True)
         else:
