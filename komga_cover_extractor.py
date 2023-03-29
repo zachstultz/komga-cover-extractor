@@ -1568,6 +1568,7 @@ def get_series_name_from_file_name_chapter(name, root, chapter_number=""):
 # Creates folders for our stray volumes sitting in the root of the download folder.
 def create_folders_for_items_in_download_folder(group=False):
     global grouped_notifications
+    global transferred_files
     for download_folder in download_folders:
         if os.path.exists(download_folder):
             try:
@@ -1677,6 +1678,9 @@ def create_folders_for_items_in_download_folder(group=False):
                                                 os.path.join(root, dir),
                                                 group=group,
                                             )
+                                            transferred_files.append(
+                                                os.path.join(root, dir, file.name)
+                                            )
                                             done = True
                                             break
                                         else:
@@ -1703,6 +1707,9 @@ def create_folders_for_items_in_download_folder(group=False):
                                 if not does_folder_exist:
                                     os.mkdir(folder_location)
                                 move_file(file, folder_location, group=group)
+                                transferred_files.append(
+                                    os.path.join(folder_location, file.name)
+                                )
             except Exception as e:
                 send_message(e, error=True)
         else:
@@ -7045,7 +7052,12 @@ def delete_unacceptable_files(group=False):
                                 transferred_basenames = [
                                     os.path.basename(x) for x in transferred_files
                                 ]
-                                files = [x for x in files if x in transferred_basenames]
+                                files = [
+                                    x
+                                    for x in files
+                                    if x in transferred_basenames
+                                    or get_file_extension(x) in image_extensions
+                                ]
                             if transferred_dirs:
                                 allowed_dirs = []
                                 for transferred_dir in transferred_dirs:
@@ -8696,6 +8708,7 @@ def main():
     if (
         os.path.isfile(os.path.join(ROOT_DIR, "cached_paths.txt"))
         and check_for_existing_series_toggle
+        and not cached_paths
     ):
         cached_paths = read_lines_from_file(
             os.path.join(ROOT_DIR, "cached_paths.txt"),
@@ -8709,6 +8722,7 @@ def main():
         )
         and paths
         and check_for_existing_series_toggle
+        and not cached_paths
     ):
         cache_paths()
     if os.path.isfile(os.path.join(ROOT_DIR, "release_groups.txt")):
