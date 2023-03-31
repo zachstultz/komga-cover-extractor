@@ -19,11 +19,6 @@ Detection is based on various scene releases, if none are detected, it will defa
 2. Run ```pip3 install -r requirements.txt```
 3. Read usage below and enjoy!
 
-## Goals
-1. Transform script into manga/light novel manager with many features that includes cover extraction, but is not exclusive to it. ***(in-progress)***
-2. Modularize volume keyword regexes across the script. ***(in-progress)***
-3. Better documentation.
-
 ## Usage
 ```
 usage: komga_cover_extractor.py [-h] [-p [PATHS [PATHS ...]]] [-wh [WEBHOOK [WEBHOOK ...]]] [-c COMPRESS] [-cq COMPRESS_QUALITY]
@@ -49,4 +44,9 @@ with compression example:
 without compression example:
   
   ```python3 komga_cover_extractor.py -p "/path/to/manga" -p "/path/to/novels"```
+
+## Goals
+1. Transform script into manga/light novel manager with many features that includes cover extraction, but is not exclusive to it. ***(in-progress)***
+2. Modularize volume keyword regexes across the script. ***(in-progress)***
+3. Better documentation.
 
