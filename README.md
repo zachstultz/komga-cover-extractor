@@ -35,12 +35,13 @@ optional arguments:
   -p [PATHS [PATHS ...]], --paths [PATHS [PATHS ...]]
                         The path/paths to be scanned for cover extraction.
   -wh [WEBHOOK [WEBHOOK ...]], --webhook [WEBHOOK [WEBHOOK ...]]
-                        The discord webhook url for notifications about changes and errors.
+                        The optional discord webhook url for notifications about changes and errors.
   -c COMPRESS, --compress COMPRESS
                         Whether or not to compress the extracted cover images.
   -cq COMPRESS_QUALITY, --compress_quality COMPRESS_QUALITY
                         The quality of the compressed cover images.
 ```
+## Examples
 with compression example:
   
   ```python3 komga_cover_extractor.py -p "/path/to/manga" -p "/path/to/novels" -wh "WEBHOOK_URL" -c "True" -cq "60"```
