@@ -1658,9 +1658,6 @@ def create_folders_for_items_in_download_folder(group=False):
                                                 rename_file(
                                                     file.path,
                                                     new_file_obj.path,
-                                                    file.root,
-                                                    file.extensionless_path,
-                                                    new_file_obj.extensionless_path,
                                                 )
                                                 file = new_file_obj
                                             else:
@@ -1682,6 +1679,8 @@ def create_folders_for_items_in_download_folder(group=False):
                                                 transferred_files.append(
                                                     os.path.join(root, dir, file.name)
                                                 )
+                                                # remove old item from transferred files
+                                                transferred_files.remove(file.path)
                                             done = True
                                             break
                                         else:
@@ -1712,6 +1711,8 @@ def create_folders_for_items_in_download_folder(group=False):
                                     transferred_files.append(
                                         os.path.join(folder_location, file.name)
                                     )
+                                    # remove old item from transferred files
+                                    transferred_files.remove(file.path)
             except Exception as e:
                 send_message(e, error=True)
         else:
@@ -2789,36 +2790,33 @@ def check_for_missing_volumes():
 
 
 # Renames the file.
-def rename_file(
-    src, dest, root, extensionless_filename_src, extensionless_filename_dst
-):
+def rename_file(src, dest, silent=False):
     if os.path.isfile(src):
-        print("\n\t\tRenaming " + src)
+        root = os.path.dirname(src)
+        if not silent:
+            print("\n\t\tRenaming " + src)
         try:
             os.rename(src, dest)
         except Exception as e:
             send_message(e, error=True)
         if os.path.isfile(dest):
-            send_message(
-                "\t\t"
-                + extensionless_filename_src
-                + " was renamed to "
-                + extensionless_filename_dst,
-                discord=False,
-            )
+            if not silent:
+                send_message(
+                    "\t\t"
+                    + os.path.basename(src)
+                    + " was renamed to "
+                    + os.path.basename(dest),
+                    discord=False,
+                )
             if get_file_extension(src) not in image_extensions:
+                extensionless_filename_src = get_extensionless_name(src)
+                extensionless_filename_dst = get_extensionless_name(dest)
                 for image_extension in image_extensions:
                     image_file = extensionless_filename_src + image_extension
                     image_file_rename = extensionless_filename_dst + image_extension
-                    if os.path.isfile(os.path.join(root, image_file)):
+                    if os.path.isfile(image_file):
                         try:
-                            rename_file(
-                                os.path.join(root, image_file),
-                                os.path.join(root, image_file_rename),
-                                root,
-                                image_file,
-                                image_file_rename,
-                            )
+                            rename_file(image_file, image_file_rename, silent=True)
                         except Exception as e:
                             send_message(e, error=True)
         else:
@@ -2826,6 +2824,61 @@ def rename_file(
                 "Failed to rename " + src + " to " + dest + "\n\tERROR: " + str(e),
                 error=True,
             )
+
+
+# Renames the folder
+def rename_folder(src, dest):
+    result = None
+    if os.path.isdir(src):
+        if not os.path.isdir(dest):
+            try:
+                os.rename(src, dest)
+            except Exception as e:
+                send_message(e, error=True)
+            if os.path.isdir(dest):
+                send_message(
+                    "\t"
+                    + os.path.basename(src)
+                    + " was renamed to "
+                    + os.path.basename(dest),
+                    discord=False,
+                )
+                result = dest
+            else:
+                send_message(
+                    "Failed to rename " + src + " to " + dest + "\n\tERROR: " + str(e),
+                    error=True,
+                )
+        else:
+            send_message(
+                "Folder " + dest + " already exists. Skipping rename.", discord=False
+            )
+    else:
+        send_message(
+            "Folder " + src + " does not exist. Skipping rename.", discord=False
+        )
+    return result
+
+
+# gets the user input and checks if it is valid
+def get_input_from_user(prompt, acceptable_values=[], example=None):
+    if example:
+        if isinstance(example, list):
+            # "example" or "example2" or "example3"
+            example = " or ".join(
+                [str(example_item) for example_item in example[:-1]]
+                + [str(example[-1])]
+            )
+        else:
+            # "example"
+            example = str(example)
+        prompt = prompt + " (" + str(example) + "): "
+    else:
+        prompt = prompt + ": "
+    while True:
+        user_input = input(prompt)
+        if user_input and (not acceptable_values or user_input in acceptable_values):
+            return user_input
 
 
 def reorganize_and_rename(files, dir, group=False):
@@ -3069,100 +3122,68 @@ def reorganize_and_rename(files, dir, group=False):
                     if watchdog_toggle:
                         transferred_files.append(os.path.join(file.root, rename))
                     try:
-                        print("\n\t\tOriginal: " + file.name)
-                        print("\t\tRename:   " + rename)
+                        print("\n\t\tBEFORE: " + file.name)
+                        print("\t\tAFTER:  " + rename)
+                        user_input = None
                         if not manual_rename:
-                            rename_file(
-                                file.path,
-                                os.path.join(file.root, rename),
-                                file.root,
-                                file.extensionless_name,
-                                get_extensionless_name(rename),
-                            )
-                            send_message(
-                                "\n\t\tRenamed: " + file.name + " to \n\t\t" + rename,
-                                discord=False,
-                            )
-                            if not mute_discord_rename_notifications:
-                                embed = [
-                                    handle_fields(
-                                        DiscordEmbed(
-                                            title="Reorganized & Renamed File",
-                                            color=grey_color,
-                                        ),
-                                        fields=[
-                                            {
-                                                "name": "From:",
-                                                "value": "```" + file.name + "```",
-                                                "inline": False,
-                                            },
-                                            {
-                                                "name": "To:",
-                                                "value": "```" + rename + "```",
-                                                "inline": False,
-                                            },
-                                        ],
-                                    )
-                                ]
-                                add_to_grouped_notifications(Embed(embed[0], None))
+                            user_input = "y"
                         else:
-                            user_input = input("\tReorganize & Rename (y or n): ")
-                            if (
-                                user_input.lower().strip() == "y"
-                                or user_input.lower().strip() == "yes"
-                            ):
-                                if not os.path.isfile(os.path.join(file.root, rename)):
-                                    rename_file(
-                                        file.path,
-                                        os.path.join(file.root, rename),
-                                        file.root,
-                                        file.extensionless_name,
-                                        get_extensionless_name(rename),
-                                    )
-                                    send_message(
-                                        "\n\t\tReorganized & Renamed File: "
-                                        + file.name
-                                        + " to \n\t\t"
-                                        + rename
-                                        + "\n",
-                                        discord=False,
-                                    )
-                                    if not mute_discord_rename_notifications:
-                                        embed = [
-                                            handle_fields(
-                                                DiscordEmbed(
-                                                    title="Reorganized & Renamed File",
-                                                    color=grey_color,
-                                                ),
-                                                fields=[
-                                                    {
-                                                        "name": "From:",
-                                                        "value": "```"
-                                                        + file.name
-                                                        + "```",
-                                                        "inline": False,
-                                                    },
-                                                    {
-                                                        "name": "To:",
-                                                        "value": "```" + rename + "```",
-                                                        "inline": False,
-                                                    },
-                                                ],
-                                            )
-                                        ]
-                                        add_to_grouped_notifications(
-                                            Embed(embed[0], None)
+                            user_input = get_input_from_user(
+                                "\t\tReorganize & Rename?",
+                                ["y", "yes", "n", "no"],
+                                ["y", "n"],
+                            )
+                        if (
+                            user_input.lower().strip() == "y"
+                            or user_input.lower().strip() == "yes"
+                        ):
+                            if not os.path.isfile(os.path.join(file.root, rename)):
+                                rename_file(
+                                    file.path,
+                                    os.path.join(file.root, rename),
+                                    silent=True,
+                                )
+                                # remove old file from list of transferred files
+                                transferred_files.remove(file.path)
+                                send_message(
+                                    "\t\t\tSuccessfully reorganized & renamed file: \n\t\t\t\t"
+                                    + file.name
+                                    + "\n\t\t\t\t\tto \n\t\t\t\t"
+                                    + rename,
+                                    discord=False,
+                                )
+                                if not mute_discord_rename_notifications:
+                                    embed = [
+                                        handle_fields(
+                                            DiscordEmbed(
+                                                title="Reorganized & Renamed File",
+                                                color=grey_color,
+                                            ),
+                                            fields=[
+                                                {
+                                                    "name": "From:",
+                                                    "value": "```" + file.name + "```",
+                                                    "inline": False,
+                                                },
+                                                {
+                                                    "name": "To:",
+                                                    "value": "```" + rename + "```",
+                                                    "inline": False,
+                                                },
+                                            ],
                                         )
-                                else:
-                                    print(
-                                        "\t\tFile already exists, skipping rename of "
-                                        + file.name
-                                        + " to "
-                                        + rename
-                                        + " and deleting "
-                                        + file.name
-                                    )
-                                    remove_file(file.path, silent=True)
+                                    ]
+                                    add_to_grouped_notifications(Embed(embed[0], None))
+                            else:
+                                print(
+                                    "\t\tFile already exists, skipping rename of "
+                                    + file.name
+                                    + " to "
+                                    + rename
+                                    + " and deleting "
+                                    + file.name
+                                )
+                                remove_file(file.path, silent=True)
                         if file.file_type == "volume":
                             file.volume_number = remove_everything_but_volume_num(
                                 [rename]
@@ -4654,7 +4675,6 @@ def check_for_existing_series(group=False):
                                                             existing_series_folder_from_library,
                                                             downloaded_file_series_name,
                                                         )
-                                                    # print(similar.cache_info()) # only for testing
                                                     print(
                                                         "\n\t\t-(NOT CACHE)- "
                                                         + str(dir_position)
@@ -4797,9 +4817,6 @@ def check_for_existing_series(group=False):
                                                             existing_file_zip_comment = get_zip_comment(
                                                                 f.path
                                                             )
-                                                            # print(
-                                                            #     get_zip_comment.cache_info()
-                                                            # ) # only for testing
                                                             existing_file_meta = None
                                                             if (
                                                                 existing_file_zip_comment
@@ -5268,13 +5285,16 @@ def rename_dirs_in_download_folder(group=False):
                                     print("\t\t\t" + v.name)
                             user_input = ""
                             if manual_rename:
-                                user_input = input(
-                                    "\nRename (y or n or i (input rename all volumes' series names and folder) ): "
+                                user_input = get_input_from_user(
+                                    "\tRename", ["y", "yes", "n", "no"], ["y", "n"]
                                 )
                             else:
                                 user_input = "y"
                             try:
-                                if user_input.lower() == "y":
+                                if (
+                                    user_input.strip().lower() == "y"
+                                    or user_input.strip().lower() == "yes"
+                                ):
                                     # if the direcotry doesn't exist, then rename to it
                                     if not os.path.exists(
                                         os.path.join(
@@ -5283,7 +5303,7 @@ def rename_dirs_in_download_folder(group=False):
                                         )
                                     ):
                                         try:
-                                            os.rename(
+                                            new_folder_path = rename_folder(
                                                 os.path.join(
                                                     folder_accessor.root, folderDir
                                                 ),
@@ -5291,10 +5311,6 @@ def rename_dirs_in_download_folder(group=False):
                                                     folder_accessor.root,
                                                     volume_one.series_name,
                                                 ),
-                                            )
-                                            new_folder_path = os.path.join(
-                                                folder_accessor.root,
-                                                volume_one.series_name,
                                             )
                                             if watchdog_toggle:
                                                 replaced_transferred_files = []
@@ -5344,13 +5360,6 @@ def rename_dirs_in_download_folder(group=False):
                                                     )
                                                 )
                                             done = True
-                                            print(
-                                                "\t\tRenamed: "
-                                                + folderDir
-                                                + " to "
-                                                + volume_one.series_name
-                                                + "\n"
-                                            )
                                         except Exception as e:
                                             print(
                                                 "\t\tCould not rename "
@@ -5377,6 +5386,16 @@ def rename_dirs_in_download_folder(group=False):
                                                     ),
                                                     group=group,
                                                 )
+                                                if watchdog_toggle:
+                                                    transferred_files.append(
+                                                        os.path.join(
+                                                            folder_accessor.root,
+                                                            volume_one.series_name,
+                                                            v.name,
+                                                        )
+                                                    )
+                                                    # remove old file
+                                                    transferred_files.remove(v.path)
                                             else:
                                                 print(
                                                     "\t\t"
@@ -5385,82 +5404,11 @@ def rename_dirs_in_download_folder(group=False):
                                                     + volume_one.series_name
                                                 )
                                                 remove_file(v.path, silent=True)
+                                                # remove old file
+                                                transferred_files.remove(v.path)
                                         # check for an empty folder, and delete it if it is
                                         check_and_delete_empty_folder(v.root)
                                         done = True
-                                elif user_input.lower() == "i":
-                                    print("\tInput mode selected.")
-                                    print(
-                                        "\n\tWARNING: This will rename all voluems with similar series names and the folder name to the user inputted series name"
-                                    )
-                                    print(
-                                        "\tONLY USE IF YOU KNOW WHAT YOU ARE DOING, otherwise enter nothing or 'q' to quit"
-                                    )
-                                    print(
-                                        "\n\tCurrent Series Name: "
-                                        + volume_one.series_name
-                                    )
-                                    series_user_input = input(
-                                        "\tReplacement Series Name: "
-                                    )
-                                    if (
-                                        series_user_input != ""
-                                        and series_user_input != "q"
-                                    ):
-                                        if len(volumes) > 1:
-                                            matching.append(volumes[0])
-                                        for v in matching:
-                                            new_file_name = re.sub(
-                                                v.series_name,
-                                                series_user_input,
-                                                v.name,
-                                            )
-                                            new_file_path = os.path.join(
-                                                v.root, new_file_name
-                                            )
-                                            if not os.path.isfile(new_file_path):
-                                                rename_file(
-                                                    v.path,
-                                                    new_file_path,
-                                                    v.root,
-                                                    v.extensionless_name,
-                                                    get_extensionless_name(
-                                                        new_file_name
-                                                    ),
-                                                )
-                                            else:
-                                                print(
-                                                    "\t\t"
-                                                    + new_file_name
-                                                    + " already exists."
-                                                )
-                                        # if the folder doesn't already exist, rename it to series_user_input
-                                        if volume_one.root != os.path.join(
-                                            download_folder, series_user_input
-                                        ):
-                                            if not os.path.isdir(
-                                                os.path.join(
-                                                    download_folder,
-                                                    series_user_input,
-                                                )
-                                            ):
-                                                os.rename(
-                                                    volume_one.root,
-                                                    os.path.join(
-                                                        download_folder,
-                                                        series_user_input,
-                                                    ),
-                                                )
-                                            else:
-                                                print(
-                                                    "\t\tFolder: "
-                                                    + os.path.join(
-                                                        download_folder,
-                                                        series_user_input,
-                                                    )
-                                                    + " already exists."
-                                                )
-                                    done = True
                                 else:
                                     print("Skipping...")
                             except Exception as e:
@@ -5474,180 +5422,188 @@ def rename_dirs_in_download_folder(group=False):
                         if re.search(
                             download_folder_basename, full_file_path, re.IGNORECASE
                         ):
-                            if (
-                                re.search(
-                                    r"((\s\[|\]\s)|(\s\(|\)\s)|(\s\{|\}\s))",
-                                    folderDir,
-                                    re.IGNORECASE,
-                                )
-                                or re.search(r"(\s-\s|\s-)$", folderDir, re.IGNORECASE)
-                                or re.search(r"(\bLN\b)", folderDir, re.IGNORECASE)
-                                or re.search(
-                                    r"(\b|\s)((\s|)-(\s|)|)(Part|)(%s|)(\.|)([-_. ]|)(([0-9]+)((([-_.]|)([0-9]+))+|))(\b|\s)"
-                                    % volume_regex_keywords,
-                                    folderDir,
-                                    re.IGNORECASE,
-                                )
-                                or re.search(r"\bPremium\b", folderDir, re.IGNORECASE)
-                                or re.search(r":", folderDir, re.IGNORECASE)
-                                or re.search(r"([A-Za-z])(_)", folderDir, re.IGNORECASE)
-                                or re.search(r"([?])", folderDir)
-                            ):
-                                dir_clean = get_series_name(folderDir)
-                                dir_clean = re.sub(r"([A-Za-z])(_)", r"\1 ", dir_clean)
-                                # replace : with - in dir_clean
-                                dir_clean = re.sub(
-                                    r"([A-Za-z])(\:)", r"\1 -", dir_clean
-                                )
-                                dir_clean = re.sub(r"([?])", "", dir_clean)
-                                # remove dual spaces from dir_clean
-                                dir_clean = remove_dual_space(dir_clean).strip()
-                                if not os.path.isdir(
-                                    os.path.join(folder_accessor.root, dir_clean)
-                                ):
-                                    print("\tBEFORE: " + folderDir)
-                                    print("\tAFTER:  " + dir_clean + "\n")
-                                    user_input = ""
-                                    if manual_rename:
-                                        user_input = input("Rename (y or n): ")
-                                    else:
-                                        user_input = "y"
-                                    try:
-                                        if user_input.lower().strip() == "y":
-                                            try:
-                                                os.rename(
-                                                    os.path.join(
-                                                        folder_accessor.root,
-                                                        folderDir,
-                                                    ),
-                                                    os.path.join(
-                                                        folder_accessor.root,
-                                                        dir_clean,
-                                                    ),
-                                                )
-                                                new_folder_path_two = os.path.join(
-                                                    folder_accessor.root, dir_clean
-                                                )
-                                                if watchdog_toggle:
-                                                    replaced_transferred_files_two = []
-                                                    # Go through all the transferred_files and update any that have the old folderDir as their path with the new dir_clean
-                                                    for f in transferred_files:
-                                                        if f.startswith(
-                                                            os.path.join(
-                                                                folder_accessor.root,
-                                                                folderDir,
-                                                            )
-                                                        ):
-                                                            replacement = f.replace(
+                            searches = [
+                                r"((\s\[|\]\s)|(\s\(|\)\s)|(\s\{|\}\s))",
+                                r"(\s-\s|\s-)$",
+                                r"(\bLN\b)",
+                                r"(\b|\s)((\s|)-(\s|)|)(Part|)(%s|)(\.|)([-_. ]|)(([0-9]+)((([-_.]|)([0-9]+))+|))(\b|\s)"
+                                % volume_regex_keywords,
+                                r"\bPremium\b",
+                                r":",
+                                r"([A-Za-z])(_)",
+                                r"([?])",
+                            ]
+                            for search in searches:
+                                if re.search(search, folderDir, re.IGNORECASE):
+                                    dir_clean = get_series_name(folderDir)
+                                    dir_clean = re.sub(
+                                        r"([A-Za-z])(_)", r"\1 ", dir_clean
+                                    )
+                                    # replace : with - in dir_clean
+                                    dir_clean = re.sub(
+                                        r"([A-Za-z])(\:)", r"\1 -", dir_clean
+                                    )
+                                    dir_clean = re.sub(r"([?])", "", dir_clean)
+                                    # remove dual spaces from dir_clean
+                                    dir_clean = remove_dual_space(dir_clean).strip()
+                                    if not os.path.isdir(
+                                        os.path.join(folder_accessor.root, dir_clean)
+                                    ):
+                                        print("\n\tBEFORE: " + folderDir)
+                                        print("\tAFTER:  " + dir_clean)
+                                        user_input = ""
+                                        if manual_rename:
+                                            user_input = get_input_from_user(
+                                                "\tRename",
+                                                ["y", "yes", "n", "no"],
+                                                ["y", "n"],
+                                            )
+                                        else:
+                                            user_input = "y"
+                                        try:
+                                            if (
+                                                user_input.lower().strip() == "y"
+                                                or user_input.lower().strip() == "yes"
+                                            ):
+                                                try:
+                                                    new_folder_path_two = rename_folder(
+                                                        os.path.join(
+                                                            folder_accessor.root,
+                                                            folderDir,
+                                                        ),
+                                                        os.path.join(
+                                                            folder_accessor.root,
+                                                            dir_clean,
+                                                        ),
+                                                    )
+                                                    if watchdog_toggle:
+                                                        replaced_transferred_files_two = (
+                                                            []
+                                                        )
+                                                        # Go through all the transferred_files and update any that have the old folderDir as their path with the new dir_clean
+                                                        for f in transferred_files:
+                                                            if f.startswith(
                                                                 os.path.join(
                                                                     folder_accessor.root,
                                                                     folderDir,
-                                                                ),
-                                                                os.path.join(
-                                                                    folder_accessor.root,
-                                                                    dir_clean,
-                                                                ),
-                                                            )
-                                                            replaced_transferred_files_two.append(
-                                                                replacement
-                                                            )
-                                                        else:
-                                                            replaced_transferred_files_two.append(
-                                                                f
-                                                            )
-                                                    transferred_files = (
-                                                        replaced_transferred_files_two
-                                                    )
-                                                    transferred_dirs.append(
-                                                        Folder(
-                                                            new_folder_path_two,
-                                                            None,
-                                                            os.path.basename(
-                                                                os.path.dirname(
-                                                                    new_folder_path_two
                                                                 )
-                                                            ),
-                                                            os.path.basename(
-                                                                new_folder_path_two
-                                                            ),
-                                                            get_all_files_recursively_in_dir(
-                                                                new_folder_path_two
-                                                            ),
+                                                            ):
+                                                                replacement = f.replace(
+                                                                    os.path.join(
+                                                                        folder_accessor.root,
+                                                                        folderDir,
+                                                                    ),
+                                                                    os.path.join(
+                                                                        folder_accessor.root,
+                                                                        dir_clean,
+                                                                    ),
+                                                                )
+                                                                replaced_transferred_files_two.append(
+                                                                    replacement
+                                                                )
+                                                            else:
+                                                                replaced_transferred_files_two.append(
+                                                                    f
+                                                                )
+                                                        transferred_files = replaced_transferred_files_two
+                                                        transferred_dirs.append(
+                                                            Folder(
+                                                                new_folder_path_two,
+                                                                None,
+                                                                os.path.basename(
+                                                                    os.path.dirname(
+                                                                        new_folder_path_two
+                                                                    )
+                                                                ),
+                                                                os.path.basename(
+                                                                    new_folder_path_two
+                                                                ),
+                                                                get_all_files_recursively_in_dir(
+                                                                    new_folder_path_two
+                                                                ),
+                                                            )
                                                         )
-                                                    )
-                                            except Exception as e:
-                                                send_message(
-                                                    "Error renaming folder: " + str(e),
-                                                    error=True,
-                                                )
-                                        else:
-                                            continue
-                                    except OSError as e:
-                                        send_message(e, error=True)
-                                elif (
-                                    os.path.isdir(
-                                        os.path.join(folder_accessor.root, dir_clean)
-                                    )
-                                    and dir_clean != ""
-                                ):
-                                    if os.path.join(
-                                        folder_accessor.root, folderDir
-                                    ) != os.path.join(folder_accessor.root, dir_clean):
-                                        for root, dirs, files in scandir.walk(
-                                            os.path.join(
-                                                folder_accessor.root, folderDir
-                                            ),
-                                        ):
-                                            files = remove_hidden_files(files)
-                                            file_objects = upgrade_to_file_class(
-                                                files, root
-                                            )
-                                            folder_accessor2 = Folder(
-                                                root,
-                                                dirs,
-                                                os.path.basename(os.path.dirname(root)),
-                                                os.path.basename(root),
-                                                file_objects,
-                                            )
-                                            for file in folder_accessor2.files:
-                                                new_location_folder = os.path.join(
-                                                    download_folder, dir_clean
-                                                )
-                                                if not os.path.isfile(
-                                                    os.path.join(
-                                                        new_location_folder,
-                                                        file.name,
-                                                    )
-                                                ):
-                                                    move_file(
-                                                        file,
-                                                        os.path.join(
-                                                            download_folder,
-                                                            dir_clean,
-                                                        ),
-                                                        group=group,
-                                                    )
-                                                else:
+                                                except Exception as e:
                                                     send_message(
-                                                        "File: "
-                                                        + file.name
-                                                        + " already exists in: "
-                                                        + os.path.join(
-                                                            download_folder,
-                                                            dir_clean,
-                                                        )
-                                                        + "\nRemoving duplicate from downloads.",
+                                                        "Error renaming folder: "
+                                                        + str(e),
                                                         error=True,
                                                     )
-                                                    remove_file(
+                                            else:
+                                                continue
+                                        except OSError as e:
+                                            send_message(e, error=True)
+                                    elif (
+                                        os.path.isdir(
+                                            os.path.join(
+                                                folder_accessor.root, dir_clean
+                                            )
+                                        )
+                                        and dir_clean != ""
+                                    ):
+                                        if os.path.join(
+                                            folder_accessor.root, folderDir
+                                        ) != os.path.join(
+                                            folder_accessor.root, dir_clean
+                                        ):
+                                            for root, dirs, files in scandir.walk(
+                                                os.path.join(
+                                                    folder_accessor.root, folderDir
+                                                ),
+                                            ):
+                                                files = remove_hidden_files(files)
+                                                file_objects = upgrade_to_file_class(
+                                                    files, root
+                                                )
+                                                folder_accessor2 = Folder(
+                                                    root,
+                                                    dirs,
+                                                    os.path.basename(
+                                                        os.path.dirname(root)
+                                                    ),
+                                                    os.path.basename(root),
+                                                    file_objects,
+                                                )
+                                                for file in folder_accessor2.files:
+                                                    new_location_folder = os.path.join(
+                                                        download_folder, dir_clean
+                                                    )
+                                                    if not os.path.isfile(
                                                         os.path.join(
-                                                            folder_accessor2.root,
+                                                            new_location_folder,
                                                             file.name,
                                                         )
-                                                    )
-                                            check_and_delete_empty_folder(
-                                                folder_accessor2.root
-                                            )
+                                                    ):
+                                                        move_file(
+                                                            file,
+                                                            os.path.join(
+                                                                download_folder,
+                                                                dir_clean,
+                                                            ),
+                                                            group=group,
+                                                        )
+                                                    else:
+                                                        send_message(
+                                                            "File: "
+                                                            + file.name
+                                                            + " already exists in: "
+                                                            + os.path.join(
+                                                                download_folder,
+                                                                dir_clean,
+                                                            )
+                                                            + "\nRemoving duplicate from downloads.",
+                                                            error=True,
+                                                        )
+                                                        remove_file(
+                                                            os.path.join(
+                                                                folder_accessor2.root,
+                                                                file.name,
+                                                            )
+                                                        )
+                                                check_and_delete_empty_folder(
+                                                    folder_accessor2.root
+                                                )
+                                    break
             except Exception as e:
                 send_message(e, error=True)
         else:
@@ -6240,15 +6196,20 @@ def rename_files_in_download_folders(only_these_files=[], group=False):
                                             if not manual_rename:
                                                 user_input = "y"
                                             else:
-                                                user_input = input(
-                                                    "\t\tRename (y or n): "
+                                                user_input = get_input_from_user(
+                                                    "\t\tRename",
+                                                    ["y", "yes", "n", "no"],
+                                                    ["y", "n"],
                                                 )
-                                            if user_input == "y":
+                                            if user_input == "y" or user_input == "yes":
                                                 try:
-                                                    os.rename(
+                                                    rename_file(
                                                         file.path,
                                                         os.path.join(root, replacement),
+                                                        silent=True,
                                                     )
+                                                    # remove old item from list
+                                                    transferred_files.remove(file.path)
                                                 except OSError as e:
                                                     send_message(
                                                         e,
@@ -6298,39 +6259,6 @@ def rename_files_in_download_folders(only_these_files=[], group=False):
                                                         add_to_grouped_notifications(
                                                             Embed(embed[0], None)
                                                         )
-                                                    for (
-                                                        image_extension
-                                                    ) in image_extensions:
-                                                        image_file = (
-                                                            file.extensionless_name
-                                                            + image_extension
-                                                        )
-                                                        if os.path.isfile(
-                                                            os.path.join(
-                                                                root, image_file
-                                                            )
-                                                        ):
-                                                            extensionless_replacement = get_extensionless_name(
-                                                                replacement
-                                                            )
-                                                            replacement_image = (
-                                                                extensionless_replacement
-                                                                + image_extension
-                                                            )
-                                                            try:
-                                                                os.rename(
-                                                                    os.path.join(
-                                                                        root, image_file
-                                                                    ),
-                                                                    os.path.join(
-                                                                        root,
-                                                                        replacement_image,
-                                                                    ),
-                                                                )
-                                                            except OSError as ose:
-                                                                send_message(
-                                                                    ose, error=True
-                                                                )
                                                     # Replaces the file object with an updated one with the replacement values
                                                     volume_index = volumes.index(file)
                                                     file = upgrade_to_volume_class(
@@ -6845,11 +6773,23 @@ def extract_covers():
                         file.file_type == "volume" and file.number == 1
                         for file in folder_accessor.files
                     )
+                    contains_multiple_volume_ones = (
+                        len(
+                            [
+                                file
+                                for file in folder_accessor.files
+                                if file.file_type == "volume" and file.number == 1
+                            ]
+                        )
+                        > 1
+                    )
                     if output_execution_times:
                         print_function_execution_time(start_time, "contains_volume_one")
                     start_time = time.time()
                     [
-                        process_cover_extraction(file, contains_volume_one)
+                        process_cover_extraction(
+                            file, contains_volume_one, contains_multiple_volume_ones
+                        )
                         for file in folder_accessor.files
                         if file.file_type == "volume"
                         or (file.file_type == "chapter" and extract_chapter_covers)
@@ -6896,7 +6836,7 @@ def convert_webp_to_jpg(webp_file_path):
     return None
 
 
-def process_cover_extraction(file, contains_volume_one):
+def process_cover_extraction(file, contains_volume_one, contains_multiple_volume_ones):
     start_time = time.time()
     global image_count
     update_stats(file)
@@ -6955,7 +6895,8 @@ def process_cover_extraction(file, contains_volume_one):
         else:
             image_count += 1
         if (
-            file.number == 1
+            not contains_multiple_volume_ones
+            and file.number == 1
             and file.root not in download_folders
             and not any(
                 os.path.isfile(os.path.join(file.root, f"cover{ext}"))
