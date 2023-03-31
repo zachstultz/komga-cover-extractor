@@ -44,9 +44,9 @@ optional arguments:
 ## Examples
 with compression example:
   
-  ```python3 komga_cover_extractor.py -p "/path/to/manga" -p "/path/to/novels" -wh "WEBHOOK_URL" -c "True" -cq "60"```
+  ```python3 komga_cover_extractor.py -p "/path/to/manga" -p "/path/to/novels" -c "True" -cq "60"```
 
 without compression example:
   
-  ```python3 komga_cover_extractor.py -p "/path/to/manga" -p "/path/to/novels" -wh "WEBHOOK_URL"```
+  ```python3 komga_cover_extractor.py -p "/path/to/manga" -p "/path/to/novels"```
 
