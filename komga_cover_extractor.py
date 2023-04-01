@@ -1700,7 +1700,8 @@ def create_folders_for_items_in_download_folder(group=False):
                                                     os.path.join(root, dir, file.name)
                                                 )
                                                 # remove old item from transferred files
-                                                transferred_files.remove(file.path)
+                                                if file.path in transferred_files:
+                                                    transferred_files.remove(file.path)
                                             done = True
                                             break
                                         else:
@@ -1732,7 +1733,8 @@ def create_folders_for_items_in_download_folder(group=False):
                                         os.path.join(folder_location, file.name)
                                     )
                                     # remove old item from transferred files
-                                    transferred_files.remove(file.path)
+                                    if file.path in transferred_files:
+                                        transferred_files.remove(file.path)
             except Exception as e:
                 send_message(e, error=True)
         else:
@@ -2947,6 +2949,13 @@ def reorganize_and_rename(files, dir, group=False):
                 release_year_from_file = ""
                 publisher = ""
                 subtitle = get_subtitle_from_title(file)
+                if subtitle:
+                    write_to_file(
+                        "extracted_subtitles.txt",
+                        file.name + " - " + subtitle,
+                        without_timestamp=True,
+                        check_for_dup=True,
+                    )
                 if comic_info_xml:
                     if "Year" in comic_info_xml:
                         release_year_from_file = comic_info_xml["Year"]
@@ -3149,7 +3158,7 @@ def reorganize_and_rename(files, dir, group=False):
                             user_input = "y"
                         else:
                             user_input = get_input_from_user(
-                                "\t\tReorganize & Rename?",
+                                "\t\tReorganize & Rename",
                                 ["y", "n"],
                                 ["y", "n"],
                             )
@@ -3161,7 +3170,8 @@ def reorganize_and_rename(files, dir, group=False):
                                     silent=True,
                                 )
                                 # remove old file from list of transferred files
-                                transferred_files.remove(file.path)
+                                if file.path in transferred_files:
+                                    transferred_files.remove(file.path)
                                 send_message(
                                     "\t\t\tSuccessfully reorganized & renamed file: \n\t\t\t\t"
                                     + file.name
@@ -5407,7 +5417,8 @@ def rename_dirs_in_download_folder(group=False):
                                                         )
                                                     )
                                                     # remove old file
-                                                    transferred_files.remove(v.path)
+                                                    if v.path in transferred_files:
+                                                        transferred_files.remove(v.path)
                                             else:
                                                 print(
                                                     "\t\t"
@@ -5417,7 +5428,8 @@ def rename_dirs_in_download_folder(group=False):
                                                 )
                                                 remove_file(v.path, silent=True)
                                                 # remove old file
-                                                transferred_files.remove(v.path)
+                                                if v.path in transferred_files:
+                                                    transferred_files.remove(v.path)
                                         # check for an empty folder, and delete it if it is
                                         check_and_delete_empty_folder(v.root)
                                         done = True
@@ -6218,7 +6230,10 @@ def rename_files_in_download_folders(only_these_files=[], group=False):
                                                         silent=True,
                                                     )
                                                     # remove old item from list
-                                                    transferred_files.remove(file.path)
+                                                    if file.path in transferred_files:
+                                                        transferred_files.remove(
+                                                            file.path
+                                                        )
                                                 except OSError as e:
                                                     send_message(
                                                         e,
@@ -7255,8 +7270,8 @@ def combine_series(series_list):
 
 def get_shortened_title(title):
     shortened_title = ""
-    if re.search(r"((\s(-|\+)|:)\s)", title):
-        shortened_title = re.sub(r"((\s(-|\+)|:)\s.*)", "", title).strip()
+    if re.search(r"((\s(-)|:)\s)", title):
+        shortened_title = re.sub(r"((\s(-)|:)\s.*)", "", title).strip()
     return shortened_title
 
 
@@ -7268,20 +7283,22 @@ def get_subtitle_from_title(file):
 
     # remove the series name from the title
     without_series_name = re.sub(
-        file.series_name, "", file.name, flags=re.IGNORECASE
-    ).strip()
+        rf"{re.escape(file.series_name)}", "", file.name, flags=re.IGNORECASE
+    )
 
-    if re.search(r"((\s(-|\+)|:)\s)", without_series_name) and re.search(
+    if re.search(r"((\s(-)|:)\s)", without_series_name) and re.search(
         r"([\[\{\(]((\d{4}))[\]\}\)])", without_series_name
     ):
         # remove everything to the left of the marker
-        subtitle = re.sub(r"(.*)((\s(-|\+)|:)\s)", "", without_series_name)
+        subtitle = re.sub(r"(.*)((\s(-)|:)\s)", "", without_series_name)
         # remove everything to the right of the release year
         subtitle = re.sub(r"([\[\{\(]((\d{4}))[\]\}\)])(.*)", "", subtitle)
         # remove any extra spaces
         subtitle = remove_dual_space(subtitle).strip()
         # check that the subtitle isn't present in the folder name, otherwise it's probably not a subtitle
-        if re.search(subtitle, os.path.basename(file.path), re.IGNORECASE):
+        if re.search(
+            rf"{re.escape(subtitle)}", os.path.basename(file.path), re.IGNORECASE
+        ):
             subtitle = ""
     return subtitle
 
