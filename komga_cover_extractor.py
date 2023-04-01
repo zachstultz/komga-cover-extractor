@@ -487,7 +487,7 @@ class Handler(FileSystemEventHandler):
 
         elif event.event_type == "created":
             # Take any action here when a file is first created.
-            print("\nWatchdog file found:  %s." % event.src_path)
+            print("\tfile found:  %s." % event.src_path + "\n")
 
             if not os.path.isfile(event.src_path):
                 return None
@@ -1133,11 +1133,16 @@ def clean_and_sort(
     chapters=chapter_support_toggle,
     just_these_files=[],
     just_these_dirs=[],
+    skip_remove_ignored_folder_names=False,
+    skip_remove_hidden_files=False,
+    skip_remove_unaccepted_file_types=False,
+    skip_remove_hidden_folders=False,
+    keep_images_in_just_these_files=False,
 ):
     global ignored_folder_names
     global file_extensions
     start_time = time.time()
-    if ignored_folder_names:
+    if ignored_folder_names and not skip_remove_ignored_folder_names:
         ignored_folder_names_start = time.time()
         ignored_parts = [
             part for part in root.split(os.sep) if part and part in ignored_folder_names
@@ -1152,23 +1157,33 @@ def clean_and_sort(
     if files:
         if sort:
             files.sort()
-        hidden_files_remove_start = time.time()
-        files = remove_hidden_files(files)
-        if output_execution_times:
-            print_function_execution_time(
-                hidden_files_remove_start,
-                "remove_hidden_files() in clean_and_sort()",
-            )
-        remove_unnaccepted_file_types_start = time.time()
-        files = remove_unaccepted_file_types(files, root, file_extensions)
-        if output_execution_times:
-            print_function_execution_time(
-                remove_unnaccepted_file_types_start,
-                "remove_unaccepted_file_types() in clean_and_sort()",
-            )
+        if not skip_remove_hidden_files:
+            hidden_files_remove_start = time.time()
+            files = remove_hidden_files(files)
+            if output_execution_times:
+                print_function_execution_time(
+                    hidden_files_remove_start,
+                    "remove_hidden_files() in clean_and_sort()",
+                )
+        if not skip_remove_unaccepted_file_types:
+            remove_unnaccepted_file_types_start = time.time()
+            files = remove_unaccepted_file_types(files, root, file_extensions)
+            if output_execution_times:
+                print_function_execution_time(
+                    remove_unnaccepted_file_types_start,
+                    "remove_unaccepted_file_types() in clean_and_sort()",
+                )
         if just_these_files:
             # just_these_basenames = [os.path.basename(x) for x in just_these_files]
-            files = [x for x in files if os.path.join(root, x) in just_these_files]
+            files = [
+                x
+                for x in files
+                if os.path.join(root, x) in just_these_files
+                or (
+                    keep_images_in_just_these_files
+                    and get_file_extension(x) in image_extensions
+                )
+            ]
         if not chapters:
             filter_non_chapters_start = time.time()
             files = filter_non_chapters(files)
@@ -1180,13 +1195,14 @@ def clean_and_sort(
     if dirs:
         if sort:
             dirs.sort()
-        remove_hidden_folders_start = time.time()
-        dirs = remove_hidden_folders(dirs)
-        if output_execution_times:
-            print_function_execution_time(
-                remove_hidden_folders_start,
-                "remove_hidden_folders() in clean_and_sort()",
-            )
+        if not skip_remove_hidden_folders:
+            remove_hidden_folders_start = time.time()
+            dirs = remove_hidden_folders(dirs)
+            if output_execution_times:
+                print_function_execution_time(
+                    remove_hidden_folders_start,
+                    "remove_hidden_folders() in clean_and_sort()",
+                )
         if just_these_dirs:
             allowed_dirs = []
             for transferred_dir in just_these_dirs:
@@ -1200,13 +1216,14 @@ def clean_and_sort(
                         ) < len(transferred_dir.files):
                             allowed_dirs.append(dir)
             dirs = allowed_dirs
-        remove_ignored_folder_names_start = time.time()
-        dirs = remove_ignored_folder_names(dirs)
-        if output_execution_times:
-            print_function_execution_time(
-                remove_ignored_folder_names_start,
-                "remove_ignored_folder_names() in clean_and_sort()",
-            )
+        if not skip_remove_ignored_folder_names:
+            remove_ignored_folder_names_start = time.time()
+            dirs = remove_ignored_folder_names(dirs)
+            if output_execution_times:
+                print_function_execution_time(
+                    remove_ignored_folder_names_start,
+                    "remove_ignored_folder_names() in clean_and_sort()",
+                )
     if output_execution_times:
         print_function_execution_time(start_time, "clean_and_sort()")
     return files, dirs
@@ -1608,6 +1625,9 @@ def create_folders_for_items_in_download_folder(group=False):
                             if move_lone_files_to_similar_folder and dirs:
                                 for dir in dirs:
                                     if (
+                                        dir.strip().lower()
+                                        == file.basename.strip().lower()
+                                    ) or (
                                         similar(
                                             replace_underscore_in_name(
                                                 remove_punctuation(dir)
@@ -3130,13 +3150,10 @@ def reorganize_and_rename(files, dir, group=False):
                         else:
                             user_input = get_input_from_user(
                                 "\t\tReorganize & Rename?",
-                                ["y", "yes", "n", "no"],
+                                ["y", "n"],
                                 ["y", "n"],
                             )
-                        if (
-                            user_input.lower().strip() == "y"
-                            or user_input.lower().strip() == "yes"
-                        ):
+                        if user_input.lower().strip() == "y":
                             if not os.path.isfile(os.path.join(file.root, rename)):
                                 rename_file(
                                     file.path,
@@ -3995,19 +4012,18 @@ def check_for_duplicate_volumes(paths_to_search=[], group=False):
                                                         add_to_grouped_notifications(
                                                             Embed(embed[0], None)
                                                         )
+                                                        user_input = None
                                                         if not manual_delete:
-                                                            remove_file(
-                                                                duplicate_file.path,
-                                                                group=group,
-                                                            )
-                                                        elif (
-                                                            input(
-                                                                "\t\t\t\tDelete: "
+                                                            user_input = "y"
+                                                        else:
+                                                            user_input = get_input_from_user(
+                                                                '\t\t\tDelete "'
                                                                 + duplicate_file.name
-                                                                + "? (y/n): "
+                                                                + '"',
+                                                                ["y", "n"],
+                                                                ["y", "n"],
                                                             )
-                                                            == "y"
-                                                        ):
+                                                        if user_input == "y":
                                                             remove_file(
                                                                 duplicate_file.path,
                                                                 group=group,
@@ -4018,7 +4034,6 @@ def check_for_duplicate_volumes(paths_to_search=[], group=False):
                                                                 + duplicate_file.name
                                                             )
                                                     else:
-
                                                         file_hash = get_file_hash(
                                                             file.path
                                                         )
@@ -5286,15 +5301,12 @@ def rename_dirs_in_download_folder(group=False):
                             user_input = ""
                             if manual_rename:
                                 user_input = get_input_from_user(
-                                    "\tRename", ["y", "yes", "n", "no"], ["y", "n"]
+                                    "\tRename", ["y", "n"], ["y", "n"]
                                 )
                             else:
                                 user_input = "y"
                             try:
-                                if (
-                                    user_input.strip().lower() == "y"
-                                    or user_input.strip().lower() == "yes"
-                                ):
+                                if user_input.strip().lower() == "y":
                                     # if the direcotry doesn't exist, then rename to it
                                     if not os.path.exists(
                                         os.path.join(
@@ -5455,16 +5467,13 @@ def rename_dirs_in_download_folder(group=False):
                                         if manual_rename:
                                             user_input = get_input_from_user(
                                                 "\tRename",
-                                                ["y", "yes", "n", "no"],
+                                                ["y", "n"],
                                                 ["y", "n"],
                                             )
                                         else:
                                             user_input = "y"
                                         try:
-                                            if (
-                                                user_input.lower().strip() == "y"
-                                                or user_input.lower().strip() == "yes"
-                                            ):
+                                            if user_input.lower().strip() == "y":
                                                 try:
                                                     new_folder_path_two = rename_folder(
                                                         os.path.join(
@@ -6198,10 +6207,10 @@ def rename_files_in_download_folders(only_these_files=[], group=False):
                                             else:
                                                 user_input = get_input_from_user(
                                                     "\t\tRename",
-                                                    ["y", "yes", "n", "no"],
+                                                    ["y", "n"],
                                                     ["y", "n"],
                                                 )
-                                            if user_input == "y" or user_input == "yes":
+                                            if user_input == "y":
                                                 try:
                                                     rename_file(
                                                         file.path,
@@ -6342,37 +6351,23 @@ def delete_chapters_from_downloads(group=False):
                             without_timestamp=True,
                             check_for_dup=True,
                         )
-                    # clean = clean_and_sort(root, files, dirs)
-                    # files, dirs = clean[0], clean[1]
-                    dirs = remove_ignored_folder_names(dirs)
-                    files = remove_hidden_files(files)
+                    clean = None
                     if (
                         watchdog_toggle
                         and download_folders
                         and any(x for x in download_folders if root.startswith(x))
                     ):
-                        if transferred_files:
-                            transferred_basenames = [
-                                os.path.basename(x) for x in transferred_files
-                            ]
-                            files = [x for x in files if x in transferred_basenames]
-                        if transferred_dirs:
-                            allowed_dirs = []
-                            for transferred_dir in transferred_dirs:
-                                for dir in dirs:
-                                    if transferred_dir.folder_name == dir:
-                                        current_files = (
-                                            get_all_files_recursively_in_dir(
-                                                os.path.join(root, dir)
-                                            )
-                                        )
-                                        if len(transferred_dir.files) == len(
-                                            current_files
-                                        ) or len(current_files) < len(
-                                            transferred_dir.files
-                                        ):
-                                            allowed_dirs.append(dir)
-                            dirs = allowed_dirs
+                        clean = clean_and_sort(
+                            root,
+                            files,
+                            dirs,
+                            chapters=True,
+                            just_these_files=transferred_files,
+                            just_these_dirs=transferred_dirs,
+                        )
+                    else:
+                        clean = clean_and_sort(root, files, dirs, chapters=True)
+                    files, dirs = clean[0], clean[1]
                     for file in files:
                         if (
                             contains_chapter_keywords(file)
@@ -6984,40 +6979,29 @@ def delete_unacceptable_files(group=False):
                                 without_timestamp=True,
                                 check_for_dup=True,
                             )
-                        dirs = remove_ignored_folder_names(dirs)
-                        files = remove_hidden_files(files)
+                        clean = None
                         if (
                             watchdog_toggle
                             and download_folders
                             and any(x for x in download_folders if root.startswith(x))
                         ):
-                            if transferred_files:
-                                transferred_basenames = [
-                                    os.path.basename(x) for x in transferred_files
-                                ]
-                                files = [
-                                    x
-                                    for x in files
-                                    if x in transferred_basenames
-                                    or get_file_extension(x) in image_extensions
-                                ]
-                            if transferred_dirs:
-                                allowed_dirs = []
-                                for transferred_dir in transferred_dirs:
-                                    for dir in dirs:
-                                        if transferred_dir.folder_name == dir:
-                                            current_files = (
-                                                get_all_files_recursively_in_dir(
-                                                    os.path.join(root, dir)
-                                                )
-                                            )
-                                            if len(transferred_dir.files) == len(
-                                                current_files
-                                            ) or len(current_files) < len(
-                                                transferred_dir.files
-                                            ):
-                                                allowed_dirs.append(dir)
-                                dirs = allowed_dirs
+                            clean = clean_and_sort(
+                                root,
+                                files,
+                                dirs,
+                                just_these_files=transferred_files,
+                                just_these_dirs=transferred_dirs,
+                                skip_remove_unaccepted_file_types=True,
+                                keep_images_in_just_these_files=True,
+                            )
+                        else:
+                            clean = clean_and_sort(
+                                root,
+                                files,
+                                dirs,
+                                skip_remove_unaccepted_file_types=True,
+                            )
+                        files, dirs = clean[0], clean[1]
                         for file in files:
                             file_path = os.path.join(root, file)
                             if os.path.isfile(file_path):
@@ -8768,7 +8752,7 @@ def main():
 if __name__ == "__main__":
     parse_my_args()  # parses the user's arguments
     if watchdog_toggle and download_folders:
-        print("\nWatchdog is enabled, watching for changes...\n")
+        print("\nWatchdog is enabled, watching for changes...")
         watch = Watcher()
         watch.run()
     else:
