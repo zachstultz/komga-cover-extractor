@@ -2357,6 +2357,8 @@ def remove_duplicate_releases_from_download(
             downloaded_releases.remove(download)
         if downloaded_releases:
             for original in original_releases[:]:
+                if not os.path.isfile(download.path):
+                    break
                 if (
                     (
                         isinstance(download.volume_number, float)
