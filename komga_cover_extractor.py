@@ -189,6 +189,7 @@ exclusion_keywords = [
     "Omake",
     "Extra",
     "Special",
+    "Side Story",
 ]
 
 # Volume Regex Keywords to be used throughout the script
@@ -555,7 +556,7 @@ class Handler(FileSystemEventHandler):
                 time.sleep(5)
 
             # Proceed with the next steps here.
-            print("\nAll files are transferred.")
+            print("All files are transferred.")
             new_transferred_dirs = []
             if transferred_dirs:
                 # if it's already a folder object, then just add it to the new list
@@ -958,7 +959,6 @@ last_hook_index = None
 
 # Handles picking a webhook url, to evenly distribute the load
 def pick_webhook(hook, passed_webhook=None, url=None):
-    global discord_webhook_url
     global last_hook_index
     if not passed_webhook:
         if discord_webhook_url:
@@ -991,7 +991,6 @@ def send_discord_message(
     image=None,
     image_local=None,
 ):
-    global script_version
     global grouped_notifications
     global webhook_obj
     hook = None
@@ -1063,7 +1062,6 @@ def remove_hidden_folders(dirs):
 # check if volume file name is a chapter
 @lru_cache(maxsize=None)
 def contains_chapter_keywords(file_name):
-    global chapter_searches
     # Removes underscores from the file name
     file_name_clean = replace_underscore_in_name(file_name)
     file_name_clean = re.sub(r"c1fi7", "", file_name_clean, re.IGNORECASE)
@@ -1139,8 +1137,19 @@ def clean_and_sort(
     skip_remove_hidden_folders=False,
     keep_images_in_just_these_files=False,
 ):
-    global ignored_folder_names
-    global file_extensions
+    if (
+        check_for_existing_series_toggle
+        and root not in cached_paths
+        and root not in download_folders
+        and root not in paths
+        and not any(root.startswith(path) for path in download_folders)
+    ):
+        write_to_file(
+            "cached_paths.txt",
+            root,
+            without_timestamp=True,
+            check_for_dup=True,
+        )
     start_time = time.time()
     if ignored_folder_names and not skip_remove_ignored_folder_names:
         ignored_folder_names_start = time.time()
@@ -1367,8 +1376,6 @@ def get_novel_cover(novel_path):
 
 # Checks if the passed string is a volume one.
 def is_volume_one(volume_name):
-    global volume_regex_keywords
-    global chapter_regex_keywords
     keywords = volume_regex_keywords
     if contains_chapter_keywords(volume_name) and not contains_volume_keywords(
         volume_name
@@ -1386,7 +1393,6 @@ def is_volume_one(volume_name):
 # Checks for volume keywords and chapter keywords.
 # If neither are present, the volume is assumed to be a one-shot volume.
 def is_one_shot(file_name, root=None, skip_folder_check=False):
-    global volume_year_regex
     files = []
     if not skip_folder_check:
         files = clean_and_sort(root, os.listdir(root))[0]
@@ -1444,8 +1450,6 @@ def move_images(file, folder_name, group=False):
 # Retrieves the series name through various regexes
 # Removes the volume number and anything to the right of it, and strips it.
 def get_series_name_from_file_name(name, root):
-    global volume_regex_keywords
-    global file_extensions_regex
     # name = remove_bracketed_info_from_name(name)
     start_time = time.time()
     if is_one_shot(name, root):
@@ -1495,14 +1499,14 @@ def get_series_name_from_file_name(name, root):
 
 
 def chapter_file_name_cleaning(file_name, chapter_number="", skip=False):
-    global chapter_regex_keywords
     start_time = time.time()
+
     # removes any brackets and their contents
     file_name = remove_bracketed_info_from_name(file_name)
 
     # Remove any single brackets at the end of the file_name
     # EX: "Death Note - Bonus Chapter (" --> "Death Note - Bonus Chapter"
-    file_name = re.sub(r"([\(\[\{])|([\)\]\}])$", "", file_name).strip()
+    file_name = re.sub(r"(\s(([\(\[\{])|([\)\]\}])))$", "", file_name).strip()
 
     # EX: "006.3 - One Piece" --> "One Piece"
     file_name = re.sub(
@@ -1549,7 +1553,6 @@ def chapter_file_name_cleaning(file_name, chapter_number="", skip=False):
 
 
 def get_series_name_from_file_name_chapter(name, root, chapter_number=""):
-    global file_extensions_regex
     start_time = time.time()
     # remove the file extension
     name = re.sub(r"(%s)$" % file_extensions_regex, "", name).strip()
@@ -1584,7 +1587,6 @@ def get_series_name_from_file_name_chapter(name, root, chapter_number=""):
 
 # Creates folders for our stray volumes sitting in the root of the download folder.
 def create_folders_for_items_in_download_folder(group=False):
-    global grouped_notifications
     global transferred_files
     for download_folder in download_folders:
         if os.path.exists(download_folder):
@@ -1801,8 +1803,6 @@ def convert_list_of_numbers_to_array(string):
 # Finds the volume number and strips out everything except that number
 def remove_everything_but_volume_num(files, chapter=False):
     start_time = time.time()
-    global chapter_searches
-    global file_extensions_regex
     results = []
     is_multi_volume = False
     keywords = volume_regex_keywords
@@ -1994,7 +1994,6 @@ rx_remove_x_hash = re.compile(r"((x|#))", re.IGNORECASE)
 
 # Retrieves and returns the file part from the file name
 def get_file_part(file, chapter=False):
-    global rx_remove, rx_search_part, rx_search_chapters, rx_remove_x_hash
     result = ""
     if not chapter:
         # Remove the matched string from the input file name
@@ -2103,7 +2102,6 @@ def get_keyword_score(name, file_type, ranked_keywords):
 
 # Checks if the downloaded release is an upgrade for the current release.
 def is_upgradeable(downloaded_release, current_release):
-    global ranked_keywords
     downloaded_release_result = get_keyword_score(
         downloaded_release.name, downloaded_release.file_type, ranked_keywords
     )
@@ -2156,7 +2154,6 @@ def add_to_grouped_notifications(embed, passed_webhook=None):
 
 # Removes a file
 def remove_file(full_file_path, silent=False, group=False):
-    global grouped_notifications
     if os.path.isfile(full_file_path):
         try:
             os.remove(full_file_path)
@@ -2209,7 +2206,6 @@ def remove_file(full_file_path, silent=False, group=False):
 
 # Move a file
 def move_file(file, new_location, silent=False, group=False):
-    global grouped_notifications
     try:
         if os.path.isfile(file.path):
             shutil.move(file.path, new_location)
@@ -2258,7 +2254,6 @@ def move_file(file, new_location, silent=False, group=False):
 
 # Replaces an old file.
 def replace_file(old_file, new_file, group=False):
-    global grouped_notifications
     try:
         if os.path.isfile(old_file.path) and os.path.isfile(new_file.path):
             file_removal_status = remove_file(old_file.path, group=group)
@@ -2340,7 +2335,6 @@ def remove_duplicate_releases_from_download(
     original_releases, downloaded_releases, group=False
 ):
     global moved_files
-    global grouped_notifications
     for download in downloaded_releases[:]:
         if (
             not isinstance(download.volume_number, int)
@@ -2686,18 +2680,34 @@ def check_and_delete_empty_folder(folder):
 
 # Writes a log file
 def write_to_file(
-    file, message, without_timestamp=False, overwrite=False, check_for_dup=False
+    file,
+    message,
+    without_timestamp=False,
+    overwrite=False,
+    check_for_dup=False,
+    write_to=None,
 ):
-    if log_to_file:
+    logs_dir = None
+    if not write_to:
+        logs_dir = ROOT_DIR
+    else:
+        logs_dir = write_to
+    if not os.path.exists(logs_dir):
+        try:
+            os.makedirs(logs_dir)
+        except OSError as e:
+            send_message(e, error=True)
+            return
+    if log_to_file and logs_dir:
         message = re.sub("\t|\n", "", str(message), flags=re.IGNORECASE).strip()
         contains = False
-        if check_for_dup and os.path.isfile(os.path.join(ROOT_DIR, file)):
+        if check_for_dup and os.path.isfile(os.path.join(logs_dir, file)):
             contains = check_text_file_for_message(
-                os.path.join(ROOT_DIR, file), message
+                os.path.join(logs_dir, file), message
             )
         if not contains or overwrite:
             try:
-                file_path = os.path.join(ROOT_DIR, file)
+                file_path = os.path.join(logs_dir, file)
                 append_write = ""
                 if os.path.exists(file_path):
                     if not overwrite:
@@ -2906,11 +2916,6 @@ def get_input_from_user(prompt, acceptable_values=[], example=None):
 
 
 def reorganize_and_rename(files, dir, group=False):
-    global manual_rename
-    global file_extensions_regex
-    global manga_extensions
-    global novel_extensions
-    global grouped_notifications
     global transferred_files
     base_dir = os.path.basename(dir)
     for file in files:
@@ -3213,6 +3218,8 @@ def reorganize_and_rename(files, dir, group=False):
                                     + file.name
                                 )
                                 remove_file(file.path, silent=True)
+                        else:
+                            print("\t\t\tSkipping...")
                         if file.file_type == "volume":
                             file.volume_number = remove_everything_but_volume_num(
                                 [rename]
@@ -3455,11 +3462,7 @@ def check_upgrade(
     group=False,
 ):
     global moved_files
-    global new_volume_webhook
     global messages_to_send
-    global manga_extensions
-    global novel_extensions
-    global grouped_notifications
     existing_dir = os.path.join(existing_root, dir)
     clean_existing = os.listdir(existing_dir)
     clean_existing = clean_and_sort(existing_dir, clean_existing)[0]
@@ -3800,7 +3803,10 @@ def remove_bracketed_info_from_name(string):
     # Use a while loop to repeatedly apply the regular expression to the string and remove the matched bracketed content
     while True:
         # The regular expression matches any substring enclosed in brackets and not immediately preceded or followed by a dash, along with the surrounding whitespace characters
-        match = re.search(r"(?<!-)\s*([\(\[\{][^\)\]\}]+[\)\]\}])\s*(?!-)", string)
+        match = re.search(
+            r"(?<!-|[A-Za-z]\s)\s*([\(\[\{][^\)\]\}]+[\)\]\}])\s*(?!-|\s*[A-Za-z])",
+            string,
+        )
 
         # If there are no more matches, exit the loop
         if not match:
@@ -3808,7 +3814,10 @@ def remove_bracketed_info_from_name(string):
 
         # Replace the first set of brackets and their contents, along with the surrounding whitespace characters, with an empty string
         string = re.sub(
-            r"(?<!-)\s*([\(\[\{][^\)\]\}]+[\)\]\}])\s*(?!-)", " ", string, 1
+            r"(?<!-|[A-Za-z]\s)\s*([\(\[\{][^\)\]\}]+[\)\]\}])\s*(?!-|\s*[A-Za-z])",
+            " ",
+            string,
+            1,
         )
 
     # Remove all whitespace characters from the right side of the string
@@ -3823,7 +3832,6 @@ def remove_bracketed_info_from_name(string):
 
 # Checks for any duplicate releases and deletes the lower ranking one.
 def check_for_duplicate_volumes(paths_to_search=[], group=False):
-    global grouped_notifications
     try:
         for p in paths_to_search:
             if os.path.exists(p):
@@ -4041,10 +4049,7 @@ def check_for_duplicate_volumes(paths_to_search=[], group=False):
                                                                 group=group,
                                                             )
                                                         else:
-                                                            send_message(
-                                                                "\t\t\t\tBased on user input, Skipping: "
-                                                                + duplicate_file.name
-                                                            )
+                                                            print("\t\t\t\tSkipping...")
                                                     else:
                                                         file_hash = get_file_hash(
                                                             file.path
@@ -4237,8 +4242,6 @@ def check_for_existing_series(group=False):
     global cached_paths
     global cached_identifier_results
     global messages_to_send
-    global paths_with_types
-    global grouped_notifications
     if download_folders:
         print("\nChecking download folders for items to match to existing library...")
         for download_folder in download_folders:
@@ -4652,18 +4655,6 @@ def check_for_existing_series(group=False):
                                                 root not in cached_paths
                                                 and root not in download_folders
                                             ):
-                                                if (
-                                                    cached_paths
-                                                    and root not in cached_paths
-                                                    and path not in download_folders
-                                                    and root not in paths
-                                                ):
-                                                    write_to_file(
-                                                        "cached_paths.txt",
-                                                        root,
-                                                        without_timestamp=True,
-                                                        check_for_dup=True,
-                                                    )
                                                 if done:
                                                     break
                                                 print(
@@ -5146,7 +5137,6 @@ def group_similar_series(messages_to_send):
 # !OLD METHOD!: Only used for cleaning a folder name as a backup if no volumes were found inside the folder
 # when renaming folders in the dowload directory.
 def get_series_name(dir):
-    global volume_regex_keywords
     dir = (
         re.sub(
             r"(\b|\s)((\s|)-(\s|)|)(Part|)(%s)([-_. ]|)([-_. ]|)([0-9]+)(\b|\s).*"
@@ -5204,7 +5194,6 @@ def rename_dirs_in_download_folder(group=False):
                     )
                 download_folder_files, download_folder_dirs = clean[0], clean[1]
                 global folder_accessor
-                global volume_regex_keywords
                 file_objects = upgrade_to_file_class(
                     download_folder_files[:], download_folder
                 )
@@ -5436,7 +5425,7 @@ def rename_dirs_in_download_folder(group=False):
                                         check_and_delete_empty_folder(v.root)
                                         done = True
                                 else:
-                                    print("Skipping...")
+                                    print("\t\tSkipping...")
                             except Exception as e:
                                 print(e)
                                 print("Skipping...")
@@ -5553,6 +5542,7 @@ def rename_dirs_in_download_folder(group=False):
                                                         error=True,
                                                     )
                                             else:
+                                                print("\t\tSkipping...")
                                                 continue
                                         except OSError as e:
                                             send_message(e, error=True)
@@ -5801,31 +5791,11 @@ def parse_html_tags(html):
 
 # Renames files.
 def rename_files_in_download_folders(only_these_files=[], group=False):
-    global manual_rename
-    global cached_paths
-    global chapter_searches
-    global manga_extensions
-    global novel_extensions
-    global file_extensions
-    global grouped_notifications
     global transferred_files
     print("\nSearching for files to rename...")
     for path in download_folders:
         if os.path.exists(path):
             for root, dirs, files in scandir.walk(path):
-                if (
-                    root not in cached_paths
-                    and root not in download_folders
-                    and root not in paths
-                    and path not in download_folders
-                    and check_for_existing_series_toggle
-                ):
-                    write_to_file(
-                        "cached_paths.txt",
-                        root,
-                        without_timestamp=True,
-                        check_for_dup=True,
-                    )
                 clean = None
                 if (
                     watchdog_toggle
@@ -5885,21 +5855,27 @@ def rename_files_in_download_folders(only_these_files=[], group=False):
                                     remove_bracketed_info_from_name(file.name)
                                 )
                                 or (
-                                    not re.search(
-                                        "(0+)?"
-                                        + str(
-                                            set_num_as_float_or_int(file.volume_number)
-                                        ),
-                                        file.series_name,
-                                        re.IGNORECASE,
-                                    )
-                                    and only_has_one_set_of_numbers(
-                                        remove_bracketed_info_from_name(
-                                            re.sub(
-                                                file.series_name,
-                                                "",
-                                                file.name,
-                                                flags=re.IGNORECASE,
+                                    file.volume_number
+                                    and (
+                                        not re.search(
+                                            "(0+)?"
+                                            + str(
+                                                set_num_as_float_or_int(
+                                                    file.volume_number
+                                                )
+                                            )
+                                            + "\b",
+                                            file.series_name,
+                                            re.IGNORECASE,
+                                        )
+                                        and only_has_one_set_of_numbers(
+                                            remove_bracketed_info_from_name(
+                                                re.sub(
+                                                    re.escape(file.series_name),
+                                                    "",
+                                                    file.name,
+                                                    flags=re.IGNORECASE,
+                                                )
                                             )
                                         )
                                     )
@@ -6153,10 +6129,11 @@ def rename_files_in_download_folders(only_these_files=[], group=False):
                                         converted_value == file.volume_number
                                         and converted_and_filled
                                     ):
-                                        optional_following_zero = r"(0+)?"
+                                        optional_following_zero = (
+                                            rf"(0+)?{str(converted_value)}\b"
+                                        )
                                         replacement = re.sub(
-                                            optional_following_zero
-                                            + str(converted_value),
+                                            optional_following_zero,
                                             " "
                                             + preferred_naming_format
                                             + str(converted_and_filled),
@@ -6300,6 +6277,8 @@ def rename_files_in_download_folders(only_these_files=[], group=False):
                                                         + file.name,
                                                         error=True,
                                                     )
+                                            else:
+                                                print("\t\t\tSkipping...")
                                         else:
                                             # if it already exists, then delete file.name
                                             print(
@@ -6348,26 +6327,11 @@ def check_for_exception_keywords(file_name, exception_keywords):
 
 # Deletes chapter files from the download folder.
 def delete_chapters_from_downloads(group=False):
-    global manga_extensions
-    global grouped_notifications
     try:
         for path in download_folders:
             if os.path.exists(path):
                 os.chdir(path)
                 for root, dirs, files in scandir.walk(path):
-                    if (
-                        root not in cached_paths
-                        and root not in download_folders
-                        and root not in paths
-                        and path not in download_folders
-                        and check_for_existing_series_toggle
-                    ):
-                        write_to_file(
-                            "cached_paths.txt",
-                            root,
-                            without_timestamp=True,
-                            check_for_dup=True,
-                        )
                     clean = None
                     if (
                         watchdog_toggle
@@ -6480,8 +6444,6 @@ def remove_non_images(files):
 # Finds and extracts the internal cover from a manga or novel file.
 def find_and_extract_cover(file, return_data_only=False):
     start_time = time.time()
-    global blank_cover_required_similarity_score
-    global novel_extensions
     # check if the file is a valid zip file
     if zipfile.is_zipfile(file.path):
         novel_cover_path = ""
@@ -6529,8 +6491,6 @@ def find_and_extract_cover(file, return_data_only=False):
             image_data = None
             if zip_list and cover_searches:
                 blank_images = []  # used to avoid comparing the same image twice
-                global blank_white_image_path
-                global blank_black_image_path
                 for image_file in zip_list:
                     for search in cover_searches:
                         if (
@@ -6733,24 +6693,11 @@ def find_and_extract_cover(file, return_data_only=False):
 
 # Extracts the covers out from our manga and novel files.
 def extract_covers():
-    global cached_paths
     print("\nLooking for covers to extract...")
     for path in paths:
         if os.path.exists(path):
             os.chdir(path)
             for root, dirs, files in scandir.walk(path):
-                if (
-                    root not in cached_paths
-                    and root not in download_folders
-                    and root not in paths
-                    and path not in download_folders
-                ):
-                    write_to_file(
-                        "cached_paths.txt",
-                        root,
-                        without_timestamp=True,
-                        check_for_dup=True,
-                    )
                 clean = None
                 if (
                     watchdog_toggle
@@ -6779,7 +6726,6 @@ def extract_covers():
                         os.path.basename(root),
                         upgrade_to_file_class(files, root),
                     )
-                    global image_count
                     start_time = time.time()
                     contains_volume_one = any(
                         file.file_type == "volume" and file.number == 1
@@ -6953,7 +6899,6 @@ def process_cover_extraction(file, contains_volume_one, contains_multiple_volume
 
 
 def print_stats():
-    global file_counters
     print("\nFor all paths.")
     if file_counters:
         # get the total count from file_counters
@@ -6974,8 +6919,6 @@ def print_stats():
 
 # Deletes any file with an extension in unaccepted_file_extensions from the download_folers
 def delete_unacceptable_files(group=False):
-    global cached_paths
-    global grouped_notifications
     if unaccepted_file_extensions:
         print("Searching for unacceptable files...")
         try:
@@ -6983,19 +6926,6 @@ def delete_unacceptable_files(group=False):
                 if os.path.exists(path):
                     os.chdir(path)
                     for root, dirs, files in scandir.walk(path):
-                        if (
-                            root not in cached_paths
-                            and root not in download_folders
-                            and root not in paths
-                            and path not in download_folders
-                            and check_for_existing_series_toggle
-                        ):
-                            write_to_file(
-                                "cached_paths.txt",
-                                root,
-                                without_timestamp=True,
-                                check_for_dup=True,
-                            )
                         clean = None
                         if (
                             watchdog_toggle
@@ -7031,12 +6961,38 @@ def delete_unacceptable_files(group=False):
                                     send_message(
                                         "\tUnacceptable: "
                                         + extension
-                                        + " file found in "
+                                        + " file type found in "
                                         + file
-                                        + "\n\t\tDeleting file from: "
+                                        + "\n\t\tLocation: "
                                         + root,
                                         discord=False,
                                     )
+                                    embed = [
+                                        handle_fields(
+                                            DiscordEmbed(
+                                                title="Unacceptable File Type Found",
+                                                color=yellow_color,
+                                            ),
+                                            fields=[
+                                                {
+                                                    "name": "File Type:",
+                                                    "value": "```" + extension + "```",
+                                                    "inline": False,
+                                                },
+                                                {
+                                                    "name": "In:",
+                                                    "value": "```" + file + "```",
+                                                    "inline": False,
+                                                },
+                                                {
+                                                    "name": "Location:",
+                                                    "value": "```" + root + "```",
+                                                    "inline": False,
+                                                },
+                                            ],
+                                        )
+                                    ]
+                                    add_to_grouped_notifications(Embed(embed[0], None))
                                     remove_file(file_path, group=group)
                                 elif unacceptable_keywords:
                                     for keyword in unacceptable_keywords:
@@ -7088,21 +7044,6 @@ def delete_unacceptable_files(group=False):
                                                 Embed(embed[0], None)
                                             )
                                             remove_file(file_path, group=group)
-                                            if not os.path.isfile(file_path):
-                                                print(
-                                                    "\t\t\tSuccessfully removed unacceptable file: "
-                                                    + file
-                                                    + "\n\t\t\tFrom: "
-                                                    + root
-                                                )
-                                            else:
-                                                send_message(
-                                                    "\t\t\tFailed to remove unacceptable file: "
-                                                    + file
-                                                    + "\n\t\t\tFrom: "
-                                                    + root,
-                                                    error=True,
-                                                )
                                             break
                     for root, dirs, files in scandir.walk(path):
                         clean_two = None
@@ -7308,9 +7249,7 @@ def get_subtitle_from_title(file):
 def search_bookwalker(
     query, type, print_info=False, alternative_search=False, shortened_search=False
 ):
-    global volume_regex_keywords
     global required_similarity_score
-    global sleep_timer_bk
     # The total amount of pages to scrape
     total_pages_to_scrape = 5
     # The books returned from the search
@@ -7914,8 +7853,6 @@ def search_bookwalker(
 # Checks the library against bookwalker for any missing volumes that are released or on pre-order
 # Doesn't work with NSFW results atm.
 def check_for_new_volumes_on_bookwalker():
-    global manga_extensions
-    global novel_extensions
     global discord_embed_limit
     original_limit = discord_embed_limit
     discord_embed_limit = 1
@@ -8630,7 +8567,12 @@ def print_function_execution_time(start_time, function_name):
         + " seconds to complete.",
         discord=False,
     )
-    write_to_file(function_name + ".txt", str(rounded_time), without_timestamp=True)
+    write_to_file(
+        function_name + ".txt",
+        str(rounded_time),
+        without_timestamp=True,
+        write_to=os.path.join(ROOT_DIR, "performance_data"),
+    )
 
 
 # Optional features below, use at your own risk.
