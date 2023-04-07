@@ -196,10 +196,12 @@ exclusion_keywords = [
 volume_regex_keywords = "(?<![A-Za-z])" + "|(?<![A-Za-z])".join(volume_keywords)
 
 # Exclusion Regex Keywords to be used in the Chapter Regex Keywords to avoid incorrect number matches.
-exclusion_keywords_regex = "|".join(keyword + r"(\s)" for keyword in exclusion_keywords)
+exclusion_keywords_joined = "|".join(
+    keyword + r"(\s)" for keyword in exclusion_keywords
+)
 
-# Put the exclusion_keywords_regex inside of (?<!%s)
-exclusion_keywords_regex = r"(?<!%s)" % exclusion_keywords_regex
+# Put the exclusion_keywords_joined inside of (?<!%s)
+exclusion_keywords_regex = r"(?<!%s)" % exclusion_keywords_joined
 
 # Chapter Regex Keywords to be used throughout the script
 chapter_regex_keywords = r"(?<![A-Za-z])" + (r"|(?<![A-Za-z])").join(chapter_keywords)
@@ -556,7 +558,7 @@ class Handler(FileSystemEventHandler):
                 time.sleep(5)
 
             # Proceed with the next steps here.
-            print("All files are transferred.")
+            print("\nAll files are transferred.")
             new_transferred_dirs = []
             if transferred_dirs:
                 # if it's already a folder object, then just add it to the new list
@@ -5858,25 +5860,35 @@ def rename_files_in_download_folders(only_these_files=[], group=False):
                                     file.volume_number
                                     and (
                                         not re.search(
-                                            "(0+)?"
-                                            + str(
+                                            r"(%s)(0+)?%s\b"
+                                            % (
+                                                exclusion_keywords_regex,
+                                                set_num_as_float_or_int(
+                                                    file.volume_number
+                                                ),
+                                            ),
+                                            file.series_name,
+                                            re.IGNORECASE,
+                                        )
+                                        and (
+                                            only_has_one_set_of_numbers(
+                                                remove_bracketed_info_from_name(
+                                                    re.sub(
+                                                        re.escape(file.series_name),
+                                                        "",
+                                                        file.name,
+                                                        flags=re.IGNORECASE,
+                                                    )
+                                                )
+                                            )
+                                            or extract_all_numbers_from_string(
+                                                file.name
+                                            ).count(
                                                 set_num_as_float_or_int(
                                                     file.volume_number
                                                 )
                                             )
-                                            + "\b",
-                                            file.series_name,
-                                            re.IGNORECASE,
-                                        )
-                                        and only_has_one_set_of_numbers(
-                                            remove_bracketed_info_from_name(
-                                                re.sub(
-                                                    re.escape(file.series_name),
-                                                    "",
-                                                    file.name,
-                                                    flags=re.IGNORECASE,
-                                                )
-                                            )
+                                            == 1
                                         )
                                     )
                                 )
@@ -6129,9 +6141,7 @@ def rename_files_in_download_folders(only_these_files=[], group=False):
                                         converted_value == file.volume_number
                                         and converted_and_filled
                                     ):
-                                        optional_following_zero = (
-                                            rf"(0+)?{str(converted_value)}\b"
-                                        )
+                                        optional_following_zero = rf"\b({str(exclusion_keywords_regex)})(0+)?{str(converted_value)}\b"
                                         replacement = re.sub(
                                             optional_following_zero,
                                             " "
@@ -8489,6 +8499,23 @@ def has_multiple_numbers(file_name):
     if new_numbers and len(new_numbers) > 1:
         return True
     return False
+
+
+# Extracts all the numbers from a string
+def extract_all_numbers_from_string(string):
+    numbers = re.findall(
+        r"\b(%s)([0-9]+(\.[0-9]+)?)" % exclusion_keywords_regex, string
+    )
+    new_numbers = []
+    if numbers:
+        for number in numbers:
+            if isinstance(number, tuple):
+                for item in number:
+                    if item:
+                        new_numbers.append(set_num_as_float_or_int(item))
+            else:
+                new_numbers.append(set_num_as_float_or_int(number))
+    return new_numbers
 
 
 # Result class that is used for our image_comparison results from our
