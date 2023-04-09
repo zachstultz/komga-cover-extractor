@@ -5860,7 +5860,7 @@ def rename_files_in_download_folders(only_these_files=[], group=False):
                                     file.volume_number
                                     and (
                                         not re.search(
-                                            r"(%s)(0+)?%s\b"
+                                            r"\b(%s)(0+)?%s\b"
                                             % (
                                                 exclusion_keywords_regex,
                                                 set_num_as_float_or_int(
@@ -6141,7 +6141,7 @@ def rename_files_in_download_folders(only_these_files=[], group=False):
                                         converted_value == file.volume_number
                                         and converted_and_filled
                                     ):
-                                        optional_following_zero = rf"\b({str(exclusion_keywords_regex)})(0+)?{str(converted_value)}\b"
+                                        optional_following_zero = rf"\b({str(exclusion_keywords_regex)})(0+)?{str(converted_value)}(\b|(?=x|#))"
                                         replacement = re.sub(
                                             optional_following_zero,
                                             " "
@@ -8504,7 +8504,9 @@ def has_multiple_numbers(file_name):
 # Extracts all the numbers from a string
 def extract_all_numbers_from_string(string):
     numbers = re.findall(
-        r"\b(%s)([0-9]+(\.[0-9]+)?)" % exclusion_keywords_regex, string
+        r"\b(%s)(([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?(#([0-9]+)(([-_.])([0-9]+)|)+)?)"
+        % exclusion_keywords_regex,
+        string,
     )
     new_numbers = []
     if numbers:
@@ -8512,9 +8514,20 @@ def extract_all_numbers_from_string(string):
             if isinstance(number, tuple):
                 for item in number:
                     if item:
-                        new_numbers.append(set_num_as_float_or_int(item))
+                        if re.search(r"(x[0-9]+)", item):
+                            continue
+                        if re.search(r"(#([0-9]+)(([-_.])([0-9]+)|)+)", item):
+                            continue
+                        if item:
+                            new_numbers.append(set_num_as_float_or_int(item))
             else:
-                new_numbers.append(set_num_as_float_or_int(number))
+                if number:
+                    if re.search(r"(x[0-9]+)", number):
+                        continue
+                    if re.search(r"(#([0-9]+)(([-_.])([0-9]+)|)+)", number):
+                        continue
+                    if number:
+                        new_numbers.append(set_num_as_float_or_int(number))
     return new_numbers
 
 
