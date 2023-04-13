@@ -17,7 +17,12 @@ Detection is based on various scene releases, if none are detected, it will defa
 ## Instructions
 1. Run ```git clone https://github.com/zachstultz/komga-cover-extractor.git``` or download the repository up above.
 2. Run ```pip3 install -r requirements.txt```
-3. Read usage below and enjoy!
+3. (OPTIONAL) (IGNORE IF ALL YOU INTEND TO USE IS COVER EXTRACTION) (REQUIRED ONLY FOR OPT RAR FEATURES)
+    - Install unrar 
+      - Linux: ```sudo apt-get install unrar```
+      - MacOS: ```brew install unrar```
+      - Windows: Install UnRAR.dll from https://www.rarlab.com/rar_add.htm
+4. Read usage below and enjoy!
 
 ## Usage
 ```
