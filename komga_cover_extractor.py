@@ -1,6 +1,7 @@
 import os
 import re
 import zipfile
+import rarfile
 import shutil
 import string
 import regex as re
@@ -12,15 +13,13 @@ import calendar
 import requests
 import time
 import scandir
-import random
 import xml.etree.ElementTree as ET
 import io
-import concurrent.futures
 import numpy as np
 import cv2
 import hashlib
+import tempfile
 from PIL import Image
-from PIL import ImageFile
 from lxml import etree
 from genericpath import isfile
 from posixpath import join
@@ -35,11 +34,11 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from base64 import b64encode
 from unidecode import unidecode
-from io import BytesIO
 from functools import lru_cache
 from skimage.metrics import structural_similarity as ssim
 
-script_version = "2.2.6"
+script_version = "2.3.0"
+
 
 # Paths = existing library
 # Download_folders = newly aquired manga/novels
@@ -134,10 +133,7 @@ zip_extensions = [
     ".cbz",
     ".epub",
 ]
-rar_extensions = [
-    # ".rar",
-    # ".cbr"
-]
+rar_extensions = [".rar", ".cbr"]
 
 # Accepted file extensions for manga and novels
 novel_extensions = [".epub"]
@@ -278,6 +274,7 @@ group_discord_notifications_until_max = True
 # trying to process the same file multiple times.
 transferred_files = []
 transferred_dirs = []
+
 
 # Folder Class
 class Folder:
@@ -483,8 +480,9 @@ class Handler(FileSystemEventHandler):
 
         elif (
             extension not in file_extensions
-            and delete_unacceptable_files_toggle
+            and (delete_unacceptable_files_toggle or convert_to_cbz_toggle)
             and extension not in unaccepted_file_extensions
+            and not (convert_to_cbz_toggle and extension in rar_extensions)
         ):
             return None
 
@@ -2154,6 +2152,21 @@ def add_to_grouped_notifications(embed, passed_webhook=None):
     grouped_notifications.append(embed)
 
 
+# Removes the specified folder and all of its contents.
+def remove_folder(folder):
+    successfull = False
+    if os.path.isdir(folder) and (
+        folder not in download_folders and folder not in paths
+    ):
+        shutil.rmtree(folder)
+        if not os.path.isdir(folder):
+            send_message(f"\t\t\tRemoved {folder}", discord=False)
+            successfull = True
+        else:
+            send_message(f"\t\t\tFailed to remove {folder}", error=True)
+    return successfull
+
+
 # Removes a file
 def remove_file(full_file_path, silent=False, group=False):
     if os.path.isfile(full_file_path):
@@ -3343,11 +3356,7 @@ def normalize_string_for_matching(
             ]
             words_to_remove.extend(japanese_particles)
         if not skip_misc_words:
-            misc_words = [
-                "((\d+)([-_. ]+)?th)",
-                "x",
-                "×",
-            ]
+            misc_words = ["((\d+)([-_. ]+)?th)", "x", "×", "HD"]
             words_to_remove.extend(misc_words)
         for word in words_to_remove:
             s = re.sub(rf"\b{word}\b", " ", s, flags=re.IGNORECASE).strip()
@@ -3672,7 +3681,7 @@ def check_upgrade(
                     "\t\t\t"
                     + volume.file_type.capitalize()
                     + " "
-                    + array_to_string(volume.volume_number, ",")
+                    + array_to_string(volume.volume_number, ", ")
                     + ": "
                     + volume.name
                     + " does not exist in: "
@@ -3694,7 +3703,7 @@ def check_upgrade(
                     {
                         "name": volume.file_type.capitalize() + " Number(s)",
                         "value": "```"
-                        + array_to_string(volume.volume_number, ",")
+                        + array_to_string(volume.volume_number, ", ")
                         + "```",
                         "inline": False,
                     },
@@ -4194,6 +4203,16 @@ def get_file_hash(file):
     except Exception as e:
         send_message("\n\t\t\tError: " + str(e), error=True)
         return None
+
+
+# Retrieves the hash of the passed file.
+def get_internal_file_hash(zip_file, file_name):
+    with zipfile.ZipFile(zip_file) as zip:
+        with zip.open(file_name) as file:
+            hasher = hashlib.md5()
+            while chunk := file.read(4096):
+                hasher.update(chunk)
+            return hasher.hexdigest()
 
 
 # regex out underscore from passed string and return it
@@ -6977,7 +6996,7 @@ def print_stats():
 
 # Deletes any file with an extension in unaccepted_file_extensions from the download_folers
 def delete_unacceptable_files(group=False):
-    if unaccepted_file_extensions:
+    if unaccepted_file_extensions or unacceptable_keywords:
         print("Searching for unacceptable files...")
         try:
             for path in download_folders:
@@ -8663,6 +8682,289 @@ def print_function_execution_time(start_time, function_name):
     )
 
 
+# Extracts a RAR archive to a temporary directory.
+def extract(rar_filename, temp_dir):
+    successfull = False
+    try:
+        with rarfile.RarFile(rar_filename) as rar:
+            rar.extractall(temp_dir)
+            successfull = True
+    except Exception as e:
+        send_message(f"Error extracting {rar_filename}: {e}", error=True)
+    return successfull
+
+
+# Compresses a directory to a CBZ archive.
+def compress(temp_dir, cbz_filename):
+    successfull = False
+    try:
+        with zipfile.ZipFile(cbz_filename, "w") as zip:
+            for root, dirs, files in os.walk(temp_dir):
+                for file in files:
+                    zip.write(
+                        os.path.join(root, file),
+                        os.path.join(root[len(temp_dir) + 1 :], file),
+                    )
+            successfull = True
+    except Exception as e:
+        send_message(f"Error compressing {temp_dir}: {e}", error=True)
+    return successfull
+
+
+# Converts RAR/CBR archives to CBZ archives found in download_folders
+def convert_to_cbz(group=False):
+    global transferred_files
+    if download_folders:
+        print("\nConverting RAR archives to CBZ...")
+        for folder in download_folders:
+            if os.path.isdir(folder):
+                print("\t{}".format(folder))
+                for root, dirs, files in os.walk(folder):
+                    clean = None
+                    if (
+                        watchdog_toggle
+                        and download_folders
+                        and any(x for x in download_folders if root.startswith(x))
+                    ):
+                        clean = clean_and_sort(
+                            root,
+                            files,
+                            dirs,
+                            just_these_files=transferred_files,
+                            just_these_dirs=transferred_dirs,
+                            skip_remove_unaccepted_file_types=True,
+                            keep_images_in_just_these_files=True,
+                        )
+                    else:
+                        clean = clean_and_sort(
+                            root,
+                            files,
+                            dirs,
+                            skip_remove_unaccepted_file_types=True,
+                        )
+                    files, dirs = clean[0], clean[1]
+                    for entry in files:
+                        try:
+                            extension = get_file_extension(entry)
+                            if extension in rar_extensions:
+                                print("\n\t\t{}".format(entry))
+
+                                cbr_file = os.path.join(root, entry)
+                                cbz_file = "{}.cbz".format(
+                                    os.path.splitext(cbr_file)[0]
+                                )
+
+                                # check that the cbz file doesn't already exist
+                                if os.path.isfile(cbz_file):
+                                    # if the file is zero bytes, delete it and continue, otherwise skip
+                                    if get_file_size(cbz_file) == 0:
+                                        send_message(
+                                            f"\t\t\tCBZ file is zero bytes, deleting...",
+                                            discord=False,
+                                        )
+                                        remove_file(cbz_file, discord=False)
+                                    elif not zipfile.is_zipfile(cbz_file):
+                                        send_message(
+                                            f"\t\t\tCBZ file is not a valid zip file, deleting...",
+                                            discord=False,
+                                        )
+                                        remove_file(cbz_file, discord=False)
+                                    else:
+                                        send_message(
+                                            f"\t\t\tCBZ file already exists, skipping...",
+                                            discord=False,
+                                        )
+                                        continue
+
+                                temp_dir = tempfile.mkdtemp("cbr2cbz")
+
+                                # if there's already contents in the temp directory, delete it
+                                if os.listdir(temp_dir):
+                                    send_message(
+                                        f"\t\t\tTemp directory {temp_dir} is not empty, deleting...",
+                                        discord=False,
+                                    )
+                                    remove_folder(temp_dir)
+                                    # recreate the temp directory
+                                    temp_dir = tempfile.mkdtemp("cbr2cbz")
+
+                                if not os.path.isdir(temp_dir):
+                                    send_message(
+                                        f"\t\t\tFailed to create temp directory {temp_dir}",
+                                        error=True,
+                                    )
+                                    continue
+
+                                send_message(
+                                    f"\t\t\tCreated temp directory {temp_dir}",
+                                    discord=False,
+                                )
+
+                                extract_status = extract(cbr_file, temp_dir)
+
+                                if not extract_status:
+                                    send_message(
+                                        f"\t\t\tFailed to extract {cbr_file}",
+                                        error=True,
+                                    )
+                                    # remove temp directory
+                                    remove_folder(temp_dir)
+                                    continue
+
+                                print(f"\t\t\tExtracted to {temp_dir}")
+
+                                # Get hashes of all files in archive
+                                hashes = []
+                                for root2, dirs2, files2 in os.walk(temp_dir):
+                                    for file2 in files2:
+                                        path = os.path.join(root2, file2)
+                                        hashes.append(get_file_hash(path))
+
+                                compress_status = compress(temp_dir, cbz_file)
+
+                                if not compress_status:
+                                    # remove temp directory
+                                    remove_folder(temp_dir)
+                                    continue
+
+                                print(f"\t\t\tCompressed to {cbz_file}")
+
+                                # Check that the number of files in both archives is the same
+                                # Print any files that aren't shared between the two archives
+                                cbz_file_list = []
+                                cbr_file_list = []
+                                if os.path.isfile(cbz_file):
+                                    with zipfile.ZipFile(cbz_file) as zip:
+                                        for file in zip.namelist():
+                                            if not file.endswith("/"):
+                                                cbz_file_list.append(file)
+                                if os.path.isfile(cbr_file):
+                                    with rarfile.RarFile(cbr_file) as rar:
+                                        for file in rar.namelist():
+                                            if not file.endswith("/"):
+                                                cbr_file_list.append(file)
+
+                                # print any files that aren't shared between the two archives
+                                if (
+                                    cbz_file_list
+                                    and cbr_file_list
+                                    and (cbz_file_list.sort() != cbr_file_list.sort())
+                                ):
+                                    print(
+                                        "\t\t\tVerifying that all files are present in both archives..."
+                                    )
+                                    for file in cbz_file_list:
+                                        if file not in cbr_file_list:
+                                            print(
+                                                f"\t\t\t\t{file} is not in {cbr_file}"
+                                            )
+                                    for file in cbr_file_list:
+                                        if file not in cbz_file_list:
+                                            print(
+                                                f"\t\t\t\t{file} is not in {cbz_file}"
+                                            )
+                                    # remove temp directory
+                                    remove_folder(temp_dir)
+                                    # remove cbz file
+                                    remove_file(cbz_file, discord=False)
+                                    continue
+                                else:
+                                    print(
+                                        "\t\t\tAll files are present in both archives."
+                                    )
+
+                                hashes_verified = False
+
+                                # Verify hashes of all files inside the cbz file
+                                with zipfile.ZipFile(cbz_file) as zip:
+                                    for file in zip.namelist():
+                                        if not file.endswith("/"):
+                                            hash = get_internal_file_hash(
+                                                cbz_file, file
+                                            )
+                                            if hash not in hashes:
+                                                print(
+                                                    f"\t\t\t\t{file} hash did not match"
+                                                )
+                                                break
+                                    else:
+                                        hashes_verified = True
+
+                                # Remove temp directory
+                                remove_folder(temp_dir)
+
+                                if hashes_verified:
+                                    send_message(
+                                        f"\t\t\tHashes verified.", discord=False
+                                    )
+                                    send_message(
+                                        f"\t\t\tConverted {cbr_file} to {cbz_file}",
+                                        discord=False,
+                                    )
+                                    embed = [
+                                        handle_fields(
+                                            DiscordEmbed(
+                                                title="Converted to CBZ",
+                                                color=grey_color,
+                                            ),
+                                            fields=[
+                                                {
+                                                    "name": "From:",
+                                                    "value": "```"
+                                                    + os.path.basename(cbr_file)
+                                                    + "```",
+                                                    "inline": False,
+                                                },
+                                                {
+                                                    "name": "To:",
+                                                    "value": "```"
+                                                    + os.path.basename(cbz_file)
+                                                    + "```",
+                                                    "inline": False,
+                                                },
+                                                {
+                                                    "name": "Location:",
+                                                    "value": "```"
+                                                    + os.path.dirname(cbz_file)
+                                                    + "```",
+                                                    "inline": False,
+                                                },
+                                            ],
+                                        )
+                                    ]
+                                    add_to_grouped_notifications(Embed(embed[0], None))
+                                    # remove rar/cbr file
+                                    remove_file(cbr_file, group=group)
+                                    if watchdog_toggle:
+                                        if cbr_file in transferred_files:
+                                            transferred_files.remove(cbr_file)
+                                        if cbz_file not in transferred_files:
+                                            transferred_files.append(cbz_file)
+                                else:
+                                    send_message(
+                                        f"\t\t\tHashes did not verify", error=True
+                                    )
+                                    # remove cbz file
+                                    remove_file(cbz_file, group=group)
+                        except Exception as e:
+                            send_message(
+                                f"Error converting to cbz: {entry}: {e}", error=True
+                            )
+                            # if the tempdir exists, remove it
+                            if os.path.isdir(temp_dir):
+                                remove_folder(temp_dir)
+                            # if the cbz file exists, remove it
+                            if os.path.isfile(cbz_file):
+                                remove_file(cbz_file, group=group)
+            else:
+                send_message("\t{} does not exist.".format(folder), error=True)
+    else:
+        print("No download folders specified.")
+
+    if group and grouped_notifications and not group_discord_notifications_until_max:
+        send_discord_message(None, grouped_notifications)
+
+
 # Optional features below, use at your own risk.
 # Activate them in settings.py
 def main():
@@ -8713,6 +9015,8 @@ def main():
         )
         if skipped_files_read:
             skipped_files = skipped_files_read
+    if convert_to_cbz_toggle and download_folders:
+        convert_to_cbz(group=True)
     if delete_unacceptable_files_toggle and (
         download_folders and (unaccepted_file_extensions or unacceptable_keywords)
     ):
