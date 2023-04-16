@@ -37,7 +37,7 @@ from unidecode import unidecode
 from functools import lru_cache
 from skimage.metrics import structural_similarity as ssim
 
-script_version = "2.3.0"
+script_version = "2.3.1"
 
 
 # Paths = existing library
@@ -330,6 +330,9 @@ class Volume:
         path,
         extensionless_path,
         extras,
+        publisher,
+        is_premium,
+        subtitle,
         multi_volume=None,
         is_one_shot=None,
     ):
@@ -348,6 +351,9 @@ class Volume:
         self.path = path
         self.extensionless_path = extensionless_path
         self.extras = extras
+        self.publisher = publisher
+        self.is_premium = is_premium
+        self.subtitle = subtitle
         self.multi_volume = multi_volume
         self.is_one_shot = is_one_shot
 
@@ -592,13 +598,10 @@ class Handler(FileSystemEventHandler):
                     ],
                 )
             ]
-            if not group_discord_notifications_until_max:
-                send_discord_message(
-                    None,
-                    [Embed(embed[0], None)],
-                )
-            else:
-                add_to_grouped_notifications(Embed(embed[0], None))
+            send_discord_message(
+                None,
+                [Embed(embed[0], None)],
+            )
             main()
             send_message(
                 "\nFinished Execution (WATCHDOG) (EXPERIMENTAL)", discord=False
@@ -1785,6 +1788,8 @@ def convert_list_of_numbers_to_array(string):
     numbers_search = numbers_search.split(" ")
     # convert them to numbers using set_num_as_float_or_int
     numbers_search = [set_num_as_float_or_int(num) for num in numbers_search]
+    # remove any empty items
+    numbers_search = [num for num in numbers_search if num]
     if numbers_search:
         # get lowest number in list
         lowest_number = min(numbers_search)
@@ -1941,13 +1946,26 @@ def remove_everything_but_volume_num(files, chapter=False):
 
 volume_year_regex = r"(\(|\[|\{)(\d{4})(\)|\]|\})"
 
-# Retrieves the release year
-def get_volume_year(name):
+# Get the release year from the file metadata, if present, otherwise from the file name
+def get_release_year(name, metadata=None):
+    result = None
     match = re.search(volume_year_regex, name, re.IGNORECASE)
     if match:
-        return int(re.sub(r"(\(|\[|\{)|(\)|\]|\})", "", match.group(0)))
-    else:
-        return ""
+        result = int(re.sub(r"(\(|\[|\{)|(\)|\]|\})", "", match.group(0)))
+    if metadata and not result:
+        release_year_from_file = None
+        if "Year" in metadata:
+            release_year_from_file = metadata["Year"]
+            if release_year_from_file and release_year_from_file.isdigit():
+                result = int(release_year_from_file)
+        elif "dc:date" in metadata:
+            release_year_from_file = metadata["dc:date"].strip()
+            release_year_from_file = re.search(r"\d{4}", release_year_from_file)
+            if release_year_from_file:
+                release_year_from_file = release_year_from_file.group(0)
+                if release_year_from_file and release_year_from_file.isdigit():
+                    result = int(release_year_from_file)
+    return result
 
 
 # Compile the regular expression pattern outside of the function
@@ -2022,6 +2040,24 @@ def get_file_part(file, chapter=False):
     return result
 
 
+# Retrieves the publisher from the passed in metadata
+def get_publisher_from_meta(metadata):
+    publisher = None
+    if metadata:
+        if "Publisher" in metadata:
+            publisher = titlecase(metadata["Publisher"])
+            publisher = remove_dual_space(publisher)
+            publisher = re.sub(r", LLC.*", "", publisher)
+        elif "dc:publisher" in metadata:
+            publisher = titlecase(metadata["dc:publisher"])
+            publisher = remove_dual_space(publisher)
+            publisher = re.sub(r", LLC.*", "", publisher).strip()
+            publisher = re.sub(r"LLC", "", publisher).strip()
+            publisher = re.sub(r":", " - ", publisher).strip()
+            publisher = remove_dual_space(publisher)
+    return publisher
+
+
 # Trades out our regular files for file objects
 def upgrade_to_volume_class(
     files,
@@ -2029,10 +2065,11 @@ def upgrade_to_volume_class(
     start_time = time.time()
     results = []
     for file in files:
+        internal_metadata = get_internal_metadata(file.path, file.extension)
         file_obj = Volume(
             file.file_type,
             file.basename,
-            get_volume_year(file.name),
+            get_release_year(file.name, internal_metadata),
             file.number,
             (
                 get_file_part(file.name)
@@ -2053,6 +2090,9 @@ def upgrade_to_volume_class(
                 if file.file_type != "chapter"
                 else get_extras(file.name, series_name=file.basename, chapter=True)
             ),
+            get_publisher_from_meta(internal_metadata),
+            check_for_premium_content(file.path, file.extension),
+            None,
             (
                 check_for_multi_volume_file(file.name)
                 if file.file_type != "chapter"
@@ -2064,6 +2104,14 @@ def upgrade_to_volume_class(
                 else False
             ),
         )
+        file_obj.subtitle = get_subtitle_from_title(file_obj)
+        if file_obj.subtitle:
+            write_to_file(
+                "extracted_subtitles.txt",
+                file_obj.name + " - " + file_obj.subtitle,
+                without_timestamp=True,
+                check_for_dup=True,
+            )
         if file_obj.is_one_shot:
             file_obj.volume_number = 1
         results.append(file_obj)
@@ -2930,6 +2978,38 @@ def get_input_from_user(prompt, acceptable_values=[], example=None):
             return user_input
 
 
+# Retrieves the internally stored metadata from the file.
+def get_internal_metadata(file_path, extension):
+    metadata = None
+    if extension in manga_extensions:
+        contains_comic_info = check_if_zip_file_contains_comic_info_xml(file_path)
+        if contains_comic_info:
+            comicinfo = get_file_from_zip(file_path, "comicinfo.xml", allow_base=False)
+            if comicinfo:
+                comicinfo = comicinfo.decode("utf-8")
+                # not parsing pages correctly
+                metadata = parse_comicinfo_xml(comicinfo)
+    elif extension in novel_extensions:
+        novel_content_opf = get_file_from_zip(file_path, "content.opf")
+        novel_package_opf = get_file_from_zip(file_path, "package.opf")
+        if novel_content_opf:
+            metadata = parse_html_tags(novel_content_opf)
+        elif novel_package_opf:
+            metadata = parse_html_tags(novel_package_opf)
+    return metadata
+
+
+# Checks if the epub file contains any premium content.
+def check_for_premium_content(file_path, extension):
+    result = False
+    if extension in novel_extensions and search_and_add_premium_to_file_name:
+        if re.search(r"\bPremium\b", os.path.basename(file_path), re.IGNORECASE):
+            result = True
+        elif check_for_bonus_xhtml(file_path) or get_toc_or_copyright(file_path):
+            result = True
+    return result
+
+
 def reorganize_and_rename(files, dir, group=False):
     global transferred_files
     base_dir = os.path.basename(dir)
@@ -2946,67 +3026,6 @@ def reorganize_and_rename(files, dir, group=False):
                 file.name,
                 re.IGNORECASE,
             ):
-                comic_info_xml = ""
-                novel_info_html = ""
-                if file.extension in manga_extensions:
-                    contains_comic_info = check_if_zip_file_contains_comic_info_xml(
-                        file.path
-                    )
-                    if contains_comic_info:
-                        comicinfo = get_file_from_zip(
-                            file.path, "comicinfo.xml", allow_base=False
-                        )
-                        tags = None
-                        if comicinfo:
-                            comicinfo = comicinfo.decode("utf-8")
-                            # not parsing pages correctly
-                            comic_info_xml = parse_comicinfo_xml(comicinfo)
-                elif file.extension in novel_extensions:
-                    novel_content_opf = get_file_from_zip(file.path, "content.opf")
-                    novel_package_opf = get_file_from_zip(file.path, "package.opf")
-                    if novel_content_opf:
-                        novel_info_html = parse_html_tags(novel_content_opf)
-                    elif novel_package_opf:
-                        novel_info_html = parse_html_tags(novel_package_opf)
-                release_year_from_file = ""
-                publisher = ""
-                subtitle = get_subtitle_from_title(file)
-                if subtitle:
-                    write_to_file(
-                        "extracted_subtitles.txt",
-                        file.name + " - " + subtitle,
-                        without_timestamp=True,
-                        check_for_dup=True,
-                    )
-                if comic_info_xml:
-                    if "Year" in comic_info_xml:
-                        release_year_from_file = comic_info_xml["Year"]
-                        if release_year_from_file and release_year_from_file.isdigit():
-                            release_year_from_file = int(release_year_from_file)
-                    if "Publisher" in comic_info_xml:
-                        publisher = titlecase(comic_info_xml["Publisher"])
-                        publisher = remove_dual_space(publisher)
-                        publisher = re.sub(r", LLC.*", "", publisher)
-                elif novel_info_html:
-                    if "dc:date" in novel_info_html:
-                        release_year_from_file = novel_info_html["dc:date"].strip()
-                        release_year_from_file = re.search(
-                            r"\d{4}", release_year_from_file
-                        )
-                        if release_year_from_file:
-                            release_year_from_file = release_year_from_file.group(0)
-                            if (
-                                release_year_from_file
-                                and release_year_from_file.isdigit()
-                            ):
-                                release_year_from_file = int(release_year_from_file)
-                    if "dc:publisher" in novel_info_html:
-                        publisher = titlecase(novel_info_html["dc:publisher"])
-                        publisher = remove_dual_space(publisher)
-                        publisher = re.sub(r", LLC.*", "", publisher).strip()
-                        publisher = re.sub(r"LLC", "", publisher).strip()
-                        publisher = re.sub(r":", " - ", publisher).strip()
-                        publisher = remove_dual_space(publisher)
                 rename = ""
                 rename += base_dir
                 rename += " " + preferred_naming_format
@@ -3019,12 +3038,12 @@ def reorganize_and_rename(files, dir, group=False):
                             numbers.append("-")
                 else:
                     numbers.append(file.volume_number)
-                number_string = ""
                 zfill_int = zfill_volume_int_value
-                zfill_float = zfill_volume_float_value  # 01.0
+                zfill_float = zfill_volume_float_value
                 if file.file_type == "chapter":
-                    zfill_int = zfill_chapter_int_value  # 001
-                    zfill_float = zfill_chapter_float_value  # 001.0
+                    zfill_int = zfill_chapter_int_value
+                    zfill_float = zfill_chapter_float_value
+                number_string = ""
                 for number in numbers:
                     if not isinstance(number, str) and number.is_integer():
                         if number < 10 or file.file_type == "chapter" and number < 100:
@@ -3051,88 +3070,72 @@ def reorganize_and_rename(files, dir, group=False):
                     and number_string
                 ):
                     rename += " #" + number_string
-                # if subtitle:
-                #     rename += " - " + subtitle
-                if file.extension in manga_extensions:
-                    if isinstance(file.volume_year, int):
-                        rename += " (" + str(file.volume_year) + ")"
-                    elif release_year_from_file and isinstance(
-                        release_year_from_file, int
-                    ):
-                        file.volume_year = release_year_from_file
-                        rename += " (" + str(file.volume_year) + ")"
-                elif file.extension in novel_extensions:
-                    if isinstance(file.volume_year, int):
-                        rename += " [" + str(file.volume_year) + "]"
-                    elif release_year_from_file and isinstance(
-                        release_year_from_file, int
-                    ):
-                        file.volume_year = release_year_from_file
-                        rename += " [" + str(file.volume_year) + "]"
-                if publisher:
-                    for item in file.extras[:]:
-                        score = similar(
-                            re.sub(
-                                r"(Entertainment|Pictures?|LLC|Americas?|USA?|International|Books?|Comics?|Media|Advanced|Club|On|Press|Enix Manga|Enix|Horse Manga|Horse Comics?|[-_.,\(\[\{\)\]\}])",
-                                "",
-                                item,
-                            ).strip(),
-                            re.sub(
-                                r"(Entertainment|Pictures?|LLC|Americas?|USA?|International|Books?|Comics?|Media|Advanced|Club|On|Press|Enix Manga|Enix|Horse Manga|Horse Comics?|[-_.,\(\[\{\)\]\}])",
-                                "",
-                                publisher,
-                            ).strip(),
-                        )
-                        if (
-                            re.search(
-                                publisher,
-                                item,
-                                re.IGNORECASE,
-                            )
-                            or score >= publisher_similarity_score
-                        ):
-                            file.extras.remove(item)
-                    if add_publisher_name_to_file_name_when_renaming:
-                        if file.extension in manga_extensions:
-                            rename += " (" + publisher + ")"
-                        elif file.extension in novel_extensions:
-                            rename += " [" + publisher + "]"
+                # if file.subtitle:
+                #     rename += " - " + file.subtitle
                 if file.volume_year:
+                    if file.extension in manga_extensions:
+                        rename += " (" + str(file.volume_year) + ")"
+                    elif file.extension in novel_extensions:
+                        rename += " [" + str(file.volume_year) + "]"
                     for item in file.extras[:]:
                         score = similar(
                             item,
                             str(file.volume_year),
                         )
                         if (
-                            re.search(
+                            score >= required_similarity_score
+                            or re.search(r"([\[\(\{]\d{4}[\]\)\}])", item)
+                            or re.search(
                                 str(file.volume_year),
                                 item,
                                 re.IGNORECASE,
                             )
-                            or score >= required_similarity_score
-                            or re.search(r"([\[\(\{]\d{4}[\]\)\}])", item)
                         ):
                             file.extras.remove(item)
-                if release_year_from_file:
+
+                if file.publisher:
+                    for item in file.extras[:]:
+                        score = similar(
+                            re.sub(
+                                r"(Entertainment|Pictures?|LLC|Americas?|USA?|International|Books?|Comics?|Media|Advanced|Club|On|Press|Enix Manga|Enix|Horse Manga|Horse Comics?|[-_.,\(\[\{\)\]\}])",
+                                "",
+                                item,
+                            ).strip(),
+                            re.sub(
+                                r"(Entertainment|Pictures?|LLC|Americas?|USA?|International|Books?|Comics?|Media|Advanced|Club|On|Press|Enix Manga|Enix|Horse Manga|Horse Comics?|[-_.,\(\[\{\)\]\}])",
+                                "",
+                                file.publisher,
+                            ).strip(),
+                        )
+                        if score >= publisher_similarity_score or re.search(
+                            file.publisher,
+                            item,
+                            re.IGNORECASE,
+                        ):
+                            file.extras.remove(item)
+                    if add_publisher_name_to_file_name_when_renaming:
+                        if file.extension in manga_extensions:
+                            rename += " (" + file.publisher + ")"
+                        elif file.extension in novel_extensions:
+                            rename += " [" + file.publisher + "]"
+                if file.is_premium and search_and_add_premium_to_file_name:
+                    if file.extension in manga_extensions:
+                        rename += " (Premium)"
+                    elif file.extension in novel_extensions:
+                        rename += " [Premium]"
                     for item in file.extras[:]:
                         score = similar(
                             item,
-                            str(release_year_from_file),
+                            "Premium",
                         )
-                        if (
-                            re.search(
-                                str(release_year_from_file),
-                                item,
-                                re.IGNORECASE,
-                            )
-                            or score >= required_similarity_score
-                            or re.search(r"([\[\(\{]\d{4}[\]\)\}])", item)
+                        if score >= required_similarity_score or re.search(
+                            "Premium",
+                            item,
+                            re.IGNORECASE,
                         ):
                             file.extras.remove(item)
-                if (
-                    move_release_group_to_end_of_file_name
-                    and file.release_group
-                    and file.release_group != publisher
+                if move_release_group_to_end_of_file_name and (
+                    file.release_group and file.release_group != file.publisher
                 ):
                     for item in file.extras[:]:
                         # escape any regex characters
@@ -3143,16 +3146,13 @@ def reorganize_and_rename(files, dir, group=False):
                         )
                         left_brackets = r"(\(|\[|\{)"
                         right_brackets = r"(\)|\]|\})"
-                        if (
-                            re.search(
-                                rf"{left_brackets}{item_escaped}{right_brackets}",
-                                file.release_group,
-                                re.IGNORECASE,
-                            )
-                            or score >= release_group_similarity_score
+                        if score >= release_group_similarity_score or re.search(
+                            rf"{left_brackets}{item_escaped}{right_brackets}",
+                            file.release_group,
+                            re.IGNORECASE,
                         ):
                             file.extras.remove(item)
-                if len(file.extras) != 0:
+                if file.extras:
                     for extra in file.extras:
                         rename += " " + extra
                 if move_release_group_to_end_of_file_name:
@@ -3234,7 +3234,7 @@ def reorganize_and_rename(files, dir, group=False):
                                 )
                                 remove_file(file.path, silent=True)
                         else:
-                            print("\t\t\tSkipping...")
+                            print("\t\t\tSkipping...\n")
                         if file.file_type == "volume":
                             file.volume_number = remove_everything_but_volume_num(
                                 [rename]
@@ -3249,7 +3249,7 @@ def reorganize_and_rename(files, dir, group=False):
                             file.series_name = get_series_name_from_file_name_chapter(
                                 rename, file.root, file.volume_number
                             )
-                        file.volume_year = get_volume_year(rename)
+                        file.volume_year = get_release_year(rename)
                         file.name = rename
                         file.extensionless_name = get_extensionless_name(rename)
                         file.basename = os.path.basename(rename)
@@ -4060,7 +4060,9 @@ def check_for_duplicate_volumes(paths_to_search=[], group=False):
                                                                 group=group,
                                                             )
                                                         else:
-                                                            print("\t\t\t\tSkipping...")
+                                                            print(
+                                                                "\t\t\t\tSkipping...\n"
+                                                            )
                                                     else:
                                                         file_hash = get_file_hash(
                                                             file.path
@@ -5494,7 +5496,7 @@ def rename_dirs_in_download_folder(group=False):
                                         check_and_delete_empty_folder(v.root)
                                         done = True
                                 else:
-                                    print("\t\tSkipping...")
+                                    print("\t\tSkipping...\n")
                             except Exception as e:
                                 print(e)
                                 print("Skipping...")
@@ -5611,7 +5613,7 @@ def rename_dirs_in_download_folder(group=False):
                                                         error=True,
                                                     )
                                             else:
-                                                print("\t\tSkipping...")
+                                                print("\t\tSkipping...\n")
                                                 continue
                                         except OSError as e:
                                             send_message(e, error=True)
@@ -6116,11 +6118,11 @@ def rename_files_in_download_folders(only_these_files=[], group=False):
                                 )
                             ):
                                 combined = ""
-                                zfill_int = zfill_volume_int_value  # 01
-                                zfill_float = zfill_volume_float_value  # 01.5
+                                zfill_int = zfill_volume_int_value
+                                zfill_float = zfill_volume_float_value
                                 if file.file_type == "chapter":
-                                    zfill_int = zfill_chapter_int_value  # 001
-                                    zfill_float = zfill_chapter_float_value  # 001.5
+                                    zfill_int = zfill_chapter_int_value
+                                    zfill_float = zfill_chapter_float_value
                                 for item in modified:
                                     if type(item) == int:
                                         if item < 10 or (
@@ -6148,20 +6150,6 @@ def rename_files_in_download_folders(only_these_files=[], group=False):
                                     and file.file_type == "volume"
                                 ):
                                     combined += " " + "#" + without_keyword
-                                elif (
-                                    file.extension in novel_extensions
-                                    and search_and_add_premium_to_file_name
-                                ):
-                                    if not re.search(
-                                        r"\bPremium\b", file.name, re.IGNORECASE
-                                    ) and (
-                                        check_for_bonus_xhtml(file.path)
-                                        or get_toc_or_copyright(file.path)
-                                    ):
-                                        print(
-                                            "\n\t\tBonus content found inside novel, adding [Premium] to file name."
-                                        )
-                                        combined += " [Premium]"
                                 if not file.is_one_shot:
                                     converted_value = re.sub(
                                         keywords, "", combined, flags=re.IGNORECASE
@@ -6355,7 +6343,7 @@ def rename_files_in_download_folders(only_these_files=[], group=False):
                                                         error=True,
                                                     )
                                             else:
-                                                print("\t\t\tSkipping...")
+                                                print("\t\t\tSkipping...\n")
                                         else:
                                             # if it already exists, then delete file.name
                                             print(
@@ -6997,7 +6985,7 @@ def print_stats():
 # Deletes any file with an extension in unaccepted_file_extensions from the download_folers
 def delete_unacceptable_files(group=False):
     if unaccepted_file_extensions or unacceptable_keywords:
-        print("Searching for unacceptable files...")
+        print("\nSearching for unacceptable files...")
         try:
             for path in download_folders:
                 if os.path.exists(path):
@@ -7723,12 +7711,20 @@ def search_bookwalker(
                     continue
 
                 # Find the book's preview image
-                # find the img src inside of <div class="book-img">
-                div_book_img = page_two.find("div", class_="book-img")
-                if div_book_img:
-                    img_src = div_book_img.find("img")["src"]
-                    if img_src and img_src.startswith("http"):
-                        preview_image_url = img_src
+                # Find <meta property="og:image" and get the content
+                meta_property_og_image = page_two.find("meta", {"property": "og:image"})
+                if meta_property_og_image:
+                    if meta_property_og_image["content"].startswith("http"):
+                        preview_image_url = meta_property_og_image["content"]
+
+                # Backup method for lower resolution preview image
+                if not preview_image_url:
+                    # find the img src inside of <div class="book-img">
+                    div_book_img = page_two.find("div", class_="book-img")
+                    if div_book_img:
+                        img_src = div_book_img.find("img")["src"]
+                        if img_src and img_src.startswith("http"):
+                            preview_image_url = img_src
 
                 # Find the book's description
                 div_itemprop_description = page_two.find(
@@ -8585,6 +8581,10 @@ def extract_all_numbers_from_string(string):
                             continue
                         if re.search(r"(#([0-9]+)(([-_.])([0-9]+)|)+)", item):
                             continue
+                        if re.search(r"((([-_.])([0-9]+))+)", item) or re.search(
+                            r"-", item
+                        ):
+                            continue
                         if item:
                             new_numbers.append(set_num_as_float_or_int(item))
             else:
@@ -8592,6 +8592,10 @@ def extract_all_numbers_from_string(string):
                     if re.search(r"(x[0-9]+)", number):
                         continue
                     if re.search(r"(#([0-9]+)(([-_.])([0-9]+)|)+)", number):
+                        continue
+                    if re.search(r"((([-_.])([0-9]+))+)", number) or re.search(
+                        r"-", number
+                    ):
                         continue
                     if number:
                         new_numbers.append(set_num_as_float_or_int(number))
