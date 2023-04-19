@@ -5803,12 +5803,17 @@ def isint(x):
 
 # check if zip file contains ComicInfo.xml
 def check_if_zip_file_contains_comic_info_xml(zip_file):
-    with zipfile.ZipFile(zip_file, "r") as zip_ref:
-        list = zip_ref.namelist()
-        for name in list:
-            if name.lower() == "ComicInfo.xml".lower():
-                return True
-    return False
+    result = False
+    try:
+        with zipfile.ZipFile(zip_file, "r") as zip_ref:
+            list = zip_ref.namelist()
+            for name in list:
+                if name.lower() == "ComicInfo.xml".lower():
+                    result = True
+                    break
+    except (zipfile.BadZipFile, FileNotFoundError) as e:
+        send_message("\tFile: " + zip_file + "\n\t\tERROR: " + str(e), error=True)
+    return result
 
 
 # Retrieve the file specified from the zip file and return the data for it.
