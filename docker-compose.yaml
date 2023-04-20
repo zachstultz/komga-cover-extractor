@@ -1,0 +1,12 @@
+version: '3'
+services:
+  manga:
+    build: .
+    volumes:
+      - /location/to/volumes:/volume #required but can be used any place
+      - /location/to/downloads:/downloads #required
+#     - /location/to/mangaChapters:/chapter # optional
+    environment:
+      - WATCHDOG=True # false if u want it to run it only once (also will crash)
+      - DISCORD_WEBHOOK=enterYourDiscordWebhook 
+    command: sh -c 'if [ ! -d "/chapter" ]; then python3 main.py -df /downloads -p /volume "volume" --watchdog $WATCHDOG --nw $DISCORD_WEBHOOK; else python3 main.py -df /downloads -p /volume "volume" -p /chapter "chapter" --watchdog $WATCHDOG --nw $DISCORD_WEBHOOK; fi'
