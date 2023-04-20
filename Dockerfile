@@ -1,6 +1,6 @@
 # Build stage
 FROM python:3.9-slim-buster as builder
-RUN apt-get update && apt-get install -y build-essential
+RUN apt-get update && apt-get install -y build-essential unrar
 RUN mkdir /komga-cover-extractor
 WORKDIR /komga-cover-extractor
 COPY requirements.txt .
