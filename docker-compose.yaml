@@ -1,7 +1,7 @@
 version: '3'
 services:
   manga:
-    build: .
+    build: . #required testing before moving to online images
     volumes:
       - /location/to/volumes:/volume #required but can be used any place
       - /location/to/downloads:/downloads #required
