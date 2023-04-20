@@ -17,6 +17,6 @@ ENV PATH=/root/.local/bin:$PATH
 CMD ["python3", "main.py"]
 
 # Set image name and tag
-LABEL maintainer="eggu"
+LABEL maintainer="hcaz"
 LABEL version="1.0.0"
 LABEL description="Komga Cover Extractor"
