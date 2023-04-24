@@ -209,4 +209,9 @@ compare_detected_cover_to_blank_images = False  # WILL INCREASE PROCESSING TIME
 # If the similarity score is equal to or greater than this value, the cover will be ignored as
 # it is most likely a blank cover.
 blank_cover_required_similarity_score = 0.90
+
+# Uses the latest volume cover as the series cover, when extracting covers, instead of the first volumes' cover.
+# Using modification date and hashing for matching, it can automatically switch your covers back and forth
+# between the latest and volume one covers. All you have to do is flick the setting on and off.
+use_latest_volume_cover_as_series_cover = False
 ################################################################
