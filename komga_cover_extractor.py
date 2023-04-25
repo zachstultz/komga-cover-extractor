@@ -39,7 +39,7 @@ from watchdog.observers import Observer
 
 from settings import *
 
-script_version = "2.3.2"
+script_version = "2.3.3"
 
 
 # Paths = existing library
@@ -3149,21 +3149,27 @@ def get_input_from_user(prompt, acceptable_values=[], example=None):
 # Retrieves the internally stored metadata from the file.
 def get_internal_metadata(file_path, extension):
     metadata = None
-    if extension in manga_extensions:
-        contains_comic_info = check_if_zip_file_contains_comic_info_xml(file_path)
-        if contains_comic_info:
-            comicinfo = get_file_from_zip(file_path, "comicinfo.xml", allow_base=False)
-            if comicinfo:
-                comicinfo = comicinfo.decode("utf-8")
-                # not parsing pages correctly
-                metadata = parse_comicinfo_xml(comicinfo)
-    elif extension in novel_extensions:
-        novel_content_opf = get_file_from_zip(file_path, "content.opf")
-        novel_package_opf = get_file_from_zip(file_path, "package.opf")
-        if novel_content_opf:
-            metadata = parse_html_tags(novel_content_opf)
-        elif novel_package_opf:
-            metadata = parse_html_tags(novel_package_opf)
+    try:
+        if extension in manga_extensions:
+            contains_comic_info = check_if_zip_file_contains_comic_info_xml(file_path)
+            if contains_comic_info:
+                comicinfo = get_file_from_zip(file_path, "comicinfo.xml", allow_base=False)
+                if comicinfo:
+                    comicinfo = comicinfo.decode("utf-8")
+                    # not parsing pages correctly
+                    metadata = parse_comicinfo_xml(comicinfo)
+        elif extension in novel_extensions:
+            novel_content_opf = get_file_from_zip(file_path, "content.opf")
+            novel_package_opf = get_file_from_zip(file_path, "package.opf")
+            if novel_content_opf:
+                metadata = parse_html_tags(novel_content_opf)
+            elif novel_package_opf:
+                metadata = parse_html_tags(novel_package_opf)
+    except Exception as e:
+        send_message(
+            "Failed to retrieve metadata from " + file_path + "\n\tERROR: " + str(e),
+            error=True,
+        )
     return metadata
 
 
