@@ -31,13 +31,12 @@ from discord_webhook import DiscordEmbed, DiscordWebhook
 from langdetect import detect
 from lxml import etree
 from PIL import Image
+from settings import *
 from skimage.metrics import structural_similarity as ssim
 from titlecase import titlecase
 from unidecode import unidecode
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
-
-from settings import *
 
 # Version of the script
 script_version = "2.3.3"
@@ -3542,32 +3541,6 @@ def reorganize_and_rename(files, dir, group=False):
                                 ["y", "n"],
                             )
                         if user_input == "y":
-                            if file.file_type == "volume":
-                                file.volume_number = remove_everything_but_volume_num(
-                                    [rename]
-                                )
-                                file.series_name = get_series_name_from_file_name(
-                                    rename, file.root
-                                )
-                            elif file.file_type == "chapter":
-                                file.volume_number = remove_everything_but_volume_num(
-                                    [rename], chapter=True
-                                )
-                                file.series_name = (
-                                    get_series_name_from_file_name_chapter(
-                                        rename, file.root, file.volume_number
-                                    )
-                                )
-                            file.volume_year = get_release_year(rename)
-                            file.name = rename
-                            file.extensionless_name = get_extensionless_name(rename)
-                            file.basename = os.path.basename(rename)
-                            file.path = os.path.join(file.root, rename)
-                            file.extensionless_path = os.path.splitext(file.path)[0]
-                            if file.file_type == "volume":
-                                file.extras = get_extras(rename)
-                            elif file.file_type == "chapter":
-                                file.extras = get_extras(rename, chapter=True)
                             if not os.path.isfile(os.path.join(file.root, rename)):
                                 rename_file(
                                     file.path,
@@ -3617,6 +3590,32 @@ def reorganize_and_rename(files, dir, group=False):
                                     + file.name
                                 )
                                 remove_file(file.path, silent=True)
+                            if file.file_type == "volume":
+                                file.volume_number = remove_everything_but_volume_num(
+                                    [rename]
+                                )
+                                file.series_name = get_series_name_from_file_name(
+                                    rename, file.root
+                                )
+                            elif file.file_type == "chapter":
+                                file.volume_number = remove_everything_but_volume_num(
+                                    [rename], chapter=True
+                                )
+                                file.series_name = (
+                                    get_series_name_from_file_name_chapter(
+                                        rename, file.root, file.volume_number
+                                    )
+                                )
+                            file.volume_year = get_release_year(rename)
+                            file.name = rename
+                            file.extensionless_name = get_extensionless_name(rename)
+                            file.basename = os.path.basename(rename)
+                            file.path = os.path.join(file.root, rename)
+                            file.extensionless_path = os.path.splitext(file.path)[0]
+                            if file.file_type == "volume":
+                                file.extras = get_extras(rename)
+                            elif file.file_type == "chapter":
+                                file.extras = get_extras(rename, chapter=True)
                         else:
                             print("\t\t\tSkipping...\n")
                     except OSError as ose:
@@ -6902,10 +6901,15 @@ def find_and_extract_cover(file, return_data_only=False):
             )
         )
 
+    # Check if the file exists
+    if not os.path.isfile(file.path):
+        send_message(f"\nFile: {file.path} does not exist.", error=True)
+        return None
+
     # Check if the input file is a valid zip file
     if not zipfile.is_zipfile(file.path):
         send_message(f"\nFile: {file.path} is not a valid zip file.", error=True)
-        return False
+        return None
 
     # Get the novel cover path if the file has a novel extension
     novel_cover_path = (
