@@ -289,6 +289,7 @@ transferred_dirs = []
 # when restructuring a file name.
 replace_unicode_when_restructuring = False
 
+
 # Folder Class
 class Folder:
     def __init__(self, root, dirs, basename, folder_name, files):
@@ -2180,7 +2181,6 @@ def is_fixed_volume(name, fixed_volume_pattern=fixed_volume_pattern):
 
 # Retrieves the release_group on the file name
 def get_extra_from_group(name, groups):
-
     if not groups:
         return ""
 
@@ -3368,12 +3368,25 @@ def get_internal_metadata(file_path, extension):
                     # not parsing pages correctly
                     metadata = parse_comicinfo_xml(comicinfo)
         elif extension in novel_extensions:
-            novel_content_opf = get_file_from_zip(file_path, "content.opf")
-            novel_package_opf = get_file_from_zip(file_path, "package.opf")
-            if novel_content_opf:
-                metadata = parse_html_tags(novel_content_opf)
-            elif novel_package_opf:
-                metadata = parse_html_tags(novel_package_opf)
+            opf_files = [
+                "content.opf",
+                "package.opf",
+                "standard.opf",
+                "volume.opf",
+                "metadata.opf",
+            ]
+            for file in opf_files:
+                opf = get_file_from_zip(file_path, file)
+                if opf:
+                    metadata = parse_html_tags(opf)
+                    break
+            if not metadata:
+                send_message(
+                    "\t\tNo opf file found in "
+                    + file_path
+                    + ".\n\t\t\tSkipping metadata retrieval.",
+                    discord=False,
+                )
     except Exception as e:
         send_message(
             "Failed to retrieve metadata from " + file_path + "\n\tERROR: " + str(e),
@@ -4211,7 +4224,6 @@ def get_zip_comment(zip_file):
 # Removes bracketed content from the string, alongwith any whitespace.
 # As long as the bracketed content is not immediately preceded or followed by a dash.
 def remove_bracketed_info_from_name(string):
-    
     # Avoid a string that is only a bracket
     # Probably a series name
     # EX: [(OSHI NO KO)]
