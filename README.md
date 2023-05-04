@@ -44,14 +44,14 @@ optional arguments:
 ## Examples
 with compression example:
   
-  ```python3 komga_cover_extractor.py -p "/path/to/manga" -p "/path/to/novels" -c "True" -cq "60"```
+  &nbsp;&nbsp;&nbsp;```python3 komga_cover_extractor.py -p "/path/to/manga" -p "/path/to/novels" -c "True" -cq "60"```
 
 without compression example:
   
-  ```python3 komga_cover_extractor.py -p "/path/to/manga" -p "/path/to/novels"```
+  &nbsp;&nbsp;&nbsp;```python3 komga_cover_extractor.py -p "/path/to/manga" -p "/path/to/novels"```
 
 ## Goals
 1. Transform script into manga/light novel manager with many features that includes cover extraction, but is not exclusive to it. ***(in-progress)***
 2. Modularize volume keyword regexes across the script. ***(in-progress)***
-3. Better documentation.
+3. Better documentation. ***(in-progress)***
 
