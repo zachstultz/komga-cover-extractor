@@ -285,6 +285,9 @@ group_discord_notifications_until_max = True
 transferred_files = []
 transferred_dirs = []
 
+# Whether or not to use unidecode on a file name
+# when restructuring a file name.
+replace_unicode_when_restructuring = False
 
 # Folder Class
 class Folder:
@@ -2177,22 +2180,38 @@ def is_fixed_volume(name, fixed_volume_pattern=fixed_volume_pattern):
 
 # Retrieves the release_group on the file name
 def get_extra_from_group(name, groups):
-    result = ""
-    if groups:
-        for extra in groups:
-            group_escaped = re.escape(extra)
-            left_brackets = r"(\(|\[|\{)"
-            right_brackets = r"(\)|\]|\})"
-            search = re.search(
-                rf"{left_brackets}{group_escaped}{right_brackets}", name, re.IGNORECASE
-            )
-            if search:
-                result = search.group()
-                if result:
-                    # remove any brackets that it starts with or ends with
-                    result = re.sub(rf"^{left_brackets}|{right_brackets}$", "", result)
-                break
-    return result
+
+    if not groups:
+        return ""
+
+    # Define regular expressions for left and right brackets
+    left_brackets = r"(\(|\[|\{)"
+    right_brackets = r"(\)|\]|\})"
+
+    # Compile a regular expression pattern for removing brackets
+    bracket_pattern = re.compile(rf"^{left_brackets}|{right_brackets}$")
+
+    # Combine all groups into a single regular expression pattern
+    combined_pattern = re.compile(
+        rf"{left_brackets}({'|'.join(map(re.escape, groups))}){right_brackets}",
+        re.IGNORECASE,
+    )
+
+    search = combined_pattern.search(name)
+
+    # If a match is found
+    if search:
+        result = search.group()
+
+        if result:
+            # Remove any brackets that the matched string starts with or ends with
+            result = bracket_pattern.sub("", result)
+
+        # Return the result after removing brackets
+        return result
+
+    # If no match is found, return an empty string
+    return ""
 
 
 # Precompile the regular expressions
@@ -3253,10 +3272,11 @@ def rename_folder(src, dest):
                 send_message(e, error=True)
             if os.path.isdir(dest):
                 send_message(
-                    "\t"
+                    "\t\t"
                     + os.path.basename(src)
                     + " was renamed to "
-                    + os.path.basename(dest),
+                    + os.path.basename(dest)
+                    + "\n",
                     discord=False,
                 )
                 result = dest
@@ -3373,6 +3393,7 @@ def check_for_premium_content(file_path, extension):
     return result
 
 
+# Rebuilds the file name by cleaning up, adding, and moving some parts around.
 def reorganize_and_rename(files, dir, group=False):
     global transferred_files
     base_dir = os.path.basename(dir)
@@ -3525,6 +3546,9 @@ def reorganize_and_rename(files, dir, group=False):
                 rename += file.extension
                 rename = rename.strip()
                 processed_files.append(rename)
+                # Replace unicode using unidecode, if enabled
+                if replace_unicode_when_restructuring:
+                    rename = unidecode(rename)
                 if file.name != rename:
                     if watchdog_toggle:
                         transferred_files.append(os.path.join(file.root, rename))
@@ -4187,6 +4211,13 @@ def get_zip_comment(zip_file):
 # Removes bracketed content from the string, alongwith any whitespace.
 # As long as the bracketed content is not immediately preceded or followed by a dash.
 def remove_bracketed_info_from_name(string):
+    
+    # Avoid a string that is only a bracket
+    # Probably a series name
+    # EX: [(OSHI NO KO)]
+    if re.search(r"^[\(\[\{].*[\)\]\}]$", string):
+        return string
+
     # Use a while loop to repeatedly apply the regular expression to the string and remove the matched bracketed content
     while True:
         # The regular expression matches any substring enclosed in brackets and not immediately preceded or followed by a dash, along with the surrounding whitespace characters
@@ -6022,10 +6053,7 @@ def rename_dirs_in_download_folder(group=False):
 
 def get_extras(file_name, chapter=False, series_name=""):
     extension = get_file_extension(file_name)
-    if (
-        re.search(re.escape(series_name), file_name, re.IGNORECASE)
-        and series_name != ""
-    ):
+    if series_name and re.search(re.escape(series_name), file_name, re.IGNORECASE):
         file_name = re.sub(
             re.escape(series_name), "", file_name, flags=re.IGNORECASE
         ).strip()
