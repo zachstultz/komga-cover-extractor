@@ -289,6 +289,9 @@ transferred_dirs = []
 # when restructuring a file name.
 replace_unicode_when_restructuring = False
 
+# The logo url for usage in the bookwalker_check discord output
+bookwalker_logo_url = "https://play-lh.googleusercontent.com/a7jUyjTxWrl_Kl1FkUSv2FHsSu3Swucpem2UIFDRbA1fmt5ywKBf-gcwe6_zalOqIR7V=w240-h480-rw"
+
 
 # Folder Class
 class Folder:
@@ -8702,6 +8705,12 @@ def check_for_new_volumes_on_bookwalker():
                 # set the pfp to the image url
                 embed[0].set_thumbnail(url=r.preview_image_url)
 
+            # Set the author name, url, and icon url
+            if bookwalker_logo_url and r.url:
+                embed[0].set_author(
+                    name="Bookwalker", url=r.url, icon_url=bookwalker_logo_url
+                )
+
             if bookwalker_webhook_urls and len(bookwalker_webhook_urls) == 2:
                 add_to_grouped_notifications(
                     Embed(embed[0], None), passed_webhook=bookwalker_webhook_urls[0]
@@ -8782,6 +8791,12 @@ def check_for_new_volumes_on_bookwalker():
                 embed[0].set_image(url=p.preview_image_url)
                 # set the pfp to the image url
                 embed[0].set_thumbnail(url=p.preview_image_url)
+
+            # Set the author name, url, and icon url
+            if bookwalker_logo_url and p.url:
+                embed[0].set_author(
+                    name="Bookwalker", url=p.url, icon_url=bookwalker_logo_url
+                )
 
             if bookwalker_webhook_urls and len(bookwalker_webhook_urls) == 2:
                 add_to_grouped_notifications(
