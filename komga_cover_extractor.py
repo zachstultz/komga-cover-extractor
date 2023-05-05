@@ -3375,8 +3375,16 @@ def get_internal_metadata(file_path, extension):
                 "volume.opf",
                 "metadata.opf",
             ]
+            regex_searches = [
+                r"978.*\.opf",
+            ]
+            opf_files.extend(regex_searches)
             for file in opf_files:
-                opf = get_file_from_zip(file_path, file)
+                opf = None
+                if file not in regex_searches:
+                    opf = get_file_from_zip(file_path, file)
+                else:
+                    opf = get_file_from_zip(file_path, file, re_search=True)
                 if opf:
                     metadata = parse_html_tags(opf)
                     break
@@ -6176,24 +6184,43 @@ def check_if_zip_file_contains_comic_info_xml(zip_file):
 
 
 # Retrieve the file specified from the zip file and return the data for it.
-def get_file_from_zip(zip_file, file_name, allow_base=True):
+def get_file_from_zip(zip_file, file_name, allow_base=True, re_search=False):
     result = None
     try:
         with zipfile.ZipFile(zip_file, "r") as z:
             # Iterate through all the files in the zip
             for info in z.infolist():
                 if allow_base:
-                    # Check the base name of the file
-                    if os.path.basename(info.filename).lower() == file_name.lower():
-                        # Read the contents of the file
-                        result = z.read(info)
-                        break
+                    if not re_search:
+                        # Check the base name of the file
+                        if os.path.basename(info.filename).lower() == file_name.lower():
+                            # Read the contents of the file
+                            result = z.read(info)
+                            break
+                    else:
+                        if re.search(
+                            rf"{file_name}",
+                            os.path.basename(info.filename).lower(),
+                            re.IGNORECASE,
+                        ):
+                            # Read the contents of the file
+                            result = z.read(info)
+                            break
+
                 else:
                     # Check the entire path of the file
-                    if info.filename.lower() == file_name.lower():
-                        # Read the contents of the file
-                        result = z.read(info)
-                        break
+                    if not re_search:
+                        if info.filename.lower() == file_name.lower():
+                            # Read the contents of the file
+                            result = z.read(info)
+                            break
+                    else:
+                        if re.search(
+                            rf"{file_name}", info.filename.lower(), re.IGNORECASE
+                        ):
+                            # Read the contents of the file
+                            result = z.read(info)
+                            break
     except (zipfile.BadZipFile, FileNotFoundError) as e:
         send_message(e, error=True)
         send_message("Attempted to read file: " + file_name, error=True)
