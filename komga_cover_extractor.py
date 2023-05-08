@@ -19,6 +19,7 @@ from datetime import datetime
 from difflib import SequenceMatcher
 from functools import lru_cache
 from posixpath import join
+from urllib.parse import urlparse
 
 import cv2
 import numpy as np
@@ -417,16 +418,18 @@ file_counters = {x: 0 for x in file_extensions}
 
 
 # Sends a message, prints it, and writes it to a file depending on whether the error parameter is set to True or False
-def send_message(message, discord=True, error=False):
+def send_message(message, discord=True, error=False, log=True):
     print(message)
     if discord != False:
         send_discord_message(message)
     if error:
         errors.append(message)
-        write_to_file("errors.txt", message)
+        if log:
+            write_to_file("errors.txt", message)
     else:
         items_changed.append(message)
-        write_to_file("changes.txt", message)
+        if log:
+            write_to_file("changes.txt", message)
 
 
 # Checks if the file is fully transferred by checking the file size
@@ -3131,9 +3134,9 @@ def write_to_file(
                             file.write("\n" + dt_string + " " + message)
                         file.close()
                 except Exception as e:
-                    send_message(e, error=True)
+                    send_message(e, error=True, log=False)
             except Exception as e:
-                send_message(e, error=True)
+                send_message(e, error=True, log=False)
 
 
 # Checks for any missing volumes between the lowest volume of a series and the highest volume.
@@ -7714,34 +7717,58 @@ class BookwalkerSeries:
         self.book_type = book_type
 
 
-# our session object, helps speed things up
-# when scraping
-session_object = None
+# our session objects, one for each domain
+session_objects = {}
 
 
-def scrape_url(url, strainer=None, headers=None, cookies=None):
+# Returns a session object for the given URL
+def get_session_object(url):
+    domain = urlparse(url).netloc.split(":")[0]
+    if domain not in session_objects:
+        # Create a new session object and set a default User-Agent header
+        session_object = requests.Session()
+        session_object.headers.update(
+            {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36"
+            }
+        )
+        session_objects[domain] = session_object
+    return session_objects[domain]
+
+
+# Makes a GET request to the given URL using a reusable session object,
+# and returns a BeautifulSoup object representing the parsed HTML response.
+def scrape_url(url, strainer=None, headers=None, cookies=None, proxy=None):
     try:
-        global session_object
-        if not session_object:
-            session_object = requests.Session()
-        page_obj = None
-        if headers and cookies:
-            page_obj = session_object.get(url, headers=headers, cookies=cookies)
-        elif headers and not cookies:
-            page_obj = session_object.get(url, headers=headers)
-        else:
-            page_obj = session_object.get(url)
-        if page_obj and page_obj.status_code == 403:
-            print("\nTOO MANY REQUESTS, WE'RE BEING RATE-LIMTIED!")
+        session_object = get_session_object(url)
+
+        # Create a dictionary of request parameters with only non-None values
+        request_params = {
+            "url": url,
+            "headers": headers,
+            "cookies": cookies,
+            "proxies": proxy,
+            "timeout": 10,
+        }
+        response = session_object.get(
+            **{k: v for k, v in request_params.items() if v is not None}
+        )
+
+        # Raise an exception if the status code indicates rate limiting
+        if response.status_code == 403:
+            raise Exception("Too many requests, we're being rate-limited!")
+
         soup = None
-        if strainer and page_obj:
-            soup = BeautifulSoup(page_obj.text, "lxml", parse_only=strainer)
+        if strainer:
+            # Use the strainer to parse only specific parts of the HTML document
+            soup = BeautifulSoup(response.content, "lxml", parse_only=strainer)
         else:
-            soup = BeautifulSoup(page_obj.text, "lxml")
+            soup = BeautifulSoup(response.content, "lxml")
+
         return soup
-    except Exception as e:
-        print("Error: " + str(e))
-        return ""
+    except requests.exceptions.RequestException as e:
+        send_message("Error scraping URL: " + str(e), error=True)
+        return None
 
 
 def get_all_matching_books(books, book_type, title):
@@ -7810,6 +7837,8 @@ def combine_series(series_list):
     return combined_series
 
 
+# Gives the user a short version of the title, if a dash or colon is present.
+# EX: Series Name - Subtitle --> Series Name
 def get_shortened_title(title):
     shortened_title = ""
     if re.search(r"((\s(-)|:)\s)", title):
@@ -9752,7 +9781,7 @@ def main():
         check_for_missing_volumes()
         if output_execution_times:
             print_function_execution_time(start_time, "check_for_missing_volumes()")
-    if bookwalker_check:
+    if bookwalker_check and not watchdog_toggle:
         # currently slowed down to avoid rate limiting,
         # advised not to run on each use, but rather once a week
         check_for_new_volumes_on_bookwalker()  # checks the library against bookwalker for any missing volumes that are released or on pre-order
