@@ -1293,18 +1293,6 @@ def clean_and_sort(
                     and get_file_extension(x) in image_extensions
                 )
             ]
-            # let the user know which files were removed
-            removed_files = [
-                x
-                for x in just_these_files
-                if os.path.join(root, x) not in files
-                and get_file_extension(x) not in image_extensions
-            ]
-            if removed_files:
-                print(
-                    "The following files were not found in the just_these_files and were removed from the list of files to be processed: "
-                    + ", ".join(removed_files)
-                )
         if not chapters:
             filter_non_chapters_start = time.time()
             files = filter_non_chapters(files)
@@ -3598,10 +3586,10 @@ def reorganize_and_rename(files, dir, group=False):
                             rename += " [" + file.release_group + "]"
                 rename += file.extension
                 rename = rename.strip()
-                processed_files.append(rename)
                 # Replace unicode using unidecode, if enabled
                 if replace_unicode_when_restructuring:
                     rename = unidecode(rename)
+                processed_files.append(rename)
                 if file.name != rename:
                     if watchdog_toggle:
                         transferred_files.append(os.path.join(file.root, rename))
