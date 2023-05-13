@@ -1,5 +1,5 @@
 # Komga Cover Extractor
-A python automation script that detects and extracts the cover from your cbz and epub files for each individal volume. 
+A python automation script that detects and extracts the cover from your zip, cbz, and epub files for each individal volume. 
 Then takes the cover from the first volume and copies that as a cover file for your overall collection.
 
 Allowing the user to use local high-resolution covers within Komga instead of the compressed versions that Komga generates.
@@ -28,7 +28,7 @@ Detection is based on various scene releases, if none are detected, it will defa
 ```
 usage: komga_cover_extractor.py [-h] [-p [PATHS [PATHS ...]]] [-wh [WEBHOOK [WEBHOOK ...]]] [-c COMPRESS] [-cq COMPRESS_QUALITY]
 
-Scans for covers in the cbz and epub files.
+Scans for covers in the zip, cbz, and epub files.
 
 optional arguments:
   -h, --help            show this help message and exit
