@@ -293,6 +293,9 @@ replace_unicode_when_restructuring = False
 # The logo url for usage in the bookwalker_check discord output
 bookwalker_logo_url = "https://play-lh.googleusercontent.com/a7jUyjTxWrl_Kl1FkUSv2FHsSu3Swucpem2UIFDRbA1fmt5ywKBf-gcwe6_zalOqIR7V=w240-h480-rw"
 
+# Renames .zip files to .cbz with convert_to_cbz() if they're valid zip files
+rename_zip_to_cbz = False
+
 
 # Folder Class
 class Folder:
@@ -9407,7 +9410,7 @@ def compress(temp_dir, cbz_filename):
 def convert_to_cbz(group=False):
     global transferred_files
     if download_folders:
-        print("\nConverting RAR archives to CBZ...")
+        print("\nConverting archives to CBZ...")
         for folder in download_folders:
             if os.path.isdir(folder):
                 print("\t{}".format(folder))
@@ -9638,6 +9641,19 @@ def convert_to_cbz(group=False):
                                     )
                                     # remove cbz file
                                     remove_file(cbz_file, group=group)
+                            elif extension == ".zip" and rename_zip_to_cbz:
+                                # if it's a zip file, then rename it to cbz
+                                if zipfile.is_zipfile(os.path.join(root, entry)):
+                                    rename_path = (
+                                        get_extensionless_name(
+                                            os.path.join(root, entry)
+                                        )
+                                        + ".cbz"
+                                    )
+                                    rename_file(
+                                        os.path.join(root, entry),
+                                        rename_path,
+                                    )
                         except Exception as e:
                             send_message(
                                 f"Error converting to cbz: {entry}: {e}", error=True
