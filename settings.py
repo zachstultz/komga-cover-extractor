@@ -83,6 +83,11 @@ exception_keywords = [
 # BEFORE: Series Name v01 (Group) (f).extension
 # AFTER : Series Name v01 (f) (Group).extension
 move_release_group_to_end_of_file_name = False
+
+# Whether or not to use unidecode on a file name
+# when restructuring a file name.
+# Requires: resturcture_when_renaming = True
+replace_unicode_when_restructuring = False
 ################################################################
 
 ########################### UPGRADING ###########################
@@ -214,4 +219,8 @@ blank_cover_required_similarity_score = 0.90
 # Using modification date and hashing for matching, it can automatically switch your covers back and forth
 # between the latest and volume one covers. All you have to do is flick the setting on and off.
 use_latest_volume_cover_as_series_cover = False
+
+# Renames .zip files to .cbz with convert_to_cbz() if they're valid zip files
+# Requires: convert_to_cbz_toggle = True
+rename_zip_to_cbz = True
 ################################################################
