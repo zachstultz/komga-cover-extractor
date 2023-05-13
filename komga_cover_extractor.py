@@ -32,12 +32,13 @@ from discord_webhook import DiscordEmbed, DiscordWebhook
 from langdetect import detect
 from lxml import etree
 from PIL import Image
-from settings import *
 from skimage.metrics import structural_similarity as ssim
 from titlecase import titlecase
 from unidecode import unidecode
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
+
+from settings import *
 
 # Version of the script
 script_version = "2.3.3"
@@ -286,16 +287,8 @@ group_discord_notifications_until_max = True
 transferred_files = []
 transferred_dirs = []
 
-# Whether or not to use unidecode on a file name
-# when restructuring a file name.
-replace_unicode_when_restructuring = False
-
 # The logo url for usage in the bookwalker_check discord output
 bookwalker_logo_url = "https://play-lh.googleusercontent.com/a7jUyjTxWrl_Kl1FkUSv2FHsSu3Swucpem2UIFDRbA1fmt5ywKBf-gcwe6_zalOqIR7V=w240-h480-rw"
-
-# Renames .zip files to .cbz with convert_to_cbz() if they're valid zip files
-rename_zip_to_cbz = True
-
 
 # Folder Class
 class Folder:
