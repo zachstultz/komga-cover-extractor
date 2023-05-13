@@ -139,7 +139,7 @@ watchdog_toggle = False
 
 # Accepted file extensions for manga
 zip_extensions = [
-    # ".zip",
+    ".zip",
     ".cbz",
     ".epub",
 ]
@@ -294,7 +294,7 @@ replace_unicode_when_restructuring = False
 bookwalker_logo_url = "https://play-lh.googleusercontent.com/a7jUyjTxWrl_Kl1FkUSv2FHsSu3Swucpem2UIFDRbA1fmt5ywKBf-gcwe6_zalOqIR7V=w240-h480-rw"
 
 # Renames .zip files to .cbz with convert_to_cbz() if they're valid zip files
-rename_zip_to_cbz = False
+rename_zip_to_cbz = True
 
 
 # Folder Class
@@ -9654,6 +9654,19 @@ def convert_to_cbz(group=False):
                                         os.path.join(root, entry),
                                         rename_path,
                                     )
+                                    if os.path.isfile(
+                                        rename_path
+                                    ) and not os.path.isfile(os.path.join(root, entry)):
+                                        if watchdog_toggle:
+                                            if (
+                                                os.path.join(root, entry)
+                                                in transferred_files
+                                            ):
+                                                transferred_files.remove(
+                                                    os.path.join(root, entry)
+                                                )
+                                            if rename_path not in transferred_files:
+                                                transferred_files.append(rename_path)
                         except Exception as e:
                             send_message(
                                 f"Error converting to cbz: {entry}: {e}", error=True
