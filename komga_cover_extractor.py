@@ -41,7 +41,7 @@ from watchdog.observers import Observer
 from settings import *
 
 # Version of the script
-script_version = "2.3.3"
+script_version = "2.3.4"
 
 
 # Paths = existing library
@@ -3491,8 +3491,8 @@ def reorganize_and_rename(files, dir, group=False):
                     and number_string
                 ):
                     rename += " #" + number_string
-                # if file.subtitle:
-                #     rename += " - " + file.subtitle
+                if file.subtitle:
+                    rename += " - " + file.subtitle
                 if file.volume_year:
                     if file.extension in manga_extensions:
                         rename += " (" + str(file.volume_year) + ")"
@@ -7875,7 +7875,7 @@ def get_subtitle_from_title(file):
         subtitle = remove_dual_space(subtitle).strip()
         # check that the subtitle isn't present in the folder name, otherwise it's probably not a subtitle
         if re.search(
-            rf"{re.escape(subtitle)}", os.path.basename(file.path), re.IGNORECASE
+            rf"{re.escape(subtitle)}", os.path.basename(os.path.dirname(file.path)), re.IGNORECASE
         ):
             subtitle = ""
     return subtitle
