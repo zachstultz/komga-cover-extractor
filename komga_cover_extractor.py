@@ -19,8 +19,10 @@ from datetime import datetime
 from difflib import SequenceMatcher
 from functools import lru_cache
 from posixpath import join
+from urllib.parse import urlparse
 
 import cv2
+import filetype
 import numpy as np
 import rarfile
 import regex as re
@@ -31,15 +33,16 @@ from discord_webhook import DiscordEmbed, DiscordWebhook
 from langdetect import detect
 from lxml import etree
 from PIL import Image
-from settings import *
 from skimage.metrics import structural_similarity as ssim
 from titlecase import titlecase
 from unidecode import unidecode
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
+from settings import *
+
 # Version of the script
-script_version = "2.3.3"
+script_version = "2.4.0"
 
 
 # Paths = existing library
@@ -138,7 +141,7 @@ watchdog_toggle = False
 
 # Accepted file extensions for manga
 zip_extensions = [
-    # ".zip",
+    ".zip",
     ".cbz",
     ".epub",
 ]
@@ -285,6 +288,9 @@ group_discord_notifications_until_max = True
 transferred_files = []
 transferred_dirs = []
 
+# The logo url for usage in the bookwalker_check discord output
+bookwalker_logo_url = "https://play-lh.googleusercontent.com/a7jUyjTxWrl_Kl1FkUSv2FHsSu3Swucpem2UIFDRbA1fmt5ywKBf-gcwe6_zalOqIR7V=w240-h480-rw"
+
 
 # Folder Class
 class Folder:
@@ -309,6 +315,7 @@ class File:
         extensionless_path,
         volume_number,
         file_type,
+        header_extension,
     ):
         self.name = name
         self.extensionless_name = extensionless_name
@@ -319,6 +326,7 @@ class File:
         self.extensionless_path = extensionless_path
         self.volume_number = volume_number
         self.file_type = file_type
+        self.header_extension = header_extension
 
 
 # Volume Class
@@ -343,6 +351,7 @@ class Volume:
         publisher,
         is_premium,
         subtitle,
+        header_extension,
         multi_volume=None,
         is_one_shot=None,
     ):
@@ -364,6 +373,7 @@ class Volume:
         self.publisher = publisher
         self.is_premium = is_premium
         self.subtitle = subtitle
+        self.header_extension = header_extension
         self.multi_volume = multi_volume
         self.is_one_shot = is_one_shot
 
@@ -410,16 +420,18 @@ file_counters = {x: 0 for x in file_extensions}
 
 
 # Sends a message, prints it, and writes it to a file depending on whether the error parameter is set to True or False
-def send_message(message, discord=True, error=False):
+def send_message(message, discord=True, error=False, log=True):
     print(message)
     if discord != False:
         send_discord_message(message)
     if error:
         errors.append(message)
-        write_to_file("errors.txt", message)
+        if log:
+            write_to_file("errors.txt", message)
     else:
         items_changed.append(message)
-        write_to_file("changes.txt", message)
+        if log:
+            write_to_file("changes.txt", message)
 
 
 # Checks if the file is fully transferred by checking the file size
@@ -479,175 +491,189 @@ class Handler(FileSystemEventHandler):
         global transferred_dirs
 
         extension = get_file_extension(event.src_path)
+        base_name = os.path.basename(event.src_path)
+        is_hidden = base_name.startswith(".")
+        is_valid_file = os.path.isfile(event.src_path)
+        in_file_extensions = extension in file_extensions
+
+        if not event.event_type == "created":
+            return None
+
+        print("\n\tEvent Type: " + event.event_type)
+        print("\tEvent Src Path: " + event.src_path)
 
         # if not extension was found, return None
         if not extension:
+            print("\t\t -No extension found, skipped.")
             return None
 
         # if the event is a directory, return None
         if event.is_directory:
+            print("\t\t -Is a directory, skipped.")
             return None
 
         # if the event is a hidden file, return None
-        elif os.path.basename(event.src_path).startswith("."):
-            return None
-
-        # if the event isn't a valid file, return None
-        elif not os.path.isfile(event.src_path):
+        elif is_hidden:
+            print("\t\t -Is a hidden file, skipped.")
             return None
 
         # if transferred_files, and the file is already in transferred_files
         # then it already has been processed, so return None
         elif transferred_files and event.src_path in transferred_files:
+            print("\t\t -Already processed, skipped.")
+            return None
+
+        # if the event isn't a valid file, return None
+        elif not is_valid_file:
+            print("\t\t -Is not a valid file, skipped.")
             return None
 
         # if the file is an image, return None
         elif extension in image_extensions:
+            print("\t\t -Is an image, skipped.")
             return None
 
-        # if the file is not in our file extensions and we don't have delete_unacceptable_files_toggle or convert_to_cbz_toggle enabled, return None
-        # if delete_unacceptable_files_toggle, we let it past so it can purge it with delete_unacceptable_files()
-        elif extension not in file_extensions and not delete_unacceptable_files_toggle:
-            return None
-
-        elif (
-            extension not in file_extensions
-            and (delete_unacceptable_files_toggle or convert_to_cbz_toggle)
-            and extension not in unaccepted_file_extensions
-            and not (convert_to_cbz_toggle and extension in rar_extensions)
-        ):
-            return None
-
-        # Finally if all checks are passed and the file was just created, we can process it
-        elif event.event_type == "created":
-            # Take any action here when a file is first created.
-            print("\tfile found:  %s." % event.src_path + "\n")
-
-            if not os.path.isfile(event.src_path):
+        # check if the extension is not in our accepted file extensions
+        elif not in_file_extensions:
+            # if we don't have delete_unacceptable_files_toggle enabled, return None
+            # if delete_unacceptable_files_toggle, we let it past so it can purge it with delete_unacceptable_files()
+            if not delete_unacceptable_files_toggle:
+                print(
+                    "\t\t -Not in file extensions and delete_unacceptable_files_toggle is not enabled, skipped."
+                )
+                return None
+            elif (
+                (delete_unacceptable_files_toggle or convert_to_cbz_toggle)
+                and extension not in unaccepted_file_extensions
+                and not (convert_to_cbz_toggle and extension in rar_extensions)
+            ):
+                print("\t\t -Not in file extensions, skipped.")
                 return None
 
-            # Get a list of all files in the root directory and its subdirectories.
-            files = get_all_files_recursively_in_dir(download_folders[0])
+        # Finally if all checks are passed and the file was just created, we can process it
+        # Take any action here when a file is first created.
+        print("\n\tfile found:  %s." % event.src_path + "\n")
 
-            # Check if all files in the root directory and its subdirectories are fully transferred.
-            while True:
-                all_files_transferred = True
-                print("\nTotal files: %s" % len(files))
+        if not os.path.isfile(event.src_path):
+            return None
 
-                for file in files:
-                    print(
-                        "\t["
-                        + str(files.index(file) + 1)
-                        + "/"
-                        + str(len(files))
-                        + "] "
-                        + os.path.basename(file)
-                    )
+        # Get a list of all files in the root directory and its subdirectories.
+        files = get_all_files_recursively_in_dir(download_folders[0])
 
-                    if file in transferred_files:
-                        print("\t\t-already transferred")
-                        continue
+        # Check if all files in the root directory and its subdirectories are fully transferred.
+        while True:
+            all_files_transferred = True
+            print("\nTotal files: %s" % len(files))
 
-                    is_transferred = check_if_file_is_transferred_by_size(file)
+            for file in files:
+                print(
+                    "\t["
+                    + str(files.index(file) + 1)
+                    + "/"
+                    + str(len(files))
+                    + "] "
+                    + os.path.basename(file)
+                )
 
-                    if is_transferred:
-                        print("\t\t-fully transferred")
-                        transferred_files.append(file)
-                        dir_path = os.path.dirname(file)
-                        if (
-                            dir_path not in download_folders
-                            and dir_path not in transferred_dirs
-                        ):
-                            transferred_dirs.append(os.path.dirname(file))
-                    elif not os.path.isfile(file):
-                        print("\t\t-file no longer exists")
-                        all_files_transferred = False
-                        files.remove(file)
-                        break
-                    else:
-                        print("\t\t-still transferreing...")
-                        all_files_transferred = False
-                        break
+                if file in transferred_files:
+                    print("\t\t-already transferred")
+                    continue
 
-                if all_files_transferred:
-                    time.sleep(5)
+                is_transferred = check_if_file_is_transferred_by_size(file)
 
-                    # The current list of files in the root directory and its subdirectories.
-                    new_files = get_all_files_recursively_in_dir(download_folders[0])
+                if is_transferred:
+                    print("\t\t-fully transferred")
+                    transferred_files.append(file)
+                    dir_path = os.path.dirname(file)
+                    if (
+                        dir_path not in download_folders
+                        and dir_path not in transferred_dirs
+                    ):
+                        transferred_dirs.append(os.path.dirname(file))
+                elif not os.path.isfile(file):
+                    print("\t\t-file no longer exists")
+                    all_files_transferred = False
+                    files.remove(file)
+                    break
+                else:
+                    print("\t\t-still transferreing...")
+                    all_files_transferred = False
+                    break
 
-                    # If any new files started transferring while we were checking the current files,
-                    # then we have more files to check.
-                    if files != new_files:
-                        all_files_transferred = False
-                        if len(new_files) > len(files):
-                            print(
-                                "\tNew transfers: +%s"
-                                % str(len(new_files) - len(files))
-                            )
-                            files = new_files
-                        elif len(new_files) < len(files):
-                            break
-                    elif files == new_files:
-                        break
-
+            if all_files_transferred:
                 time.sleep(5)
 
-            # Proceed with the next steps here.
-            print("\nAll files are transferred.")
+                # The current list of files in the root directory and its subdirectories.
+                new_files = get_all_files_recursively_in_dir(download_folders[0])
 
-            new_transferred_dirs = []
+                # If any new files started transferring while we were checking the current files,
+                # then we have more files to check.
+                if files != new_files:
+                    all_files_transferred = False
+                    if len(new_files) > len(files):
+                        print("\tNew transfers: +%s" % str(len(new_files) - len(files)))
+                        files = new_files
+                    elif len(new_files) < len(files):
+                        break
+                elif files == new_files:
+                    break
 
-            if transferred_dirs:
-                # if it's already a folder object, then just add it to the new list
-                for x in transferred_dirs:
-                    if isinstance(x, Folder):
-                        new_transferred_dirs.append(x)
-                    # if it's not a folder object, then make it a folder object
-                    elif not isinstance(x, Folder):
-                        new_transferred_dirs.append(
-                            Folder(
-                                x,
-                                None,
-                                os.path.basename(os.path.dirname(x)),
-                                os.path.basename(x),
-                                get_all_files_recursively_in_dir(x),
-                            )
+            time.sleep(5)
+
+        # Proceed with the next steps here.
+        print("\nAll files are transferred.")
+
+        new_transferred_dirs = []
+
+        if transferred_dirs:
+            # if it's already a folder object, then just add it to the new list
+            for x in transferred_dirs:
+                if isinstance(x, Folder):
+                    new_transferred_dirs.append(x)
+                # if it's not a folder object, then make it a folder object
+                elif not isinstance(x, Folder):
+                    new_transferred_dirs.append(
+                        Folder(
+                            x,
+                            None,
+                            os.path.basename(os.path.dirname(x)),
+                            os.path.basename(x),
+                            get_all_files_recursively_in_dir(x),
                         )
+                    )
 
-                transferred_dirs = new_transferred_dirs
+            transferred_dirs = new_transferred_dirs
 
-            send_message("\nStarting Script (WATCHDOG) (EXPERIMENTAL)", discord=False)
+        send_message("\nStarting Script (WATCHDOG) (EXPERIMENTAL)", discord=False)
 
-            embed = [
-                handle_fields(
-                    DiscordEmbed(
-                        title="Starting Script (WATCHDOG) (EXPERIMENTAL)",
-                        color=purple_color,
-                    ),
-                    [
-                        {
-                            "name": "File Found:",
-                            "value": "```" + str(event.src_path) + "```",
-                            "inline": False,
-                        }
-                    ],
-                )
-            ]
-
-            send_discord_message(
-                None,
-                [Embed(embed[0], None)],
+        embed = [
+            handle_fields(
+                DiscordEmbed(
+                    title="Starting Script (WATCHDOG) (EXPERIMENTAL)",
+                    color=purple_color,
+                ),
+                [
+                    {
+                        "name": "File Found:",
+                        "value": "```" + str(event.src_path) + "```",
+                        "inline": False,
+                    }
+                ],
             )
+        ]
 
-            main()
+        send_discord_message(
+            None,
+            [Embed(embed[0], None)],
+        )
 
-            send_message(
-                "\nFinished Execution (WATCHDOG) (EXPERIMENTAL)", discord=False
-            )
+        main()
 
-            send_message(
-                "\nWatching for changes... (WATCHDOG) (EXPERIMENTAL)", discord=False
-            )
+        send_message("\nFinished Execution (WATCHDOG) (EXPERIMENTAL)", discord=False)
+
+        send_message(
+            "\nWatching for changes... (WATCHDOG) (EXPERIMENTAL)", discord=False
+        )
 
 
 # Read all the lines of a text file and return them
@@ -1319,6 +1345,28 @@ def get_file_extension(file):
     return os.path.splitext(file)[1]
 
 
+# Gets the predicted file extension from the file header using
+# import filetype
+def get_file_extension_from_header(file):
+    extension_from_name = get_file_extension(file)
+    if extension_from_name in manga_extensions or extension_from_name in rar_extensions:
+        try:
+            kind = filetype.guess(file)
+            if kind is None:
+                return None
+            elif "." + kind.extension in manga_extensions:
+                return ".cbz"
+            elif "." + kind.extension in rar_extensions:
+                return ".cbr"
+            else:
+                return "." + kind.extension
+        except Exception as e:
+            send_message(str(e), error=True)
+            return None
+    else:
+        return None
+
+
 # Returns an extensionless name
 def get_extensionless_name(file):
     return os.path.splitext(file)[0]
@@ -1345,6 +1393,7 @@ def upgrade_to_file_class(files, root):
             get_extensionless_name(os.path.join(root, file)),
             chapter_number,
             file_type,
+            get_file_extension_from_header(os.path.join(root, file)),
         )
         for file, file_type, chapter_number in zip(
             files,
@@ -1815,6 +1864,9 @@ def create_folders_for_items_in_download_folder(group=False):
                                                 ),
                                                 None,
                                                 None,
+                                                get_file_extension_from_header(
+                                                    os.path.join(root, new_file_name)
+                                                ),
                                             )
                                             # if it doesn't already exist
                                             if not os.path.isfile(
@@ -2177,22 +2229,37 @@ def is_fixed_volume(name, fixed_volume_pattern=fixed_volume_pattern):
 
 # Retrieves the release_group on the file name
 def get_extra_from_group(name, groups):
-    result = ""
-    if groups:
-        for extra in groups:
-            group_escaped = re.escape(extra)
-            left_brackets = r"(\(|\[|\{)"
-            right_brackets = r"(\)|\]|\})"
-            search = re.search(
-                rf"{left_brackets}{group_escaped}{right_brackets}", name, re.IGNORECASE
-            )
-            if search:
-                result = search.group()
-                if result:
-                    # remove any brackets that it starts with or ends with
-                    result = re.sub(rf"^{left_brackets}|{right_brackets}$", "", result)
-                break
-    return result
+    if not groups:
+        return ""
+
+    # Define regular expressions for left and right brackets
+    left_brackets = r"(\(|\[|\{)"
+    right_brackets = r"(\)|\]|\})"
+
+    # Compile a regular expression pattern for removing brackets
+    bracket_pattern = re.compile(rf"^{left_brackets}|{right_brackets}$")
+
+    # Combine all groups into a single regular expression pattern
+    combined_pattern = re.compile(
+        rf"{left_brackets}({'|'.join(map(re.escape, groups))}){right_brackets}",
+        re.IGNORECASE,
+    )
+
+    search = combined_pattern.search(name)
+
+    # If a match is found
+    if search:
+        result = search.group()
+
+        if result:
+            # Remove any brackets that the matched string starts with or ends with
+            result = bracket_pattern.sub("", result)
+
+        # Return the result after removing brackets
+        return result
+
+    # If no match is found, return an empty string
+    return ""
 
 
 # Precompile the regular expressions
@@ -2331,6 +2398,7 @@ def upgrade_to_volume_class(
                 else False
             ),
             None,
+            file.header_extension,
             (
                 (
                     check_for_multi_volume_file(file.name)
@@ -3109,9 +3177,9 @@ def write_to_file(
                             file.write("\n" + dt_string + " " + message)
                         file.close()
                 except Exception as e:
-                    send_message(e, error=True)
+                    send_message(e, error=True, log=False)
             except Exception as e:
-                send_message(e, error=True)
+                send_message(e, error=True, log=False)
 
 
 # Checks for any missing volumes between the lowest volume of a series and the highest volume.
@@ -3207,6 +3275,7 @@ def check_for_missing_volumes():
 
 # Renames the file.
 def rename_file(src, dest, silent=False):
+    result = False
     if os.path.isfile(src):
         root = os.path.dirname(src)
         if not silent:
@@ -3216,6 +3285,7 @@ def rename_file(src, dest, silent=False):
         except Exception as e:
             send_message(e, error=True)
         if os.path.isfile(dest):
+            result = True
             if not silent:
                 send_message(
                     "\t\t"
@@ -3240,6 +3310,9 @@ def rename_file(src, dest, silent=False):
                 "Failed to rename " + src + " to " + dest + "\n\tERROR: " + str(e),
                 error=True,
             )
+    else:
+        send_message("File " + src + " does not exist. Skipping rename.", discord=False)
+    return result
 
 
 # Renames the folder
@@ -3253,10 +3326,11 @@ def rename_folder(src, dest):
                 send_message(e, error=True)
             if os.path.isdir(dest):
                 send_message(
-                    "\t"
+                    "\t\t"
                     + os.path.basename(src)
                     + " was renamed to "
-                    + os.path.basename(dest),
+                    + os.path.basename(dest)
+                    + "\n",
                     discord=False,
                 )
                 result = dest
@@ -3348,12 +3422,33 @@ def get_internal_metadata(file_path, extension):
                     # not parsing pages correctly
                     metadata = parse_comicinfo_xml(comicinfo)
         elif extension in novel_extensions:
-            novel_content_opf = get_file_from_zip(file_path, "content.opf")
-            novel_package_opf = get_file_from_zip(file_path, "package.opf")
-            if novel_content_opf:
-                metadata = parse_html_tags(novel_content_opf)
-            elif novel_package_opf:
-                metadata = parse_html_tags(novel_package_opf)
+            opf_files = [
+                "content.opf",
+                "package.opf",
+                "standard.opf",
+                "volume.opf",
+                "metadata.opf",
+            ]
+            regex_searches = [
+                r"978.*\.opf",
+            ]
+            opf_files.extend(regex_searches)
+            for file in opf_files:
+                opf = None
+                if file not in regex_searches:
+                    opf = get_file_from_zip(file_path, file)
+                else:
+                    opf = get_file_from_zip(file_path, file, re_search=True)
+                if opf:
+                    metadata = parse_html_tags(opf)
+                    break
+            if not metadata:
+                send_message(
+                    "\t\tNo opf file found in "
+                    + file_path
+                    + ".\n\t\t\tSkipping metadata retrieval.",
+                    discord=False,
+                )
     except Exception as e:
         send_message(
             "Failed to retrieve metadata from " + file_path + "\n\tERROR: " + str(e),
@@ -3373,6 +3468,7 @@ def check_for_premium_content(file_path, extension):
     return result
 
 
+# Rebuilds the file name by cleaning up, adding, and moving some parts around.
 def reorganize_and_rename(files, dir, group=False):
     global transferred_files
     base_dir = os.path.basename(dir)
@@ -3433,8 +3529,8 @@ def reorganize_and_rename(files, dir, group=False):
                     and number_string
                 ):
                     rename += " #" + number_string
-                # if file.subtitle:
-                #     rename += " - " + file.subtitle
+                if file.subtitle:
+                    rename += " - " + file.subtitle
                 if file.volume_year:
                     if file.extension in manga_extensions:
                         rename += " (" + str(file.volume_year) + ")"
@@ -3522,8 +3618,13 @@ def reorganize_and_rename(files, dir, group=False):
                             rename += " (" + file.release_group + ")"
                         elif file.extension in novel_extensions:
                             rename += " [" + file.release_group + "]"
+                # remove * from the replacement
+                rename = re.sub(r"\*", "", rename)
                 rename += file.extension
                 rename = rename.strip()
+                # Replace unicode using unidecode, if enabled
+                if replace_unicode_when_restructuring:
+                    rename = unidecode(rename)
                 processed_files.append(rename)
                 if file.name != rename:
                     if watchdog_toggle:
@@ -3752,7 +3853,7 @@ def remove_punctuation(s, disable_lang=False):
 # detect language of the passed string using langdetect
 def detect_language(s):
     language = ""
-    if s and len(s) >= 5:
+    if s and len(s) >= 5 and re.search(r"[\p{L}\p{M}]+", s):
         try:
             language = detect(s)
         except Exception as e:
@@ -4156,7 +4257,7 @@ def check_upgrade(
             check_and_delete_empty_folder(file.root)
             return True
     else:
-        print("\t\tNo match found.")
+        print("\n\t\tNo match found.")
         return False
 
 
@@ -4187,6 +4288,12 @@ def get_zip_comment(zip_file):
 # Removes bracketed content from the string, alongwith any whitespace.
 # As long as the bracketed content is not immediately preceded or followed by a dash.
 def remove_bracketed_info_from_name(string):
+    # Avoid a string that is only a bracket
+    # Probably a series name
+    # EX: [(OSHI NO KO)]
+    if re.search(r"^[\(\[\{].*[\)\]\}]$", string):
+        return string
+
     # Use a while loop to repeatedly apply the regular expression to the string and remove the matched bracketed content
     while True:
         # The regular expression matches any substring enclosed in brackets and not immediately preceded or followed by a dash, along with the surrounding whitespace characters
@@ -5080,6 +5187,7 @@ def check_for_existing_series(group=False):
                                                     os.path.basename(root),
                                                     file_objects,
                                                 )
+                                                print(folder_accessor.root)
                                                 if folder_accessor.dirs:
                                                     if (
                                                         root not in cached_paths
@@ -5090,10 +5198,6 @@ def check_for_existing_series(group=False):
                                                         print(
                                                             "\nLooking for: "
                                                             + file.series_name
-                                                        )
-                                                        print(
-                                                            "\tInside of: "
-                                                            + folder_accessor.root
                                                         )
                                                         for dir in folder_accessor.dirs:
                                                             dir_position = (
@@ -6022,10 +6126,7 @@ def rename_dirs_in_download_folder(group=False):
 
 def get_extras(file_name, chapter=False, series_name=""):
     extension = get_file_extension(file_name)
-    if (
-        re.search(re.escape(series_name), file_name, re.IGNORECASE)
-        and series_name != ""
-    ):
+    if series_name and re.search(re.escape(series_name), file_name, re.IGNORECASE):
         file_name = re.sub(
             re.escape(series_name), "", file_name, flags=re.IGNORECASE
         ).strip()
@@ -6136,24 +6237,43 @@ def check_if_zip_file_contains_comic_info_xml(zip_file):
 
 
 # Retrieve the file specified from the zip file and return the data for it.
-def get_file_from_zip(zip_file, file_name, allow_base=True):
+def get_file_from_zip(zip_file, file_name, allow_base=True, re_search=False):
     result = None
     try:
         with zipfile.ZipFile(zip_file, "r") as z:
             # Iterate through all the files in the zip
             for info in z.infolist():
                 if allow_base:
-                    # Check the base name of the file
-                    if os.path.basename(info.filename).lower() == file_name.lower():
-                        # Read the contents of the file
-                        result = z.read(info)
-                        break
+                    if not re_search:
+                        # Check the base name of the file
+                        if os.path.basename(info.filename).lower() == file_name.lower():
+                            # Read the contents of the file
+                            result = z.read(info)
+                            break
+                    else:
+                        if re.search(
+                            rf"{file_name}",
+                            os.path.basename(info.filename).lower(),
+                            re.IGNORECASE,
+                        ):
+                            # Read the contents of the file
+                            result = z.read(info)
+                            break
+
                 else:
                     # Check the entire path of the file
-                    if info.filename.lower() == file_name.lower():
-                        # Read the contents of the file
-                        result = z.read(info)
-                        break
+                    if not re_search:
+                        if info.filename.lower() == file_name.lower():
+                            # Read the contents of the file
+                            result = z.read(info)
+                            break
+                    else:
+                        if re.search(
+                            rf"{file_name}", info.filename.lower(), re.IGNORECASE
+                        ):
+                            # Read the contents of the file
+                            result = z.read(info)
+                            break
     except (zipfile.BadZipFile, FileNotFoundError) as e:
         send_message(e, error=True)
         send_message("Attempted to read file: " + file_name, error=True)
@@ -7644,34 +7764,58 @@ class BookwalkerSeries:
         self.book_type = book_type
 
 
-# our session object, helps speed things up
-# when scraping
-session_object = None
+# our session objects, one for each domain
+session_objects = {}
 
 
-def scrape_url(url, strainer=None, headers=None, cookies=None):
+# Returns a session object for the given URL
+def get_session_object(url):
+    domain = urlparse(url).netloc.split(":")[0]
+    if domain not in session_objects:
+        # Create a new session object and set a default User-Agent header
+        session_object = requests.Session()
+        session_object.headers.update(
+            {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36"
+            }
+        )
+        session_objects[domain] = session_object
+    return session_objects[domain]
+
+
+# Makes a GET request to the given URL using a reusable session object,
+# and returns a BeautifulSoup object representing the parsed HTML response.
+def scrape_url(url, strainer=None, headers=None, cookies=None, proxy=None):
     try:
-        global session_object
-        if not session_object:
-            session_object = requests.Session()
-        page_obj = None
-        if headers and cookies:
-            page_obj = session_object.get(url, headers=headers, cookies=cookies)
-        elif headers and not cookies:
-            page_obj = session_object.get(url, headers=headers)
-        else:
-            page_obj = session_object.get(url)
-        if page_obj and page_obj.status_code == 403:
-            print("\nTOO MANY REQUESTS, WE'RE BEING RATE-LIMTIED!")
+        session_object = get_session_object(url)
+
+        # Create a dictionary of request parameters with only non-None values
+        request_params = {
+            "url": url,
+            "headers": headers,
+            "cookies": cookies,
+            "proxies": proxy,
+            "timeout": 10,
+        }
+        response = session_object.get(
+            **{k: v for k, v in request_params.items() if v is not None}
+        )
+
+        # Raise an exception if the status code indicates rate limiting
+        if response.status_code == 403:
+            raise Exception("Too many requests, we're being rate-limited!")
+
         soup = None
-        if strainer and page_obj:
-            soup = BeautifulSoup(page_obj.text, "lxml", parse_only=strainer)
+        if strainer:
+            # Use the strainer to parse only specific parts of the HTML document
+            soup = BeautifulSoup(response.content, "lxml", parse_only=strainer)
         else:
-            soup = BeautifulSoup(page_obj.text, "lxml")
+            soup = BeautifulSoup(response.content, "lxml")
+
         return soup
-    except Exception as e:
-        print("Error: " + str(e))
-        return ""
+    except requests.exceptions.RequestException as e:
+        send_message("Error scraping URL: " + str(e), error=True)
+        return None
 
 
 def get_all_matching_books(books, book_type, title):
@@ -7740,6 +7884,8 @@ def combine_series(series_list):
     return combined_series
 
 
+# Gives the user a short version of the title, if a dash or colon is present.
+# EX: Series Name - Subtitle --> Series Name
 def get_shortened_title(title):
     shortened_title = ""
     if re.search(r"((\s(-)|:)\s)", title):
@@ -7769,7 +7915,9 @@ def get_subtitle_from_title(file):
         subtitle = remove_dual_space(subtitle).strip()
         # check that the subtitle isn't present in the folder name, otherwise it's probably not a subtitle
         if re.search(
-            rf"{re.escape(subtitle)}", os.path.basename(file.path), re.IGNORECASE
+            rf"{re.escape(subtitle)}",
+            os.path.basename(os.path.dirname(file.path)),
+            re.IGNORECASE,
         ):
             subtitle = ""
     return subtitle
@@ -8635,6 +8783,12 @@ def check_for_new_volumes_on_bookwalker():
                 # set the pfp to the image url
                 embed[0].set_thumbnail(url=r.preview_image_url)
 
+            # Set the author name, url, and icon url
+            if bookwalker_logo_url and r.url:
+                embed[0].set_author(
+                    name="Bookwalker", url=r.url, icon_url=bookwalker_logo_url
+                )
+
             if bookwalker_webhook_urls and len(bookwalker_webhook_urls) == 2:
                 add_to_grouped_notifications(
                     Embed(embed[0], None), passed_webhook=bookwalker_webhook_urls[0]
@@ -8715,6 +8869,12 @@ def check_for_new_volumes_on_bookwalker():
                 embed[0].set_image(url=p.preview_image_url)
                 # set the pfp to the image url
                 embed[0].set_thumbnail(url=p.preview_image_url)
+
+            # Set the author name, url, and icon url
+            if bookwalker_logo_url and p.url:
+                embed[0].set_author(
+                    name="Bookwalker", url=p.url, icon_url=bookwalker_logo_url
+                )
 
             if bookwalker_webhook_urls and len(bookwalker_webhook_urls) == 2:
                 add_to_grouped_notifications(
@@ -9285,7 +9445,7 @@ def compress(temp_dir, cbz_filename):
 def convert_to_cbz(group=False):
     global transferred_files
     if download_folders:
-        print("\nConverting RAR archives to CBZ...")
+        print("\nConverting archives to CBZ...")
         for folder in download_folders:
             if os.path.isdir(folder):
                 print("\t{}".format(folder))
@@ -9316,10 +9476,14 @@ def convert_to_cbz(group=False):
                     for entry in files:
                         try:
                             extension = get_file_extension(entry)
-                            if extension in rar_extensions:
-                                print("\n\t\t{}".format(entry))
+                            file_path = os.path.join(root, entry)
 
-                                cbr_file = os.path.join(root, entry)
+                            if not os.path.isfile(file_path):
+                                continue
+                            print("\n\t\t{}".format(entry))
+
+                            if extension in rar_extensions:
+                                cbr_file = file_path
                                 cbz_file = "{}.cbz".format(
                                     os.path.splitext(cbr_file)[0]
                                 )
@@ -9516,9 +9680,48 @@ def convert_to_cbz(group=False):
                                     )
                                     # remove cbz file
                                     remove_file(cbz_file, group=group)
+                            elif extension == ".zip" and rename_zip_to_cbz:
+                                header_extension = get_file_extension_from_header(
+                                    file_path
+                                )
+                                # if it's a zip file, then rename it to cbz
+                                if (
+                                    zipfile.is_zipfile(file_path)
+                                    or header_extension in manga_extensions
+                                ):
+                                    rename_path = (
+                                        get_extensionless_name(file_path) + ".cbz"
+                                    )
+                                    user_input = None
+                                    if not manual_rename:
+                                        user_input = "y"
+                                    else:
+                                        user_input = get_input_from_user(
+                                            "\t\t\tRename to CBZ",
+                                            ["y", "n"],
+                                            ["y", "n"],
+                                        )
+                                    if user_input == "y":
+                                        rename_file(
+                                            file_path,
+                                            rename_path,
+                                        )
+                                        if os.path.isfile(
+                                            rename_path
+                                        ) and not os.path.isfile(file_path):
+                                            if watchdog_toggle:
+                                                if file_path in transferred_files:
+                                                    transferred_files.remove(file_path)
+                                                if rename_path not in transferred_files:
+                                                    transferred_files.append(
+                                                        rename_path
+                                                    )
+                                    else:
+                                        print("\t\t\t\tSkipping...")
                         except Exception as e:
                             send_message(
-                                f"Error converting to cbz: {entry}: {e}", error=True
+                                f"Error when correcting extension: {entry}: {e}",
+                                error=True,
                             )
                             # if the tempdir exists, remove it
                             if os.path.isdir(temp_dir):
@@ -9526,6 +9729,125 @@ def convert_to_cbz(group=False):
                             # if the cbz file exists, remove it
                             if os.path.isfile(cbz_file):
                                 remove_file(cbz_file, group=group)
+            else:
+                send_message("\t{} does not exist.".format(folder), error=True)
+    else:
+        print("No download folders specified.")
+
+    if group and grouped_notifications and not group_discord_notifications_until_max:
+        send_discord_message(None, grouped_notifications)
+
+
+# Goes through each file in download_folders and checks for an incorrect file extension
+# based on the file header. If the file extension is incorrect, it will rename the file.
+def correct_file_extensions(group=False):
+    global transferred_files
+    if download_folders:
+        print("\nChecking for incorrect file extensions...")
+        for folder in download_folders:
+            if os.path.isdir(folder):
+                print("\t{}".format(folder))
+                for root, dirs, files in os.walk(folder):
+                    clean = None
+                    if (
+                        watchdog_toggle
+                        and download_folders
+                        and any(x for x in download_folders if root.startswith(x))
+                    ):
+                        clean = clean_and_sort(
+                            root,
+                            files,
+                            dirs,
+                            just_these_files=transferred_files,
+                            just_these_dirs=transferred_dirs,
+                        )
+                    else:
+                        clean = clean_and_sort(
+                            root,
+                            files,
+                            dirs,
+                        )
+                    files, dirs = clean[0], clean[1]
+                    volumes = upgrade_to_file_class(
+                        [f for f in files if os.path.isfile(os.path.join(root, f))],
+                        root,
+                    )
+                    if volumes:
+                        for volume in volumes:
+                            if not volume.header_extension:
+                                continue
+
+                            print(
+                                f"\n\t\t{volume.name}\n\t\t\tfile extension:   {volume.extension}\n\t\t\theader extension: {volume.header_extension}"
+                            )
+                            if volume.extension != volume.header_extension:
+                                print(
+                                    f"\n\t\t\tRenaming File:\n\t\t\t\t{volume.name}\n\t\t\t\t\tto\n\t\t\t\t{volume.extensionless_name}{volume.header_extension}"
+                                )
+                                user_input = None
+                                if not manual_rename:
+                                    user_input = "y"
+                                else:
+                                    user_input = get_input_from_user(
+                                        "\t\t\tRename",
+                                        ["y", "n"],
+                                        ["y", "n"],
+                                    )
+                                if user_input == "y":
+                                    rename_status = rename_file(
+                                        volume.path,
+                                        volume.extensionless_path
+                                        + volume.header_extension,
+                                        silent=True,
+                                    )
+                                    if rename_status:
+                                        print("\t\t\tRenamed successfully")
+                                        if not mute_discord_rename_notifications:
+                                            embed = [
+                                                handle_fields(
+                                                    DiscordEmbed(
+                                                        title="Renamed File",
+                                                        color=grey_color,
+                                                    ),
+                                                    fields=[
+                                                        {
+                                                            "name": "From:",
+                                                            "value": "```"
+                                                            + volume.name
+                                                            + "```",
+                                                            "inline": False,
+                                                        },
+                                                        {
+                                                            "name": "To:",
+                                                            "value": "```"
+                                                            + volume.extensionless_name
+                                                            + volume.header_extension
+                                                            + "```",
+                                                            "inline": False,
+                                                        },
+                                                    ],
+                                                )
+                                            ]
+                                            add_to_grouped_notifications(
+                                                Embed(embed[0], None)
+                                            )
+                                            if watchdog_toggle:
+                                                if volume.path in transferred_files:
+                                                    transferred_files.remove(
+                                                        volume.path
+                                                    )
+                                                if (
+                                                    volume.extensionless_path
+                                                    + volume.header_extension
+                                                    not in transferred_files
+                                                ):
+                                                    transferred_files.append(
+                                                        volume.extensionless_path
+                                                        + volume.header_extension
+                                                    )
+                                else:
+                                    print("\t\t\tSkipped")
+
             else:
                 send_message("\t{} does not exist.".format(folder), error=True)
     else:
@@ -9586,6 +9908,8 @@ def main():
         publishers_read = get_lines_from_file(os.path.join(ROOT_DIR, "publishers.txt"))
         if publishers_read:
             publishers = publishers_read
+    if correct_file_extensions_toggle and download_folders:
+        correct_file_extensions(group=True)
     if convert_to_cbz_toggle and download_folders:
         convert_to_cbz(group=True)
     if delete_unacceptable_files_toggle and (
@@ -9670,7 +9994,7 @@ def main():
         check_for_missing_volumes()
         if output_execution_times:
             print_function_execution_time(start_time, "check_for_missing_volumes()")
-    if bookwalker_check:
+    if bookwalker_check and not watchdog_toggle:
         # currently slowed down to avoid rate limiting,
         # advised not to run on each use, but rather once a week
         check_for_new_volumes_on_bookwalker()  # checks the library against bookwalker for any missing volumes that are released or on pre-order
