@@ -22,6 +22,7 @@ from posixpath import join
 from urllib.parse import urlparse
 
 import cv2
+import filetype
 import numpy as np
 import rarfile
 import regex as re
@@ -41,7 +42,7 @@ from watchdog.observers import Observer
 from settings import *
 
 # Version of the script
-script_version = "2.3.4"
+script_version = "2.4.0"
 
 
 # Paths = existing library
@@ -290,6 +291,7 @@ transferred_dirs = []
 # The logo url for usage in the bookwalker_check discord output
 bookwalker_logo_url = "https://play-lh.googleusercontent.com/a7jUyjTxWrl_Kl1FkUSv2FHsSu3Swucpem2UIFDRbA1fmt5ywKBf-gcwe6_zalOqIR7V=w240-h480-rw"
 
+
 # Folder Class
 class Folder:
     def __init__(self, root, dirs, basename, folder_name, files):
@@ -313,6 +315,7 @@ class File:
         extensionless_path,
         volume_number,
         file_type,
+        header_extension,
     ):
         self.name = name
         self.extensionless_name = extensionless_name
@@ -323,6 +326,7 @@ class File:
         self.extensionless_path = extensionless_path
         self.volume_number = volume_number
         self.file_type = file_type
+        self.header_extension = header_extension
 
 
 # Volume Class
@@ -347,6 +351,7 @@ class Volume:
         publisher,
         is_premium,
         subtitle,
+        header_extension,
         multi_volume=None,
         is_one_shot=None,
     ):
@@ -368,6 +373,7 @@ class Volume:
         self.publisher = publisher
         self.is_premium = is_premium
         self.subtitle = subtitle
+        self.header_extension = header_extension
         self.multi_volume = multi_volume
         self.is_one_shot = is_one_shot
 
@@ -1339,6 +1345,28 @@ def get_file_extension(file):
     return os.path.splitext(file)[1]
 
 
+# Gets the predicted file extension from the file header using
+# import filetype
+def get_file_extension_from_header(file):
+    extension_from_name = get_file_extension(file)
+    if extension_from_name in manga_extensions or extension_from_name in rar_extensions:
+        try:
+            kind = filetype.guess(file)
+            if kind is None:
+                return None
+            elif "." + kind.extension in manga_extensions:
+                return ".cbz"
+            elif "." + kind.extension in rar_extensions:
+                return ".cbr"
+            else:
+                return "." + kind.extension
+        except Exception as e:
+            send_message(str(e), error=True)
+            return None
+    else:
+        return None
+
+
 # Returns an extensionless name
 def get_extensionless_name(file):
     return os.path.splitext(file)[0]
@@ -1365,6 +1393,7 @@ def upgrade_to_file_class(files, root):
             get_extensionless_name(os.path.join(root, file)),
             chapter_number,
             file_type,
+            get_file_extension_from_header(os.path.join(root, file)),
         )
         for file, file_type, chapter_number in zip(
             files,
@@ -1835,6 +1864,9 @@ def create_folders_for_items_in_download_folder(group=False):
                                                 ),
                                                 None,
                                                 None,
+                                                get_file_extension_from_header(
+                                                    os.path.join(root, new_file_name)
+                                                ),
                                             )
                                             # if it doesn't already exist
                                             if not os.path.isfile(
@@ -2366,6 +2398,7 @@ def upgrade_to_volume_class(
                 else False
             ),
             None,
+            file.header_extension,
             (
                 (
                     check_for_multi_volume_file(file.name)
@@ -3242,6 +3275,7 @@ def check_for_missing_volumes():
 
 # Renames the file.
 def rename_file(src, dest, silent=False):
+    result = False
     if os.path.isfile(src):
         root = os.path.dirname(src)
         if not silent:
@@ -3251,6 +3285,7 @@ def rename_file(src, dest, silent=False):
         except Exception as e:
             send_message(e, error=True)
         if os.path.isfile(dest):
+            result = True
             if not silent:
                 send_message(
                     "\t\t"
@@ -3275,6 +3310,9 @@ def rename_file(src, dest, silent=False):
                 "Failed to rename " + src + " to " + dest + "\n\tERROR: " + str(e),
                 error=True,
             )
+    else:
+        send_message("File " + src + " does not exist. Skipping rename.", discord=False)
+    return result
 
 
 # Renames the folder
@@ -3580,6 +3618,8 @@ def reorganize_and_rename(files, dir, group=False):
                             rename += " (" + file.release_group + ")"
                         elif file.extension in novel_extensions:
                             rename += " [" + file.release_group + "]"
+                # remove * from the replacement
+                rename = re.sub(r"\*", "", rename)
                 rename += file.extension
                 rename = rename.strip()
                 # Replace unicode using unidecode, if enabled
@@ -7875,7 +7915,9 @@ def get_subtitle_from_title(file):
         subtitle = remove_dual_space(subtitle).strip()
         # check that the subtitle isn't present in the folder name, otherwise it's probably not a subtitle
         if re.search(
-            rf"{re.escape(subtitle)}", os.path.basename(os.path.dirname(file.path)), re.IGNORECASE
+            rf"{re.escape(subtitle)}",
+            os.path.basename(os.path.dirname(file.path)),
+            re.IGNORECASE,
         ):
             subtitle = ""
     return subtitle
@@ -9434,10 +9476,14 @@ def convert_to_cbz(group=False):
                     for entry in files:
                         try:
                             extension = get_file_extension(entry)
-                            if extension in rar_extensions:
-                                print("\n\t\t{}".format(entry))
+                            file_path = os.path.join(root, entry)
 
-                                cbr_file = os.path.join(root, entry)
+                            if not os.path.isfile(file_path):
+                                continue
+                            print("\n\t\t{}".format(entry))
+
+                            if extension in rar_extensions:
+                                cbr_file = file_path
                                 cbz_file = "{}.cbz".format(
                                     os.path.splitext(cbr_file)[0]
                                 )
@@ -9635,34 +9681,47 @@ def convert_to_cbz(group=False):
                                     # remove cbz file
                                     remove_file(cbz_file, group=group)
                             elif extension == ".zip" and rename_zip_to_cbz:
+                                header_extension = get_file_extension_from_header(
+                                    file_path
+                                )
                                 # if it's a zip file, then rename it to cbz
-                                if zipfile.is_zipfile(os.path.join(root, entry)):
+                                if (
+                                    zipfile.is_zipfile(file_path)
+                                    or header_extension in manga_extensions
+                                ):
                                     rename_path = (
-                                        get_extensionless_name(
-                                            os.path.join(root, entry)
+                                        get_extensionless_name(file_path) + ".cbz"
+                                    )
+                                    user_input = None
+                                    if not manual_rename:
+                                        user_input = "y"
+                                    else:
+                                        user_input = get_input_from_user(
+                                            "\t\t\tRename to CBZ",
+                                            ["y", "n"],
+                                            ["y", "n"],
                                         )
-                                        + ".cbz"
-                                    )
-                                    rename_file(
-                                        os.path.join(root, entry),
-                                        rename_path,
-                                    )
-                                    if os.path.isfile(
-                                        rename_path
-                                    ) and not os.path.isfile(os.path.join(root, entry)):
-                                        if watchdog_toggle:
-                                            if (
-                                                os.path.join(root, entry)
-                                                in transferred_files
-                                            ):
-                                                transferred_files.remove(
-                                                    os.path.join(root, entry)
-                                                )
-                                            if rename_path not in transferred_files:
-                                                transferred_files.append(rename_path)
+                                    if user_input == "y":
+                                        rename_file(
+                                            file_path,
+                                            rename_path,
+                                        )
+                                        if os.path.isfile(
+                                            rename_path
+                                        ) and not os.path.isfile(file_path):
+                                            if watchdog_toggle:
+                                                if file_path in transferred_files:
+                                                    transferred_files.remove(file_path)
+                                                if rename_path not in transferred_files:
+                                                    transferred_files.append(
+                                                        rename_path
+                                                    )
+                                    else:
+                                        print("\t\t\t\tSkipping...")
                         except Exception as e:
                             send_message(
-                                f"Error converting to cbz: {entry}: {e}", error=True
+                                f"Error when correcting extension: {entry}: {e}",
+                                error=True,
                             )
                             # if the tempdir exists, remove it
                             if os.path.isdir(temp_dir):
@@ -9670,6 +9729,125 @@ def convert_to_cbz(group=False):
                             # if the cbz file exists, remove it
                             if os.path.isfile(cbz_file):
                                 remove_file(cbz_file, group=group)
+            else:
+                send_message("\t{} does not exist.".format(folder), error=True)
+    else:
+        print("No download folders specified.")
+
+    if group and grouped_notifications and not group_discord_notifications_until_max:
+        send_discord_message(None, grouped_notifications)
+
+
+# Goes through each file in download_folders and checks for an incorrect file extension
+# based on the file header. If the file extension is incorrect, it will rename the file.
+def correct_file_extensions(group=False):
+    global transferred_files
+    if download_folders:
+        print("\nChecking for incorrect file extensions...")
+        for folder in download_folders:
+            if os.path.isdir(folder):
+                print("\t{}".format(folder))
+                for root, dirs, files in os.walk(folder):
+                    clean = None
+                    if (
+                        watchdog_toggle
+                        and download_folders
+                        and any(x for x in download_folders if root.startswith(x))
+                    ):
+                        clean = clean_and_sort(
+                            root,
+                            files,
+                            dirs,
+                            just_these_files=transferred_files,
+                            just_these_dirs=transferred_dirs,
+                        )
+                    else:
+                        clean = clean_and_sort(
+                            root,
+                            files,
+                            dirs,
+                        )
+                    files, dirs = clean[0], clean[1]
+                    volumes = upgrade_to_file_class(
+                        [f for f in files if os.path.isfile(os.path.join(root, f))],
+                        root,
+                    )
+                    if volumes:
+                        for volume in volumes:
+                            if not volume.header_extension:
+                                continue
+
+                            print(
+                                f"\n\t\t{volume.name}\n\t\t\tfile extension:   {volume.extension}\n\t\t\theader extension: {volume.header_extension}"
+                            )
+                            if volume.extension != volume.header_extension:
+                                print(
+                                    f"\n\t\t\tRenaming File:\n\t\t\t\t{volume.name}\n\t\t\t\t\tto\n\t\t\t\t{volume.extensionless_name}{volume.header_extension}"
+                                )
+                                user_input = None
+                                if not manual_rename:
+                                    user_input = "y"
+                                else:
+                                    user_input = get_input_from_user(
+                                        "\t\t\tRename",
+                                        ["y", "n"],
+                                        ["y", "n"],
+                                    )
+                                if user_input == "y":
+                                    rename_status = rename_file(
+                                        volume.path,
+                                        volume.extensionless_path
+                                        + volume.header_extension,
+                                        silent=True,
+                                    )
+                                    if rename_status:
+                                        print("\t\t\tRenamed successfully")
+                                        if not mute_discord_rename_notifications:
+                                            embed = [
+                                                handle_fields(
+                                                    DiscordEmbed(
+                                                        title="Renamed File",
+                                                        color=grey_color,
+                                                    ),
+                                                    fields=[
+                                                        {
+                                                            "name": "From:",
+                                                            "value": "```"
+                                                            + volume.name
+                                                            + "```",
+                                                            "inline": False,
+                                                        },
+                                                        {
+                                                            "name": "To:",
+                                                            "value": "```"
+                                                            + volume.extensionless_name
+                                                            + volume.header_extension
+                                                            + "```",
+                                                            "inline": False,
+                                                        },
+                                                    ],
+                                                )
+                                            ]
+                                            add_to_grouped_notifications(
+                                                Embed(embed[0], None)
+                                            )
+                                            if watchdog_toggle:
+                                                if volume.path in transferred_files:
+                                                    transferred_files.remove(
+                                                        volume.path
+                                                    )
+                                                if (
+                                                    volume.extensionless_path
+                                                    + volume.header_extension
+                                                    not in transferred_files
+                                                ):
+                                                    transferred_files.append(
+                                                        volume.extensionless_path
+                                                        + volume.header_extension
+                                                    )
+                                else:
+                                    print("\t\t\tSkipped")
+
             else:
                 send_message("\t{} does not exist.".format(folder), error=True)
     else:
@@ -9730,6 +9908,8 @@ def main():
         publishers_read = get_lines_from_file(os.path.join(ROOT_DIR, "publishers.txt"))
         if publishers_read:
             publishers = publishers_read
+    if correct_file_extensions_toggle and download_folders:
+        correct_file_extensions(group=True)
     if convert_to_cbz_toggle and download_folders:
         convert_to_cbz(group=True)
     if delete_unacceptable_files_toggle and (
