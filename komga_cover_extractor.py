@@ -1375,7 +1375,7 @@ def clean_and_sort(
                     remove_unnaccepted_file_types_start,
                     "remove_unaccepted_file_types() in clean_and_sort()",
                 )
-        if just_these_files:
+        if just_these_files and files:
             # just_these_basenames = [os.path.basename(x) for x in just_these_files]
             files = [
                 x
@@ -1386,6 +1386,9 @@ def clean_and_sort(
                     and get_file_extension(x) in image_extensions
                 )
             ]
+            for j_file in just_these_files:
+                if os.path.basename(j_file) not in files:
+                    print("\tRemoved from just_these_files: " + j_file)
         if not chapters:
             filter_non_chapters_start = time.time()
             files = filter_non_chapters(files)
@@ -1405,7 +1408,7 @@ def clean_and_sort(
                     remove_hidden_folders_start,
                     "remove_hidden_folders() in clean_and_sort()",
                 )
-        if just_these_dirs:
+        if just_these_dirs and dirs:
             allowed_dirs = []
             for transferred_dir in just_these_dirs:
                 for dir in dirs:
@@ -5936,6 +5939,13 @@ def rename_dirs_in_download_folder(group=False):
                                                                 folder_accessor.root,
                                                                 volume_one.series_name,
                                                             ),
+                                                        )
+                                                        replaced_transferred_files.append(
+                                                            replacement
+                                                        )
+                                                    else:
+                                                        replaced_transferred_files.append(
+                                                            f
                                                         )
                                                 transferred_files = (
                                                     replaced_transferred_files
