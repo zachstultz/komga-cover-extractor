@@ -503,7 +503,7 @@ class Handler(FileSystemEventHandler):
         if not event.event_type == "created":
             return None
 
-        if not is_valid_file:
+        if not is_valid_file or extension in image_extensions:
             return None
 
         print("\n\tEvent Type: " + event.event_type)
@@ -4813,7 +4813,7 @@ def organize_array_list_by_first_letter(
 ):
     if string:
         first_letter_of_file_name = string[0]
-        for item in array_list:
+        for item in array_list[:]:
             if item != exclude or not exclude:
                 name = os.path.basename(item)
                 first_letter_of_dir = name[0]
