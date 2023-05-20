@@ -42,8 +42,7 @@ from watchdog.observers import Observer
 from settings import *
 
 # Version of the script
-script_version = "2.4.0"
-
+script_version = "2.4.1"
 
 # Paths = existing library
 # Download_folders = newly aquired manga/novels
@@ -112,6 +111,11 @@ moved_files = []
 
 # Where logs are written to.
 ROOT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+
+# Check if the instance is running in docker.
+# If the ROOT_DIR is /app/logs, then it's running in docker.
+if ROOT_DIR == "/app/logs":
+    script_version += "-docker"
 
 # The path location of the blank_white.jpg in the root of the script directory.
 blank_white_image_path = (
@@ -420,7 +424,7 @@ file_counters = {x: 0 for x in file_extensions}
 
 
 # Sends a message, prints it, and writes it to a file depending on whether the error parameter is set to True or False
-def send_message(message, discord=True, error=False, log=True):
+def send_message(message, discord=True, error=False, log=log_to_file):
     print(message)
     if discord != False:
         send_discord_message(message)
@@ -499,6 +503,9 @@ class Handler(FileSystemEventHandler):
         if not event.event_type == "created":
             return None
 
+        if not is_valid_file:
+            return None
+
         print("\n\tEvent Type: " + event.event_type)
         print("\tEvent Src Path: " + event.src_path)
 
@@ -521,11 +528,6 @@ class Handler(FileSystemEventHandler):
         # then it already has been processed, so return None
         elif transferred_files and event.src_path in transferred_files:
             print("\t\t -Already processed, skipped.")
-            return None
-
-        # if the event isn't a valid file, return None
-        elif not is_valid_file:
-            print("\t\t -Is not a valid file, skipped.")
             return None
 
         # if the file is an image, return None
@@ -552,6 +554,30 @@ class Handler(FileSystemEventHandler):
 
         # Finally if all checks are passed and the file was just created, we can process it
         # Take any action here when a file is first created.
+
+        send_message("\nStarting Script (WATCHDOG) (EXPERIMENTAL)", discord=False)
+
+        embed = [
+            handle_fields(
+                DiscordEmbed(
+                    title="Starting Script (WATCHDOG) (EXPERIMENTAL)",
+                    color=purple_color,
+                ),
+                [
+                    {
+                        "name": "File Found:",
+                        "value": "```" + str(event.src_path) + "```",
+                        "inline": False,
+                    }
+                ],
+            )
+        ]
+
+        send_discord_message(
+            None,
+            [Embed(embed[0], None)],
+        )
+
         print("\n\tfile found:  %s." % event.src_path + "\n")
 
         if not os.path.isfile(event.src_path):
@@ -643,29 +669,6 @@ class Handler(FileSystemEventHandler):
                     )
 
             transferred_dirs = new_transferred_dirs
-
-        send_message("\nStarting Script (WATCHDOG) (EXPERIMENTAL)", discord=False)
-
-        embed = [
-            handle_fields(
-                DiscordEmbed(
-                    title="Starting Script (WATCHDOG) (EXPERIMENTAL)",
-                    color=purple_color,
-                ),
-                [
-                    {
-                        "name": "File Found:",
-                        "value": "```" + str(event.src_path) + "```",
-                        "inline": False,
-                    }
-                ],
-            )
-        ]
-
-        send_discord_message(
-            None,
-            [Embed(embed[0], None)],
-        )
 
         main()
 
@@ -801,13 +804,30 @@ def parse_my_args():
         required=False,
     )
     parser = parser.parse_args()
+
     if not parser.paths and not parser.download_folders:
         print("No paths or download folders were passed to the script.")
         print("Exiting...")
         exit()
+
+    print("\nRun Settings:")
     if parser.paths is not None:
+        new_paths = []
+        # Check for multiple in a single argument or in multiple arguments
         for path in parser.paths:
             if path:
+                if r"\1" in path[0]:
+                    split_paths = path[0].split(r"\1")
+                    for split_path in split_paths:
+                        new_paths.append([split_path])
+                else:
+                    new_paths.append(path)
+        parser.paths = new_paths
+
+        for path in parser.paths:
+            if path:
+                if r"\0" in path[0]:
+                    path = path[0].split(r"\0")
                 if len(path) == 1:
                     paths.append(path[0])
                 elif len(path) == 2 and (
@@ -884,42 +904,94 @@ def parse_my_args():
                         paths.append(path[0])
                 else:
                     paths.append(path[0])
+        print("\tpaths: " + str(paths))
+
+        if paths_with_types:
+            print("\tpaths_with_types:")
+            for item in paths_with_types:
+                print("\t\tpath: " + str(item.path))
+                print("\t\ttypes: " + str(item.path_types))
+                print("\t\textensions: " + str(item.path_extensions))
+
     if parser.download_folders is not None:
-        download_folders = [
-            folder
-            for download_folder in parser.download_folders
-            for folder in download_folder
-        ]
+        new_download_folders = []
+        # Check for multiple in a single argument or in multiple arguments
+        for download_folder in parser.download_folders:
+            if download_folder:
+                if download_folder[0]:
+                    if r"\1" in download_folder[0]:
+                        split_download_folders = download_folder[0].split(r"\1")
+                        for split_download_folder in split_download_folders:
+                            new_download_folders.append([split_download_folder])
+                    else:
+                        new_download_folders.append([download_folder[0]])
+        parser.download_folders = new_download_folders
+
+        for download_folder in parser.download_folders:
+            if download_folder:
+                for folder in download_folder:
+                    if r"\1" in folder:
+                        folder = folder.split(r"\1")
+                    if isinstance(folder, str):
+                        if folder not in download_folders:
+                            download_folders.append(folder)
+                    elif isinstance(folder, list):
+                        for item in folder:
+                            if item not in download_folders:
+                                download_folders.append(item)
+        print("\tdownload_folders: " + str(download_folders))
+
     if parser.webhook is not None:
-        discord_webhook_url = list(
-            set(
-                [
-                    hook
-                    for item in parser.webhook
-                    for hook in item
-                    if hook not in discord_webhook_url
-                ]
-            )
-        )
-    if parser.bookwalker_check is not None:
+        for item in parser.webhook:
+            if item:
+                for hook in item:
+                    if hook:
+                        if r"\1" in hook:
+                            hook = hook.split(r"\1")
+                        if isinstance(hook, str):
+                            if hook and hook not in discord_webhook_url:
+                                discord_webhook_url.append(hook)
+                        elif isinstance(hook, list):
+                            for url in hook:
+                                if url and url not in discord_webhook_url:
+                                    discord_webhook_url.append(url)
+        print("\twebhooks: " + str(discord_webhook_url))
+
+    if parser.bookwalker_check:
         if parser.bookwalker_check.lower() == "true":
             global bookwalker_check
             bookwalker_check = True
-    if parser.compress is not None:
+    print("\tbookwalker_check: " + str(bookwalker_check))
+
+    if parser.compress:
         if parser.compress.lower() == "true":
             global compress_image_option
             compress_image_option = True
-    if parser.compress_quality is not None:
+    print("\tcompress: " + str(compress_image_option))
+
+    if parser.compress_quality:
         global image_quality
         image_quality = set_num_as_float_or_int(parser.compress_quality)
+    print("\tcompress_quality: " + str(image_quality))
+
     if parser.bookwalker_webhook_urls is not None:
         global bookwalker_webhook_urls
         for url in parser.bookwalker_webhook_urls:
             if url:
                 for hook in url:
-                    if hook not in bookwalker_webhook_urls:
-                        bookwalker_webhook_urls.append(hook)
-    if parser.watchdog is not None:
+                    if hook:
+                        if r"\1" in hook:
+                            hook = hook.split(r"\1")
+                        if isinstance(hook, str):
+                            if hook and hook not in bookwalker_webhook_urls:
+                                bookwalker_webhook_urls.append(hook)
+                        elif isinstance(hook, list):
+                            for url in hook:
+                                if url and url not in bookwalker_webhook_urls:
+                                    bookwalker_webhook_urls.append(url)
+        print("\tbookwalker_webhook_urls: " + str(bookwalker_webhook_urls))
+
+    if parser.watchdog:
         if parser.watchdog.lower() == "true":
             if download_folders:
                 global watchdog_toggle
@@ -929,9 +1001,28 @@ def parse_my_args():
                     "Watchdog was enabled, but no download folders were passed to the script.",
                     error=True,
                 )
-    if parser.new_volume_webhook is not None:
+    print("\twatchdog: " + str(watchdog_toggle))
+
+    if parser.new_volume_webhook:
         global new_volume_webhook
         new_volume_webhook = parser.new_volume_webhook
+    print("\tnew_volume_webhook: " + str(new_volume_webhook))
+
+    # # Print all the settings from settings.py
+    # print("\nSettings.py:")
+
+    # # get all the variables in settings.py
+    # import settings as settings_file
+
+    # # get all of the non-callable variables
+    # settings = [
+    #     var
+    #     for var in dir(settings_file)
+    #     if not callable(getattr(settings_file, var)) and not var.startswith("__")
+    # ]
+    # # print all of the variables
+    # for setting in settings:
+    #     print("\t" + setting + ": " + str(getattr(settings_file, setting)))
 
 
 def set_num_as_float_or_int(volume_number, silent=False):
@@ -7566,7 +7657,7 @@ def print_stats():
             print("\t" + str(error))
 
 
-# Deletes any file with an extension in unaccepted_file_extensions from the download_folers
+# Deletes any file with an extension in unaccepted_file_extensions from the download_folders
 def delete_unacceptable_files(group=False):
     if unaccepted_file_extensions or unacceptable_keywords:
         print("\nSearching for unacceptable files...")
