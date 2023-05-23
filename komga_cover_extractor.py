@@ -4133,7 +4133,7 @@ def check_upgrade(
         )
     ):
         download_dir_volumes = [file]
-        if resturcture_when_renaming:
+        if rename_files_in_download_folders_toggle and resturcture_when_renaming:
             reorganize_and_rename(download_dir_volumes, existing_dir, group=group)
         fields = []
         if similarity_strings:
@@ -4161,7 +4161,7 @@ def check_upgrade(
                     },
                     {
                         "name": "Required Score:",
-                        "value": "```>=" + str(similarity_strings[3]) + "```",
+                        "value": "```>= " + str(similarity_strings[3]) + "```",
                         "inline": True,
                     },
                 ]
@@ -4936,6 +4936,7 @@ def check_for_existing_series(group=False):
     global cached_paths
     global cached_identifier_results
     global messages_to_send
+    cached_image_similarity_results = []
     if download_folders:
         print("\nChecking download folders for items to match to existing library...")
         for download_folder in download_folders:
@@ -4983,6 +4984,44 @@ def check_for_existing_series(group=False):
                             if (
                                 file.name in processed_files or not processed_files
                             ) and os.path.isfile(file.path):
+                                done = False
+                                if cached_image_similarity_results:
+                                    for (
+                                        cached_result
+                                    ) in cached_image_similarity_results:
+                                        # split on @@ and get the value to the right
+                                        last_item = cached_result.split("@@")[
+                                            -1
+                                        ].strip()
+                                        if not last_item:
+                                            continue
+                                        if (
+                                            file.series_name
+                                            + " - "
+                                            + file.file_type
+                                            + " - "
+                                            + file.root
+                                            + " - "
+                                            + file.extension
+                                            in cached_result
+                                        ):
+                                            done = check_upgrade(
+                                                os.path.dirname(last_item),
+                                                os.path.basename(last_item),
+                                                file,
+                                                similarity_strings=[
+                                                    file.series_name,
+                                                    file.series_name,
+                                                    "CACHE",
+                                                    required_image_similarity_score,
+                                                ],
+                                                group=group,
+                                                image=True,
+                                            )
+                                            if done:
+                                                break
+                                if done:
+                                    continue
                                 if unmatched_series and (
                                     (
                                         not match_through_isbn_or_series_id
@@ -5085,7 +5124,7 @@ def check_for_existing_series(group=False):
                                                 2,
                                             )
                                         )
-                                done = False
+
                                 if cached_paths:
                                     print("\n\tChecking path types...")
                                     for p in cached_paths:
@@ -5593,7 +5632,7 @@ def check_for_existing_series(group=False):
                                                                             f"\t\t\t{shortened_folder_name} - {file_shortened_series_name}"
                                                                         )
                                                                         # get the volumes from the dir, only files
-                                                                        volumes = upgrade_to_volume_class(
+                                                                        img_volumes = upgrade_to_volume_class(
                                                                             upgrade_to_file_class(
                                                                                 [
                                                                                     f
@@ -5619,13 +5658,11 @@ def check_for_existing_series(group=False):
                                                                                 ),
                                                                             )
                                                                         )
-                                                                        if volumes:
+                                                                        if img_volumes:
                                                                             # find a matching volume number and part
                                                                             for (
                                                                                 volume
-                                                                            ) in (
-                                                                                volumes
-                                                                            ):
+                                                                            ) in img_volumes:
                                                                                 if (
                                                                                     (
                                                                                         volume.volume_number
@@ -5659,18 +5696,8 @@ def check_for_existing_series(group=False):
                                                                                     )
                                                                                 ):
                                                                                     print(
-                                                                                        "\t\tFound matching volume number and part"
+                                                                                        f"\t\tMatching numbers:\n\t\t\t{volume.name}\n\t\t\t{file.name}"
                                                                                     )
-                                                                                    print(
-                                                                                        f"\t\t\tVolume Numbers: {volume.volume_number} - {file.volume_number}"
-                                                                                    )
-                                                                                    if (
-                                                                                        volume.volume_part
-                                                                                        and file.volume_part
-                                                                                    ):
-                                                                                        print(
-                                                                                            f"\t\t\tVolume Parts: {volume.volume_part} - {file.volume_part}"
-                                                                                        )
                                                                                     # get both covers and check the image similarity
                                                                                     existing_volume_cover_data = find_and_extract_cover(
                                                                                         volume,
@@ -5696,6 +5723,38 @@ def check_for_existing_series(group=False):
                                                                                             print(
                                                                                                 "\t\tMatch found through image similarity."
                                                                                             )
+                                                                                            # check all volumes in volumes, if all the volumes in this dir have the same series_name
+                                                                                            all_matching = True
+                                                                                            for item in volumes:
+                                                                                                if (
+                                                                                                    item
+                                                                                                    != file
+                                                                                                ):
+                                                                                                    if (
+                                                                                                        item.root
+                                                                                                        == file.root
+                                                                                                    ):
+                                                                                                        if (
+                                                                                                            item.series_name
+                                                                                                            != file.series_name
+                                                                                                        ):
+                                                                                                            all_matching = False
+                                                                                                            break
+                                                                                            if all_matching:
+                                                                                                cached_image_similarity_results.append(
+                                                                                                    file.series_name
+                                                                                                    + " - "
+                                                                                                    + file.file_type
+                                                                                                    + " - "
+                                                                                                    + file.root
+                                                                                                    + " - "
+                                                                                                    + file.extension
+                                                                                                    + " @@ "
+                                                                                                    + os.path.join(
+                                                                                                        folder_accessor.root,
+                                                                                                        dir,
+                                                                                                    )
+                                                                                                )
                                                                                             done = check_upgrade(
                                                                                                 folder_accessor.root,
                                                                                                 dir,
