@@ -295,6 +295,12 @@ transferred_dirs = []
 # The logo url for usage in the bookwalker_check discord output
 bookwalker_logo_url = "https://play-lh.googleusercontent.com/a7jUyjTxWrl_Kl1FkUSv2FHsSu3Swucpem2UIFDRbA1fmt5ywKBf-gcwe6_zalOqIR7V=w240-h480-rw"
 
+# An alternative matching method that uses the image similarity between covers.
+match_through_image_similarity = False
+
+# The required score for two cover images to be considered a match
+required_image_similarity_score = 0.9
+
 
 # Folder Class
 class Folder:
@@ -339,6 +345,7 @@ class Volume:
         self,
         file_type,
         series_name,
+        shortened_series_name,
         volume_year,
         volume_number,
         volume_part,
@@ -361,6 +368,7 @@ class Volume:
     ):
         self.file_type = file_type
         self.series_name = series_name
+        self.shortened_series_name = shortened_series_name
         self.volume_year = volume_year
         self.volume_number = volume_number
         self.volume_part = volume_part
@@ -813,7 +821,6 @@ def parse_my_args():
     print("\nRun Settings:")
     if parser.paths is not None:
         new_paths = []
-        # Check for multiple in a single argument or in multiple arguments
         for path in parser.paths:
             if path:
                 if r"\1" in path[0]:
@@ -915,7 +922,6 @@ def parse_my_args():
 
     if parser.download_folders is not None:
         new_download_folders = []
-        # Check for multiple in a single argument or in multiple arguments
         for download_folder in parser.download_folders:
             if download_folder:
                 if download_folder[0]:
@@ -1467,7 +1473,7 @@ def get_extensionless_name(file):
 
 
 # Trades out our regular files for file objects
-def upgrade_to_file_class(files, root):
+def upgrade_to_file_class(files, root, skip_get_file_extension_from_header=True):
     start_time = time.time()
     files = clean_and_sort(root, files)[0]
 
@@ -1487,7 +1493,9 @@ def upgrade_to_file_class(files, root):
             get_extensionless_name(os.path.join(root, file)),
             chapter_number,
             file_type,
-            get_file_extension_from_header(os.path.join(root, file)),
+            get_file_extension_from_header(os.path.join(root, file))
+            if not skip_get_file_extension_from_header
+            else None,
         )
         for file, file_type, chapter_number in zip(
             files,
@@ -2440,6 +2448,7 @@ def upgrade_to_volume_class(
         file_obj = Volume(
             file.file_type,
             file.basename,
+            get_shortened_title(file.basename),
             (
                 get_release_year(file.name, internal_metadata)
                 if not skip_release_year
@@ -4028,6 +4037,7 @@ def check_upgrade(
     cache=False,
     isbn=False,
     group=False,
+    image=False,
 ):
     global moved_files
     global messages_to_send
@@ -4127,7 +4137,7 @@ def check_upgrade(
             reorganize_and_rename(download_dir_volumes, existing_dir, group=group)
         fields = []
         if similarity_strings:
-            if not isbn:
+            if not isbn and not image:
                 fields = [
                     {
                         "name": "Existing Series Location:",
@@ -4155,8 +4165,8 @@ def check_upgrade(
                         "inline": True,
                     },
                 ]
-            else:
-                if similarity_strings and len(similarity_strings) >= 2:
+            elif isbn:
+                if len(similarity_strings) >= 2:
                     fields = [
                         {
                             "name": "Existing Series Location:",
@@ -4172,6 +4182,43 @@ def check_upgrade(
                             "name": "Existing Library File:",
                             "value": "```" + "\n".join(similarity_strings[1]) + "```",
                             "inline": False,
+                        },
+                    ]
+                else:
+                    send_message(
+                        "Error: similarity_strings is not long enough to be valid."
+                        + str(similarity_strings)
+                        + " File: "
+                        + file.name,
+                        error=True,
+                    )
+            elif image:
+                if len(similarity_strings) == 4:
+                    fields = [
+                        {
+                            "name": "Existing Series Location:",
+                            "value": "```" + existing_dir + "```",
+                            "inline": False,
+                        },
+                        {
+                            "name": "Existing Shortened Series Name:",
+                            "value": "```" + similarity_strings[0] + "```",
+                            "inline": True,
+                        },
+                        {
+                            "name": "Download File Shortened Series Name:",
+                            "value": "```" + similarity_strings[1] + "```",
+                            "inline": True,
+                        },
+                        {
+                            "name": "Image Similarity Score:",
+                            "value": "```" + str(similarity_strings[2]) + "```",
+                            "inline": False,
+                        },
+                        {
+                            "name": "Required Score:",
+                            "value": "```>=" + str(similarity_strings[3]) + "```",
+                            "inline": True,
                         },
                     ]
                 else:
@@ -4204,6 +4251,19 @@ def check_upgrade(
                     handle_fields(
                         DiscordEmbed(
                             title="Found Series Match (Matching Identifier)",
+                            color=grey_color,
+                        ),
+                        fields=fields,
+                    ),
+                ]
+                add_to_grouped_notifications(Embed(embed[0], None))
+        elif image:
+            send_message("\n\t\tFound existing series: " + existing_dir, discord=False)
+            if fields:
+                embed = [
+                    handle_fields(
+                        DiscordEmbed(
+                            title="Found Series Match (Matching Image)",
                             color=grey_color,
                         ),
                         fields=fields,
@@ -5294,6 +5354,8 @@ def check_for_existing_series(group=False):
                                                             + file.series_name
                                                         )
                                                         for dir in folder_accessor.dirs:
+                                                            if done:
+                                                                break
                                                             dir_position = (
                                                                 folder_accessor.dirs.index(
                                                                     dir
@@ -5458,6 +5520,200 @@ def check_for_existing_series(group=False):
                                                                     break
                                                                 else:
                                                                     continue
+                                                            elif (
+                                                                match_through_image_similarity
+                                                                and file.file_type
+                                                                == "volume"
+                                                            ):
+                                                                shortened_folder_name = get_shortened_title(
+                                                                    dir
+                                                                )
+                                                                if (
+                                                                    not shortened_folder_name
+                                                                ):
+                                                                    shortened_folder_name = (
+                                                                        dir
+                                                                    )
+                                                                shortened_folder_name = (
+                                                                    (
+                                                                        replace_underscore_in_name(
+                                                                            remove_punctuation(
+                                                                                remove_bracketed_info_from_name(
+                                                                                    shortened_folder_name
+                                                                                )
+                                                                            )
+                                                                        )
+                                                                    )
+                                                                    .strip()
+                                                                    .lower()
+                                                                )
+                                                                file_shortened_series_name = (
+                                                                    ""
+                                                                )
+                                                                if (
+                                                                    file.shortened_series_name
+                                                                ):
+                                                                    file_shortened_series_name = (
+                                                                        file.shortened_series_name
+                                                                    )
+                                                                else:
+                                                                    file_shortened_series_name = (
+                                                                        file.series_name
+                                                                    )
+                                                                file_shortened_series_name = (
+                                                                    (
+                                                                        replace_underscore_in_name(
+                                                                            remove_punctuation(
+                                                                                remove_bracketed_info_from_name(
+                                                                                    file_shortened_series_name
+                                                                                )
+                                                                            )
+                                                                        )
+                                                                    )
+                                                                    .strip()
+                                                                    .lower()
+                                                                )
+                                                                if (
+                                                                    shortened_folder_name
+                                                                    and file_shortened_series_name
+                                                                ):
+                                                                    if (
+                                                                        shortened_folder_name
+                                                                        == file_shortened_series_name.lower()
+                                                                        or similar(
+                                                                            shortened_folder_name,
+                                                                            file_shortened_series_name,
+                                                                        )
+                                                                        >= required_similarity_score
+                                                                    ):
+                                                                        print(
+                                                                            "\n\t\tAttempting match through image similarity..."
+                                                                        )
+                                                                        print(
+                                                                            f"\t\t\t{shortened_folder_name} - {file_shortened_series_name}"
+                                                                        )
+                                                                        # get the volumes from the dir, only files
+                                                                        volumes = upgrade_to_volume_class(
+                                                                            upgrade_to_file_class(
+                                                                                [
+                                                                                    f
+                                                                                    for f in os.listdir(
+                                                                                        os.path.join(
+                                                                                            folder_accessor.root,
+                                                                                            dir,
+                                                                                        )
+                                                                                    )
+                                                                                    if os.path.isfile(
+                                                                                        join(
+                                                                                            os.path.join(
+                                                                                                folder_accessor.root,
+                                                                                                dir,
+                                                                                            ),
+                                                                                            f,
+                                                                                        )
+                                                                                    )
+                                                                                ],
+                                                                                os.path.join(
+                                                                                    folder_accessor.root,
+                                                                                    dir,
+                                                                                ),
+                                                                            )
+                                                                        )
+                                                                        if volumes:
+                                                                            # find a matching volume number and part
+                                                                            for (
+                                                                                volume
+                                                                            ) in (
+                                                                                volumes
+                                                                            ):
+                                                                                if (
+                                                                                    (
+                                                                                        volume.volume_number
+                                                                                        and file.volume_number
+                                                                                    )
+                                                                                    and (
+                                                                                        (
+                                                                                            volume.volume_number
+                                                                                            == file.volume_number
+                                                                                        )
+                                                                                        or (
+                                                                                            isinstance(
+                                                                                                file.volume_number,
+                                                                                                list,
+                                                                                            )
+                                                                                            and volume.volume_number
+                                                                                            in file.volume_number
+                                                                                        )
+                                                                                        or (
+                                                                                            isinstance(
+                                                                                                volume.volume_number,
+                                                                                                list,
+                                                                                            )
+                                                                                            and file.volume_number
+                                                                                            in volume.volume_number
+                                                                                        )
+                                                                                    )
+                                                                                    and (
+                                                                                        volume.volume_part
+                                                                                        == file.volume_part
+                                                                                    )
+                                                                                ):
+                                                                                    print(
+                                                                                        "\t\tFound matching volume number and part"
+                                                                                    )
+                                                                                    print(
+                                                                                        f"\t\t\tVolume Numbers: {volume.volume_number} - {file.volume_number}"
+                                                                                    )
+                                                                                    if (
+                                                                                        volume.volume_part
+                                                                                        and file.volume_part
+                                                                                    ):
+                                                                                        print(
+                                                                                            f"\t\t\tVolume Parts: {volume.volume_part} - {file.volume_part}"
+                                                                                        )
+                                                                                    # get both covers and check the image similarity
+                                                                                    existing_volume_cover_data = find_and_extract_cover(
+                                                                                        volume,
+                                                                                        return_data_only=True,
+                                                                                    )
+                                                                                    downloaded_volume_cover_data = find_and_extract_cover(
+                                                                                        file,
+                                                                                        return_data_only=True,
+                                                                                    )
+                                                                                    if (
+                                                                                        existing_volume_cover_data
+                                                                                        and downloaded_volume_cover_data
+                                                                                    ):
+                                                                                        score = prep_images_for_similarity(
+                                                                                            existing_volume_cover_data,
+                                                                                            downloaded_volume_cover_data,
+                                                                                            both_cover_data=True,
+                                                                                        )
+                                                                                        if (
+                                                                                            score
+                                                                                            >= required_image_similarity_score
+                                                                                        ):
+                                                                                            print(
+                                                                                                "\t\tMatch found through image similarity."
+                                                                                            )
+                                                                                            done = check_upgrade(
+                                                                                                folder_accessor.root,
+                                                                                                dir,
+                                                                                                file,
+                                                                                                similarity_strings=[
+                                                                                                    shortened_folder_name,
+                                                                                                    file_shortened_series_name,
+                                                                                                    score,
+                                                                                                    required_image_similarity_score,
+                                                                                                ],
+                                                                                                group=group,
+                                                                                                image=True,
+                                                                                            )
+                                                                                            if done:
+                                                                                                break
+                                                                                        print(
+                                                                                            "\t\tNo match found through image similarity."
+                                                                                        )
                                                 if (
                                                     not done
                                                     and match_through_isbn_or_series_id
@@ -9437,11 +9693,19 @@ class Image_Result:
         self.image_source = image_source
 
 
-def prep_images_for_similarity(blank_image_path, internal_cover_data):
+def prep_images_for_similarity(
+    blank_image_path, internal_cover_data, both_cover_data=False
+):
     internal_cover = cv2.imdecode(
         np.frombuffer(internal_cover_data, np.uint8), cv2.IMREAD_UNCHANGED
     )
-    blank_image = cv2.imread(blank_image_path)
+    blank_image = None
+    if not both_cover_data:
+        blank_image = cv2.imread(blank_image_path)
+    else:
+        blank_image = cv2.imdecode(
+            np.frombuffer(blank_image_path, np.uint8), cv2.IMREAD_UNCHANGED
+        )
     internal_cover = np.array(internal_cover)
     if blank_image.shape[0] > internal_cover.shape[0]:
         blank_image = cv2.resize(
@@ -9872,6 +10136,7 @@ def correct_file_extensions(group=False):
                     volumes = upgrade_to_file_class(
                         [f for f in files if os.path.isfile(os.path.join(root, f))],
                         root,
+                        skip_get_file_extension_from_header=False,
                     )
                     if volumes:
                         for volume in volumes:
