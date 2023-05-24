@@ -10420,8 +10420,6 @@ def main():
         extract_covers()
         if output_execution_times:
             print_function_execution_time(start_time, "extract_covers()")
-    if send_scan_request_to_komga_libraries_toggle and moved_files:
-        scan_komga_libraries()
     if check_for_missing_volumes_toggle and paths:
         start_time = time.time()
         check_for_missing_volumes()
@@ -10436,8 +10434,6 @@ def main():
         print_stats()
         if output_execution_times:
             print_function_execution_time(start_time, "print_stats()")
-    if grouped_notifications:
-        send_discord_message(None, grouped_notifications)
     if watchdog_toggle:
         if transferred_files:
             # remove any deleted/renamed/moved files
@@ -10445,6 +10441,11 @@ def main():
         if transferred_dirs:
             # remove any deleted/renamed/moved directories
             transferred_dirs = [x for x in transferred_dirs if os.path.isdir(x.root)]
+    if send_scan_request_to_komga_libraries_toggle and moved_files:
+        scan_komga_libraries()
+    if watchdog_toggle:
+        if grouped_notifications:
+            send_discord_message(None, grouped_notifications)
 
 
 if __name__ == "__main__":
