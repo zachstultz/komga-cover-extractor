@@ -499,192 +499,200 @@ def get_all_files_recursively_in_dir(dir_path):
 
 class Handler(FileSystemEventHandler):
     def on_any_event(self, event):
-        global transferred_files
-        global transferred_dirs
+        try:
+            global transferred_files
+            global transferred_dirs
 
-        extension = get_file_extension(event.src_path)
-        base_name = os.path.basename(event.src_path)
-        is_hidden = base_name.startswith(".")
-        is_valid_file = os.path.isfile(event.src_path)
-        in_file_extensions = extension in file_extensions
+            extension = get_file_extension(event.src_path)
+            base_name = os.path.basename(event.src_path)
+            is_hidden = base_name.startswith(".")
+            is_valid_file = os.path.isfile(event.src_path)
+            in_file_extensions = extension in file_extensions
 
-        if not event.event_type == "created":
-            return None
+            if not event.event_type == "created":
+                return None
 
-        if not is_valid_file or extension in image_extensions:
-            return None
+            if not is_valid_file or extension in image_extensions:
+                return None
 
-        print("\n\tEvent Type: " + event.event_type)
-        print("\tEvent Src Path: " + event.src_path)
+            print("\n\tEvent Type: " + event.event_type)
+            print("\tEvent Src Path: " + event.src_path)
 
-        # if not extension was found, return None
-        if not extension:
-            print("\t\t -No extension found, skipped.")
-            return None
+            # if not extension was found, return None
+            if not extension:
+                print("\t\t -No extension found, skipped.")
+                return None
 
-        # if the event is a directory, return None
-        if event.is_directory:
-            print("\t\t -Is a directory, skipped.")
-            return None
+            # if the event is a directory, return None
+            if event.is_directory:
+                print("\t\t -Is a directory, skipped.")
+                return None
 
-        # if the event is a hidden file, return None
-        elif is_hidden:
-            print("\t\t -Is a hidden file, skipped.")
-            return None
+            # if the event is a hidden file, return None
+            elif is_hidden:
+                print("\t\t -Is a hidden file, skipped.")
+                return None
 
-        # if transferred_files, and the file is already in transferred_files
-        # then it already has been processed, so return None
-        elif transferred_files and event.src_path in transferred_files:
-            print("\t\t -Already processed, skipped.")
-            return None
+            # if transferred_files, and the file is already in transferred_files
+            # then it already has been processed, so return None
+            elif transferred_files and event.src_path in transferred_files:
+                print("\t\t -Already processed, skipped.")
+                return None
 
-        # if the file is an image, return None
-        elif extension in image_extensions:
-            print("\t\t -Is an image, skipped.")
-            return None
+            # if the file is an image, return None
+            elif extension in image_extensions:
+                print("\t\t -Is an image, skipped.")
+                return None
 
-        # check if the extension is not in our accepted file extensions
-        elif not in_file_extensions:
-            # if we don't have delete_unacceptable_files_toggle enabled, return None
-            # if delete_unacceptable_files_toggle, we let it past so it can purge it with delete_unacceptable_files()
-            if not delete_unacceptable_files_toggle:
-                print(
-                    "\t\t -Not in file extensions and delete_unacceptable_files_toggle is not enabled, skipped."
+            # check if the extension is not in our accepted file extensions
+            elif not in_file_extensions:
+                # if we don't have delete_unacceptable_files_toggle enabled, return None
+                # if delete_unacceptable_files_toggle, we let it past so it can purge it with delete_unacceptable_files()
+                if not delete_unacceptable_files_toggle:
+                    print(
+                        "\t\t -Not in file extensions and delete_unacceptable_files_toggle is not enabled, skipped."
+                    )
+                    return None
+                elif (
+                    (delete_unacceptable_files_toggle or convert_to_cbz_toggle)
+                    and extension not in unaccepted_file_extensions
+                    and not (convert_to_cbz_toggle and extension in rar_extensions)
+                ):
+                    print("\t\t -Not in file extensions, skipped.")
+                    return None
+
+            # Finally if all checks are passed and the file was just created, we can process it
+            # Take any action here when a file is first created.
+
+            send_message("\nStarting Script (WATCHDOG) (EXPERIMENTAL)", discord=False)
+
+            embed = [
+                handle_fields(
+                    DiscordEmbed(
+                        title="Starting Script (WATCHDOG) (EXPERIMENTAL)",
+                        color=purple_color,
+                    ),
+                    [
+                        {
+                            "name": "File Found:",
+                            "value": "```" + str(event.src_path) + "```",
+                            "inline": False,
+                        }
+                    ],
                 )
-                return None
-            elif (
-                (delete_unacceptable_files_toggle or convert_to_cbz_toggle)
-                and extension not in unaccepted_file_extensions
-                and not (convert_to_cbz_toggle and extension in rar_extensions)
-            ):
-                print("\t\t -Not in file extensions, skipped.")
-                return None
+            ]
 
-        # Finally if all checks are passed and the file was just created, we can process it
-        # Take any action here when a file is first created.
-
-        send_message("\nStarting Script (WATCHDOG) (EXPERIMENTAL)", discord=False)
-
-        embed = [
-            handle_fields(
-                DiscordEmbed(
-                    title="Starting Script (WATCHDOG) (EXPERIMENTAL)",
-                    color=purple_color,
-                ),
-                [
-                    {
-                        "name": "File Found:",
-                        "value": "```" + str(event.src_path) + "```",
-                        "inline": False,
-                    }
-                ],
+            send_discord_message(
+                None,
+                [Embed(embed[0], None)],
             )
-        ]
 
-        send_discord_message(
-            None,
-            [Embed(embed[0], None)],
-        )
+            print("\n\tfile found:  %s." % event.src_path + "\n")
 
-        print("\n\tfile found:  %s." % event.src_path + "\n")
+            if not os.path.isfile(event.src_path):
+                return None
 
-        if not os.path.isfile(event.src_path):
-            return None
+            # Get a list of all files in the root directory and its subdirectories.
+            files = get_all_files_recursively_in_dir(download_folders[0])
 
-        # Get a list of all files in the root directory and its subdirectories.
-        files = get_all_files_recursively_in_dir(download_folders[0])
+            # Check if all files in the root directory and its subdirectories are fully transferred.
+            while True:
+                all_files_transferred = True
+                print("\nTotal files: %s" % len(files))
 
-        # Check if all files in the root directory and its subdirectories are fully transferred.
-        while True:
-            all_files_transferred = True
-            print("\nTotal files: %s" % len(files))
-
-            for file in files:
-                print(
-                    "\t["
-                    + str(files.index(file) + 1)
-                    + "/"
-                    + str(len(files))
-                    + "] "
-                    + os.path.basename(file)
-                )
-
-                if file in transferred_files:
-                    print("\t\t-already transferred")
-                    continue
-
-                is_transferred = check_if_file_is_transferred_by_size(file)
-
-                if is_transferred:
-                    print("\t\t-fully transferred")
-                    transferred_files.append(file)
-                    dir_path = os.path.dirname(file)
-                    if (
-                        dir_path not in download_folders
-                        and dir_path not in transferred_dirs
-                    ):
-                        transferred_dirs.append(os.path.dirname(file))
-                elif not os.path.isfile(file):
-                    print("\t\t-file no longer exists")
-                    all_files_transferred = False
-                    files.remove(file)
-                    break
-                else:
-                    print("\t\t-still transferreing...")
-                    all_files_transferred = False
-                    break
-
-            if all_files_transferred:
-                time.sleep(5)
-
-                # The current list of files in the root directory and its subdirectories.
-                new_files = get_all_files_recursively_in_dir(download_folders[0])
-
-                # If any new files started transferring while we were checking the current files,
-                # then we have more files to check.
-                if files != new_files:
-                    all_files_transferred = False
-                    if len(new_files) > len(files):
-                        print("\tNew transfers: +%s" % str(len(new_files) - len(files)))
-                        files = new_files
-                    elif len(new_files) < len(files):
-                        break
-                elif files == new_files:
-                    break
-
-            time.sleep(5)
-
-        # Proceed with the next steps here.
-        print("\nAll files are transferred.")
-
-        new_transferred_dirs = []
-
-        if transferred_dirs:
-            # if it's already a folder object, then just add it to the new list
-            for x in transferred_dirs:
-                if isinstance(x, Folder):
-                    new_transferred_dirs.append(x)
-                # if it's not a folder object, then make it a folder object
-                elif not isinstance(x, Folder):
-                    new_transferred_dirs.append(
-                        Folder(
-                            x,
-                            None,
-                            os.path.basename(os.path.dirname(x)),
-                            os.path.basename(x),
-                            get_all_files_recursively_in_dir(x),
-                        )
+                for file in files:
+                    print(
+                        "\t["
+                        + str(files.index(file) + 1)
+                        + "/"
+                        + str(len(files))
+                        + "] "
+                        + os.path.basename(file)
                     )
 
-            transferred_dirs = new_transferred_dirs
+                    if file in transferred_files:
+                        print("\t\t-already transferred")
+                        continue
 
-        main()
+                    is_transferred = check_if_file_is_transferred_by_size(file)
 
-        send_message("\nFinished Execution (WATCHDOG) (EXPERIMENTAL)", discord=False)
+                    if is_transferred:
+                        print("\t\t-fully transferred")
+                        transferred_files.append(file)
+                        dir_path = os.path.dirname(file)
+                        if (
+                            dir_path not in download_folders
+                            and dir_path not in transferred_dirs
+                        ):
+                            transferred_dirs.append(os.path.dirname(file))
+                    elif not os.path.isfile(file):
+                        print("\t\t-file no longer exists")
+                        all_files_transferred = False
+                        files.remove(file)
+                        break
+                    else:
+                        print("\t\t-still transferreing...")
+                        all_files_transferred = False
+                        break
 
-        send_message(
-            "\nWatching for changes... (WATCHDOG) (EXPERIMENTAL)", discord=False
-        )
+                if all_files_transferred:
+                    time.sleep(5)
+
+                    # The current list of files in the root directory and its subdirectories.
+                    new_files = get_all_files_recursively_in_dir(download_folders[0])
+
+                    # If any new files started transferring while we were checking the current files,
+                    # then we have more files to check.
+                    if files != new_files:
+                        all_files_transferred = False
+                        if len(new_files) > len(files):
+                            print(
+                                "\tNew transfers: +%s"
+                                % str(len(new_files) - len(files))
+                            )
+                            files = new_files
+                        elif len(new_files) < len(files):
+                            break
+                    elif files == new_files:
+                        break
+
+                time.sleep(5)
+
+            # Proceed with the next steps here.
+            print("\nAll files are transferred.")
+
+            new_transferred_dirs = []
+
+            if transferred_dirs:
+                # if it's already a folder object, then just add it to the new list
+                for x in transferred_dirs:
+                    if isinstance(x, Folder):
+                        new_transferred_dirs.append(x)
+                    # if it's not a folder object, then make it a folder object
+                    elif not isinstance(x, Folder):
+                        new_transferred_dirs.append(
+                            Folder(
+                                x,
+                                None,
+                                os.path.basename(os.path.dirname(x)),
+                                os.path.basename(x),
+                                get_all_files_recursively_in_dir(x),
+                            )
+                        )
+
+                transferred_dirs = new_transferred_dirs
+
+            main()
+
+            send_message(
+                "\nFinished Execution (WATCHDOG) (EXPERIMENTAL)", discord=False
+            )
+
+            send_message(
+                "\nWatching for changes... (WATCHDOG) (EXPERIMENTAL)", discord=False
+            )
+        except Exception as e:
+            send_message("Error with watchdog on_any_event(): " + str(e), error=True)
 
 
 # Read all the lines of a text file and return them
