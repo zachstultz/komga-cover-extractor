@@ -593,7 +593,11 @@ class Handler(FileSystemEventHandler):
                 return None
 
             # Get a list of all files in the root directory and its subdirectories.
-            files = get_all_files_recursively_in_dir(download_folders[0])
+            files = (
+                get_all_files_recursively_in_dir(download_folders[0])
+                if download_folders
+                else []
+            )
 
             # Check if all files in the root directory and its subdirectories are fully transferred.
             while True:
@@ -682,17 +686,16 @@ class Handler(FileSystemEventHandler):
 
                 transferred_dirs = new_transferred_dirs
 
-            main()
-
-            send_message(
-                "\nFinished Execution (WATCHDOG) (EXPERIMENTAL)", discord=False
-            )
-
-            send_message(
-                "\nWatching for changes... (WATCHDOG) (EXPERIMENTAL)", discord=False
-            )
         except Exception as e:
             send_message("Error with watchdog on_any_event(): " + str(e), error=True)
+
+        main()
+
+        send_message("\nFinished Execution (WATCHDOG) (EXPERIMENTAL)", discord=False)
+
+        send_message(
+            "\nWatching for changes... (WATCHDOG) (EXPERIMENTAL)", discord=False
+        )
 
 
 # Read all the lines of a text file and return them
@@ -3194,7 +3197,9 @@ def remove_duplicate_releases_from_download(
                                 ):
                                     remove_file(v.path, group=group)
                                     original_releases.remove(v)
-                            replace_file(original, download, group=group)
+                            replace_file(
+                                original, download, group=group
+                            )
                             moved_files.append(download)
                             if download in downloaded_releases:
                                 downloaded_releases.remove(download)
@@ -3841,6 +3846,7 @@ def reorganize_and_rename(files, dir, group=False):
                 + " with reoganize_and_rename",
                 error=True,
             )
+    return files
 
 
 # Replaces any pesky double spaces
@@ -10443,9 +10449,8 @@ def main():
             transferred_dirs = [x for x in transferred_dirs if os.path.isdir(x.root)]
     if send_scan_request_to_komga_libraries_toggle and moved_files:
         scan_komga_libraries()
-    if watchdog_toggle:
-        if grouped_notifications:
-            send_discord_message(None, grouped_notifications)
+    if watchdog_toggle and grouped_notifications:
+        send_discord_message(None, grouped_notifications)
 
 
 if __name__ == "__main__":
