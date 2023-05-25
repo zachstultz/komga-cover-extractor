@@ -296,7 +296,7 @@ transferred_dirs = []
 bookwalker_logo_url = "https://play-lh.googleusercontent.com/a7jUyjTxWrl_Kl1FkUSv2FHsSu3Swucpem2UIFDRbA1fmt5ywKBf-gcwe6_zalOqIR7V=w240-h480-rw"
 
 # An alternative matching method that uses the image similarity between covers.
-match_through_image_similarity = False
+match_through_image_similarity = True
 
 # The required score for two cover images to be considered a match
 required_image_similarity_score = 0.9
@@ -593,7 +593,11 @@ class Handler(FileSystemEventHandler):
                 return None
 
             # Get a list of all files in the root directory and its subdirectories.
-            files = get_all_files_recursively_in_dir(download_folders[0])
+            files = (
+                get_all_files_recursively_in_dir(download_folders[0])
+                if download_folders
+                else []
+            )
 
             # Check if all files in the root directory and its subdirectories are fully transferred.
             while True:
@@ -682,17 +686,16 @@ class Handler(FileSystemEventHandler):
 
                 transferred_dirs = new_transferred_dirs
 
-            main()
-
-            send_message(
-                "\nFinished Execution (WATCHDOG) (EXPERIMENTAL)", discord=False
-            )
-
-            send_message(
-                "\nWatching for changes... (WATCHDOG) (EXPERIMENTAL)", discord=False
-            )
         except Exception as e:
             send_message("Error with watchdog on_any_event(): " + str(e), error=True)
+
+        main()
+
+        send_message("\nFinished Execution (WATCHDOG) (EXPERIMENTAL)", discord=False)
+
+        send_message(
+            "\nWatching for changes... (WATCHDOG) (EXPERIMENTAL)", discord=False
+        )
 
 
 # Read all the lines of a text file and return them
@@ -3841,6 +3844,7 @@ def reorganize_and_rename(files, dir, group=False):
                 + " with reoganize_and_rename",
                 error=True,
             )
+    return files
 
 
 # Replaces any pesky double spaces
@@ -4993,7 +4997,10 @@ def check_for_existing_series(group=False):
                                 file.name in processed_files or not processed_files
                             ) and os.path.isfile(file.path):
                                 done = False
-                                if cached_image_similarity_results:
+                                if (
+                                    cached_image_similarity_results
+                                    and match_through_image_similarity
+                                ):
                                     for (
                                         cached_result
                                     ) in cached_image_similarity_results:
@@ -5003,6 +5010,7 @@ def check_for_existing_series(group=False):
                                         ].strip()
                                         if not last_item:
                                             continue
+
                                         if (
                                             file.series_name
                                             + " - "
@@ -5013,6 +5021,9 @@ def check_for_existing_series(group=False):
                                             + file.extension
                                             in cached_result
                                         ):
+                                            print(
+                                                "\n\t\tFound cached cover image similarity result."
+                                            )
                                             done = check_upgrade(
                                                 os.path.dirname(last_item),
                                                 os.path.basename(last_item),
@@ -5634,10 +5645,10 @@ def check_for_existing_series(group=False):
                                                                         >= required_similarity_score
                                                                     ):
                                                                         print(
-                                                                            "\n\t\tAttempting match through image similarity..."
+                                                                            "\n\t\tAttempting alternative match through cover image similarity..."
                                                                         )
                                                                         print(
-                                                                            f"\t\t\t{shortened_folder_name} - {file_shortened_series_name}"
+                                                                            f"\t\t\tSeries Names: \n\t\t\t\t{dir}\n\t\t\t\t{file.series_name}"
                                                                         )
                                                                         # get the volumes from the dir, only files
                                                                         img_volumes = upgrade_to_volume_class(
@@ -5668,19 +5679,15 @@ def check_for_existing_series(group=False):
                                                                         )
                                                                         if img_volumes:
                                                                             # find a matching volume number and part
-                                                                            for (
+                                                                            matching_volumes = [
                                                                                 volume
-                                                                            ) in img_volumes:
+                                                                                for volume in img_volumes
                                                                                 if (
-                                                                                    (
-                                                                                        volume.volume_number
-                                                                                        and file.volume_number
-                                                                                    )
+                                                                                    volume.volume_number
+                                                                                    and file.volume_number
                                                                                     and (
-                                                                                        (
-                                                                                            volume.volume_number
-                                                                                            == file.volume_number
-                                                                                        )
+                                                                                        volume.volume_number
+                                                                                        == file.volume_number
                                                                                         or (
                                                                                             isinstance(
                                                                                                 file.volume_number,
@@ -5698,89 +5705,121 @@ def check_for_existing_series(group=False):
                                                                                             in volume.volume_number
                                                                                         )
                                                                                     )
-                                                                                    and (
-                                                                                        volume.volume_part
-                                                                                        == file.volume_part
-                                                                                    )
+                                                                                    and volume.volume_part
+                                                                                    == file.volume_part
+                                                                                )
+                                                                            ]
+                                                                            if matching_volumes:
+                                                                                matching_volume = matching_volumes[
+                                                                                    0
+                                                                                ]
+                                                                                print(
+                                                                                    f"\t\t\tMatching volumes:\n\t\t\t\t{matching_volume.name}\n\t\t\t\t{file.name}"
+                                                                                )
+                                                                                # get both covers and check the image similarity
+                                                                                existing_volume_cover_data = find_and_extract_cover(
+                                                                                    matching_volume,
+                                                                                    return_data_only=True,
+                                                                                    silent=True,
+                                                                                )
+                                                                                downloaded_volume_cover_data = find_and_extract_cover(
+                                                                                    file,
+                                                                                    return_data_only=True,
+                                                                                    silent=True,
+                                                                                )
+                                                                                if (
+                                                                                    existing_volume_cover_data
+                                                                                    and downloaded_volume_cover_data
                                                                                 ):
+                                                                                    score = prep_images_for_similarity(
+                                                                                        existing_volume_cover_data,
+                                                                                        downloaded_volume_cover_data,
+                                                                                        both_cover_data=True,
+                                                                                        silent=True,
+                                                                                    )
                                                                                     print(
-                                                                                        f"\t\tMatching numbers:\n\t\t\t{volume.name}\n\t\t\t{file.name}"
-                                                                                    )
-                                                                                    # get both covers and check the image similarity
-                                                                                    existing_volume_cover_data = find_and_extract_cover(
-                                                                                        volume,
-                                                                                        return_data_only=True,
-                                                                                    )
-                                                                                    downloaded_volume_cover_data = find_and_extract_cover(
-                                                                                        file,
-                                                                                        return_data_only=True,
+                                                                                        "\t\t\tCover Image Similarity Score: "
+                                                                                        + str(
+                                                                                            score
+                                                                                        )
                                                                                     )
                                                                                     if (
-                                                                                        existing_volume_cover_data
-                                                                                        and downloaded_volume_cover_data
+                                                                                        score
+                                                                                        >= required_image_similarity_score
                                                                                     ):
-                                                                                        score = prep_images_for_similarity(
-                                                                                            existing_volume_cover_data,
-                                                                                            downloaded_volume_cover_data,
-                                                                                            both_cover_data=True,
+                                                                                        print(
+                                                                                            "\t\tMatch found through cover image similarity."
                                                                                         )
-                                                                                        if (
-                                                                                            score
-                                                                                            >= required_image_similarity_score
-                                                                                        ):
+                                                                                        # check all volumes in volumes, if all the volumes in this dir have the same series_name
+                                                                                        all_matching = True
+                                                                                        same_root_files = [
+                                                                                            item
+                                                                                            for item in volumes
+                                                                                            if item.root
+                                                                                            == file.root
+                                                                                        ]
+                                                                                        if same_root_files:
+                                                                                            all_matching = all(
+                                                                                                item.series_name.lower().strip()
+                                                                                                == file.series_name.lower().strip()
+                                                                                                for item in same_root_files
+                                                                                                if item
+                                                                                                != file
+                                                                                            )
+                                                                                        if all_matching:
                                                                                             print(
-                                                                                                "\t\tMatch found through image similarity."
+                                                                                                "\t\t\tAll Download Series Names Match, Adding to Cache.\n"
                                                                                             )
-                                                                                            # check all volumes in volumes, if all the volumes in this dir have the same series_name
-                                                                                            all_matching = True
-                                                                                            for item in volumes:
-                                                                                                if (
-                                                                                                    item
-                                                                                                    != file
-                                                                                                ):
-                                                                                                    if (
-                                                                                                        item.root
-                                                                                                        == file.root
-                                                                                                    ):
-                                                                                                        if (
-                                                                                                            item.series_name
-                                                                                                            != file.series_name
-                                                                                                        ):
-                                                                                                            all_matching = False
-                                                                                                            break
-                                                                                            if all_matching:
-                                                                                                cached_image_similarity_results.append(
-                                                                                                    file.series_name
-                                                                                                    + " - "
-                                                                                                    + file.file_type
-                                                                                                    + " - "
-                                                                                                    + file.root
-                                                                                                    + " - "
-                                                                                                    + file.extension
-                                                                                                    + " @@ "
-                                                                                                    + os.path.join(
-                                                                                                        folder_accessor.root,
-                                                                                                        dir,
-                                                                                                    )
+                                                                                            cached_image_similarity_results.append(
+                                                                                                file.series_name
+                                                                                                + " - "
+                                                                                                + file.file_type
+                                                                                                + " - "
+                                                                                                + file.root
+                                                                                                + " - "
+                                                                                                + file.extension
+                                                                                                + " @@ "
+                                                                                                + os.path.join(
+                                                                                                    folder_accessor.root,
+                                                                                                    dir,
                                                                                                 )
-                                                                                            done = check_upgrade(
-                                                                                                folder_accessor.root,
-                                                                                                dir,
-                                                                                                file,
-                                                                                                similarity_strings=[
-                                                                                                    shortened_folder_name,
-                                                                                                    file_shortened_series_name,
-                                                                                                    score,
-                                                                                                    required_image_similarity_score,
-                                                                                                ],
-                                                                                                group=group,
-                                                                                                image=True,
                                                                                             )
-                                                                                            if done:
-                                                                                                break
+                                                                                        done = check_upgrade(
+                                                                                            folder_accessor.root,
+                                                                                            dir,
+                                                                                            file,
+                                                                                            similarity_strings=[
+                                                                                                shortened_folder_name,
+                                                                                                file_shortened_series_name,
+                                                                                                score,
+                                                                                                required_image_similarity_score,
+                                                                                            ],
+                                                                                            group=group,
+                                                                                            image=True,
+                                                                                        )
+                                                                                        if done:
+                                                                                            break
+                                                                                    else:
                                                                                         print(
                                                                                             "\t\tNo match found through image similarity."
                                                                                         )
+                                                                                else:
+                                                                                    if (
+                                                                                        not existing_volume_cover_data
+                                                                                    ):
+                                                                                        print(
+                                                                                            "\t\t\tNo existing volume cover data found."
+                                                                                        )
+                                                                                    if (
+                                                                                        not downloaded_volume_cover_data
+                                                                                    ):
+                                                                                        print(
+                                                                                            "\t\t\tNo downloaded volume cover data found."
+                                                                                        )
+                                                                            else:
+                                                                                print(
+                                                                                    "\t\t\tNo matching volumes found."
+                                                                                )
                                                 if (
                                                     not done
                                                     and match_through_isbn_or_series_id
@@ -7385,7 +7424,7 @@ def get_novel_cover_path(file):
 
 
 # Finds and extracts the internal cover from a manga or novel file.
-def find_and_extract_cover(file, return_data_only=False):
+def find_and_extract_cover(file, return_data_only=False, silent=False):
     # Helper function to filter and sort files in the zip archive
     def filter_and_sort_files(zip_list):
         return sorted(
@@ -7430,10 +7469,10 @@ def find_and_extract_cover(file, return_data_only=False):
     # Helper function to check if an image is blank
     def is_blank_image(image_data):
         ssim_score_white = prep_images_for_similarity(
-            blank_white_image_path, image_data
+            blank_white_image_path, image_data, silent=silent
         )
         ssim_score_black = prep_images_for_similarity(
-            blank_black_image_path, image_data
+            blank_black_image_path, image_data, silent=silent
         )
 
         return (
@@ -9761,7 +9800,7 @@ class Image_Result:
 
 
 def prep_images_for_similarity(
-    blank_image_path, internal_cover_data, both_cover_data=False
+    blank_image_path, internal_cover_data, both_cover_data=False, silent=False
 ):
     internal_cover = cv2.imdecode(
         np.frombuffer(internal_cover_data, np.uint8), cv2.IMREAD_UNCHANGED
@@ -9800,16 +9839,17 @@ def prep_images_for_similarity(
         blank_image = blank_image[:, :, 0]
     elif len(blank_image.shape) == 2 and len(internal_cover.shape) == 3:
         internal_cover = internal_cover[:, :, 0]
-    score = compare_images(blank_image, internal_cover)
+    score = compare_images(blank_image, internal_cover, silent=silent)
     return score
 
 
 # compares our two images likness and returns the ssim score
-def compare_images(imageA, imageB):
+def compare_images(imageA, imageB, silent=False):
     ssim_score = None
     try:
-        print("\t\t\tBlank Image Size: " + str(imageA.shape))
-        print("\t\t\tInternal Cover Size: " + str(imageB.shape))
+        if not silent:
+            print("\t\t\tBlank Image Size: " + str(imageA.shape))
+            print("\t\t\tInternal Cover Size: " + str(imageB.shape))
 
         if len(imageA.shape) == 3 and len(imageB.shape) == 3:
             grayA = cv2.cvtColor(imageA, cv2.COLOR_BGR2GRAY)
@@ -9817,7 +9857,8 @@ def compare_images(imageA, imageB):
             ssim_score = ssim(grayA, grayB)
         else:
             ssim_score = ssim(imageA, imageB)
-        print("\t\t\t\tSSIM: " + str(ssim_score))
+        if not silent:
+            print("\t\t\t\tSSIM: " + str(ssim_score))
     except Exception as e:
         send_message(e, error=True)
     return ssim_score
@@ -10443,9 +10484,8 @@ def main():
             transferred_dirs = [x for x in transferred_dirs if os.path.isdir(x.root)]
     if send_scan_request_to_komga_libraries_toggle and moved_files:
         scan_komga_libraries()
-    if watchdog_toggle:
-        if grouped_notifications:
-            send_discord_message(None, grouped_notifications)
+    if watchdog_toggle and grouped_notifications:
+        send_discord_message(None, grouped_notifications)
 
 
 if __name__ == "__main__":
