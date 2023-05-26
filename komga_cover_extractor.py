@@ -3607,7 +3607,7 @@ def check_for_premium_content(file_path, extension):
 def reorganize_and_rename(files, dir, group=False):
     global transferred_files
     base_dir = os.path.basename(dir)
-    for file in files:
+    for file in files[:]:
         preferred_naming_format = preferred_volume_renaming_format
         keywords = volume_regex_keywords
         if file.file_type == "chapter":
@@ -3830,7 +3830,11 @@ def reorganize_and_rename(files, dir, group=False):
                             replacement_obj = upgrade_to_volume_class(
                                 upgrade_to_file_class([rename], file.root)
                             )[0]
-                            file = replacement_obj
+                            # append the new object and remove the old one
+                            if replacement_obj not in files:
+                                files.append(replacement_obj)
+                                if file in files:
+                                    files.remove(file)
                         else:
                             print("\t\t\tSkipping...\n")
                     except OSError as ose:
