@@ -2388,8 +2388,15 @@ rx_remove_x_hash = re.compile(r"((x|#))", re.IGNORECASE)
 
 
 # Retrieves and returns the file part from the file name
-def get_file_part(file, chapter=False):
+def get_file_part(file, chapter=False, series_name=None, subtitle=None):
     result = ""
+    if series_name:
+        # remove it from the file name
+        file = re.sub(re.escape(series_name), "", file, flags=re.IGNORECASE).strip()
+    if subtitle:
+        # remove it from the file name
+        file = re.sub(re.escape(subtitle), "", file, flags=re.IGNORECASE).strip()
+
     if not chapter:
         # Remove the matched string from the input file name
         file = rx_remove.sub("", file).strip()
@@ -2466,15 +2473,7 @@ def upgrade_to_volume_class(
                 else None
             ),
             file.volume_number,
-            (
-                (
-                    get_file_part(file.name)
-                    if file.file_type != "chapter"
-                    else get_file_part(file.name, chapter=True)
-                )
-                if not skip_file_part
-                else ""
-            ),
+            "",
             (is_fixed_volume(file.name) if not skip_fixed_volume else False),
             (
                 get_extra_from_group(file.name, release_groups)
@@ -2488,15 +2487,7 @@ def upgrade_to_volume_class(
             file.root,
             file.path,
             file.extensionless_path,
-            (
-                (
-                    get_extras(file.name, series_name=file.basename)
-                    if file.file_type != "chapter"
-                    else get_extras(file.name, series_name=file.basename, chapter=True)
-                )
-                if not skip_extras
-                else []
-            ),
+            [],
             (
                 (
                     get_extra_from_group(file.name, publishers)
@@ -2529,13 +2520,43 @@ def upgrade_to_volume_class(
             ),
         )
         if not skip_subtitle:
-            file_obj.subtitle = get_subtitle_from_title(file_obj)
+            file_obj.subtitle = get_subtitle_from_title(
+                file_obj, publisher=file_obj.publisher
+            )
             if file_obj.subtitle:
                 write_to_file(
                     "extracted_subtitles.txt",
                     file_obj.name + " - " + file_obj.subtitle,
                     without_timestamp=True,
                     check_for_dup=True,
+                )
+        if not skip_file_part:
+            if file_obj.file_type != "chapter":
+                file_obj.volume_part = get_file_part(
+                    file_obj.name,
+                    series_name=file_obj.series_name,
+                    subtitle=file_obj.subtitle,
+                )
+            else:
+                file_obj.volume_part = get_file_part(
+                    file_obj.name,
+                    series_name=file_obj.series_name,
+                    subtitle=file_obj.subtitle,
+                    chapter=True,
+                )
+        if not skip_extras:
+            if file_obj.file_type != "chapter":
+                file_obj.extras = get_extras(
+                    file_obj.name,
+                    series_name=file_obj.series_name,
+                    subtitle=file_obj.subtitle,
+                )
+            else:
+                file_obj.extras = get_extras(
+                    file_obj.name,
+                    chapter=True,
+                    series_name=file_obj.series_name,
+                    subtitle=file_obj.subtitle,
                 )
         if file_obj.is_one_shot:
             file_obj.volume_number = 1
@@ -3586,7 +3607,7 @@ def check_for_premium_content(file_path, extension):
 def reorganize_and_rename(files, dir, group=False):
     global transferred_files
     base_dir = os.path.basename(dir)
-    for file in files:
+    for file in files[:]:
         preferred_naming_format = preferred_volume_renaming_format
         keywords = volume_regex_keywords
         if file.file_type == "chapter":
@@ -3805,32 +3826,15 @@ def reorganize_and_rename(files, dir, group=False):
                                     + file.name
                                 )
                                 remove_file(file.path, silent=True)
-                            if file.file_type == "volume":
-                                file.volume_number = remove_everything_but_volume_num(
-                                    [rename]
-                                )
-                                file.series_name = get_series_name_from_file_name(
-                                    rename, file.root
-                                )
-                            elif file.file_type == "chapter":
-                                file.volume_number = remove_everything_but_volume_num(
-                                    [rename], chapter=True
-                                )
-                                file.series_name = (
-                                    get_series_name_from_file_name_chapter(
-                                        rename, file.root, file.volume_number
-                                    )
-                                )
-                            file.volume_year = get_release_year(rename)
-                            file.name = rename
-                            file.extensionless_name = get_extensionless_name(rename)
-                            file.basename = os.path.basename(rename)
-                            file.path = os.path.join(file.root, rename)
-                            file.extensionless_path = os.path.splitext(file.path)[0]
-                            if file.file_type == "volume":
-                                file.extras = get_extras(rename)
-                            elif file.file_type == "chapter":
-                                file.extras = get_extras(rename, chapter=True)
+                            # replace volume obj
+                            replacement_obj = upgrade_to_volume_class(
+                                upgrade_to_file_class([rename], file.root)
+                            )[0]
+                            # append the new object and remove the old one
+                            if replacement_obj not in files:
+                                files.append(replacement_obj)
+                                if file in files:
+                                    files.remove(file)
                         else:
                             print("\t\t\tSkipping...\n")
                     except OSError as ose:
@@ -6587,11 +6591,15 @@ def rename_dirs_in_download_folder(group=False):
         send_discord_message(None, grouped_notifications)
 
 
-def get_extras(file_name, chapter=False, series_name=""):
+def get_extras(file_name, chapter=False, series_name="", subtitle=""):
     extension = get_file_extension(file_name)
     if series_name and re.search(re.escape(series_name), file_name, re.IGNORECASE):
         file_name = re.sub(
             re.escape(series_name), "", file_name, flags=re.IGNORECASE
+        ).strip()
+    if subtitle and re.search(re.escape(subtitle), file_name, re.IGNORECASE):
+        file_name = re.sub(
+            re.escape(subtitle), "", file_name, flags=re.IGNORECASE
         ).strip()
     results = re.findall(r"(\{|\(|\[)(.*?)(\]|\)|\})", file_name, flags=re.IGNORECASE)
     modified = []
@@ -7134,7 +7142,20 @@ def rename_files_in_download_folders(only_these_files=[], group=False):
                                         replacement += (
                                             " (" + str(file.volume_year) + ")"
                                         )
-                                    extras = get_extras(file.name)
+                                    extras = (
+                                        get_extras(
+                                            file.name,
+                                            series_name=file.series_name,
+                                            subtitle=file.subtitle,
+                                        )
+                                        if file.file_type != "chapter"
+                                        else get_extras(
+                                            file.name,
+                                            chapter=True,
+                                            series_name=file.series_name,
+                                            subtitle=file.subtitle,
+                                        )
+                                    )
                                     for extra in extras:
                                         replacement += " " + extra
                                     replacement += file.extension
@@ -8359,7 +8380,7 @@ def get_shortened_title(title):
 # Extracts the subtitle from a file.name
 # (year required in brackets at the end of the subtitle)
 # EX: Sword Art Online v13 - Alicization Dividing [2018].epub --> Alicization Dividing
-def get_subtitle_from_title(file):
+def get_subtitle_from_title(file, publisher=None):
     subtitle = ""
 
     # remove the series name from the title
@@ -8367,15 +8388,43 @@ def get_subtitle_from_title(file):
         rf"{re.escape(file.series_name)}", "", file.name, flags=re.IGNORECASE
     )
 
-    if re.search(r"((\s(-)|:)\s)", without_series_name) and re.search(
+    # First Search
+    dash_or_colon_search = re.search(r"((\s(-)|:)\s)", without_series_name)
+
+    # Second Search
+    year_or_digital_search = re.search(
         r"([\[\{\(]((\d{4})|(Digital))[\]\}\)])", without_series_name
-    ):
+    )
+
+    # Third Search
+    publisher_search = (
+        re.search(
+            rf"([\[\{{\(\]])({publisher})([\]\}}\)])",
+            without_series_name,
+            re.IGNORECASE,
+        )
+        if publisher and not year_or_digital_search
+        else None
+    )
+
+    if dash_or_colon_search and (year_or_digital_search or publisher_search):
         # remove everything to the left of the marker
         subtitle = re.sub(r"(.*)((\s(-)|:)\s)", "", without_series_name)
-        # remove everything to the right of the release year
-        subtitle = re.sub(r"([\[\{\(]((\d{4})|(Digital))[\]\}\)])(.*)", "", subtitle)
+
+        if not publisher_search:
+            # remove everything to the right of the release year/digital
+            subtitle = re.sub(
+                r"([\[\{\(]((\d{4})|(Digital))[\]\}\)])(.*)", "", subtitle
+            )
+        else:
+            # remove everything to the right of the publisher
+            subtitle = re.sub(
+                rf"([\[\{{\(\]])({publisher})([\]\}}\)])(.*)", "", subtitle
+            )
+
         # remove any extra spaces
         subtitle = remove_dual_space(subtitle).strip()
+
         # check that the subtitle isn't present in the folder name, otherwise it's probably not a subtitle
         if re.search(
             rf"{re.escape(subtitle)}",
@@ -8383,6 +8432,7 @@ def get_subtitle_from_title(file):
             re.IGNORECASE,
         ):
             subtitle = ""
+
     return subtitle
 
 
