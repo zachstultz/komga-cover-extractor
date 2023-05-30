@@ -271,7 +271,7 @@ zfill_chapter_int_value = 3  # 001
 zfill_chapter_float_value = 5  # 001.0
 
 # The Discord colors used for the embeds
-purple_color = 7615723  # Starting Script Notification
+purple_color = 7615723  # Starting Execution Notification
 red_color = 16711680  # Removing File Notification
 grey_color = 8421504  # Renaming, Reorganizing, Moving, and Series Matching Notification
 yellow_color = 16776960  # Not Upgradeable Notification
@@ -337,6 +337,12 @@ class File:
         self.volume_number = volume_number
         self.file_type = file_type
         self.header_extension = header_extension
+
+
+class Publisher:
+    def __init__(self, from_meta, from_name):
+        self.from_meta = from_meta
+        self.from_name = from_name
 
 
 # Volume Class
@@ -564,12 +570,12 @@ class Handler(FileSystemEventHandler):
             # Finally if all checks are passed and the file was just created, we can process it
             # Take any action here when a file is first created.
 
-            send_message("\nStarting Script (WATCHDOG) (EXPERIMENTAL)", discord=False)
+            send_message("\nStarting Execution (WATCHDOG)", discord=False)
 
             embed = [
                 handle_fields(
                     DiscordEmbed(
-                        title="Starting Script (WATCHDOG) (EXPERIMENTAL)",
+                        title="Starting Execution (WATCHDOG)",
                         color=purple_color,
                     ),
                     [
@@ -689,13 +695,57 @@ class Handler(FileSystemEventHandler):
         except Exception as e:
             send_message("Error with watchdog on_any_event(): " + str(e), error=True)
 
+        start_time = time.time()
         main()
+        end_time = time.time()
 
-        send_message("\nFinished Execution (WATCHDOG) (EXPERIMENTAL)", discord=False)
+        # convert to minutes
+        execution_time = (end_time - start_time) / 60
 
+        # convert to a single digit if it's above 0, else just round it two 2 digits
+        if execution_time >= 1:
+            execution_time = int(execution_time)
+        else:
+            execution_time = round(execution_time, 2)
+
+        # whether or not to add an s to the end of minute
+        minute_keyword = "minutes" if execution_time > 1 else "minute"
+
+        # Terminal Message
         send_message(
-            "\nWatching for changes... (WATCHDOG) (EXPERIMENTAL)", discord=False
+            "\nFinished Execution (WATCHDOG)\n\tExecution Time: "
+            + str(execution_time)
+            + " "
+            + minute_keyword,
+            discord=False,
         )
+
+        # Discord Message
+        embed = [
+            handle_fields(
+                DiscordEmbed(
+                    title="Finished Execution (WATCHDOG)",
+                    color=purple_color,
+                ),
+                [
+                    {
+                        "name": "Execution Time:",
+                        "value": "```"
+                        + str(execution_time)
+                        + " "
+                        + minute_keyword
+                        + "```",
+                        "inline": False,
+                    }
+                ],
+            )
+        ]
+        send_discord_message(
+            None,
+            [Embed(embed[0], None)],
+        )
+
+        send_message("\nWatching for changes... (WATCHDOG)", discord=False)
 
 
 # Read all the lines of a text file and return them
@@ -1403,9 +1453,9 @@ def clean_and_sort(
                     and get_file_extension(x) in image_extensions
                 )
             ]
-            for j_file in just_these_files:
-                if os.path.basename(j_file) not in files:
-                    print("\tRemoved from just_these_files: " + j_file)
+            # for j_file in just_these_files:
+            #     if os.path.basename(j_file) not in files:
+            #         print("\tRemoved from just_these_files: " + j_file)
         if not chapters:
             filter_non_chapters_start = time.time()
             files = filter_non_chapters(files)
@@ -2459,10 +2509,14 @@ def upgrade_to_volume_class(
     results = []
     for file in files:
         internal_metadata = None
-        publisher = None
+        publisher = Publisher(None, None)
         if not skip_release_year or not skip_publisher:
             internal_metadata = get_internal_metadata(file.path, file.extension)
-            publisher = get_publisher_from_meta(internal_metadata)
+        if add_publisher_name_to_file_name_when_renaming:
+            if internal_metadata and not skip_publisher:
+                publisher.from_meta = get_publisher_from_meta(internal_metadata)
+            if publishers:
+                publisher.from_name = get_extra_from_group(file.name, publishers)
         file_obj = Volume(
             file.file_type,
             file.basename,
@@ -2488,15 +2542,7 @@ def upgrade_to_volume_class(
             file.path,
             file.extensionless_path,
             [],
-            (
-                (
-                    get_extra_from_group(file.name, publishers)
-                    if not publisher
-                    else publisher
-                )
-                if not skip_publisher
-                else None
-            ),
+            publisher,
             (
                 check_for_premium_content(file.path, file.extension)
                 if not skip_premium_content
@@ -3687,21 +3733,47 @@ def reorganize_and_rename(files, dir, group=False):
                         ):
                             file.extras.remove(item)
 
-                if file.publisher and add_publisher_name_to_file_name_when_renaming:
-                    before_num = len(file.extras)
+                if (
+                    file.publisher.from_meta or file.publisher.from_name
+                ) and add_publisher_name_to_file_name_when_renaming:
                     for item in file.extras[:]:
                         for publisher in publishers:
-                            score = similar(
-                                re.sub(r"(\(|\[|\{|\)|\]|\})", "", item),
-                                publisher,
-                            )
-                            if score >= publisher_similarity_score:
+                            if (
+                                similar(
+                                    re.sub(r"(\(|\[|\{|\)|\]|\})", "", item), publisher
+                                )
+                                >= publisher_similarity_score
+                            ):
+                                file.extras.remove(item)
+                                break
+                            elif file.publisher.from_name and (
+                                similar(
+                                    re.sub(r"(\(|\[|\{|\)|\]|\})", "", item),
+                                    file.publisher.from_name,
+                                )
+                                >= publisher_similarity_score
+                            ):
+                                file.extras.remove(item)
+                                break
+                            elif file.publisher.from_meta and (
+                                similar(
+                                    re.sub(r"(\(|\[|\{|\)|\]|\})", "", item),
+                                    file.publisher.from_meta,
+                                )
+                                >= publisher_similarity_score
+                            ):
                                 file.extras.remove(item)
                                 break
                     if file.extension in manga_extensions:
-                        rename += " (" + file.publisher + ")"
+                        if file.publisher.from_meta:
+                            rename += " (" + file.publisher.from_meta + ")"
+                        elif file.publisher.from_name:
+                            rename += " (" + file.publisher.from_name + ")"
                     elif file.extension in novel_extensions:
-                        rename += " [" + file.publisher + "]"
+                        if file.publisher.from_meta:
+                            rename += " [" + file.publisher.from_meta + "]"
+                        elif file.publisher.from_name:
+                            rename += " [" + file.publisher.from_name + "]"
                 if file.is_premium and search_and_add_premium_to_file_name:
                     if file.extension in manga_extensions:
                         rename += " (Premium)"
@@ -3721,7 +3793,13 @@ def reorganize_and_rename(files, dir, group=False):
                 if (
                     move_release_group_to_end_of_file_name
                     and add_publisher_name_to_file_name_when_renaming
-                    and (file.release_group and file.release_group != file.publisher)
+                    and (
+                        file.release_group
+                        and (
+                            file.release_group != file.publisher.from_meta
+                            and file.release_group != file.publisher.from_name
+                        )
+                    )
                 ):
                     for item in file.extras[:]:
                         # escape any regex characters
@@ -4972,11 +5050,12 @@ def check_for_existing_series(group=False):
                             root,
                             files,
                             dirs,
+                            sort=True,
                             just_these_files=transferred_files,
                             just_these_dirs=transferred_dirs,
                         )
                     else:
-                        clean = clean_and_sort(root, files, dirs)
+                        clean = clean_and_sort(root, files, dirs, sort=True)
                     files, dirs = clean[0], clean[1]
                     if not files:
                         continue
@@ -5387,7 +5466,7 @@ def check_for_existing_series(group=False):
                                                 ):
                                                     continue
                                                 clean_two = clean_and_sort(
-                                                    root, files, dirs
+                                                    root, files, dirs, sort=True
                                                 )
                                                 files, dirs = clean_two[0], clean_two[1]
                                                 file_objects = upgrade_to_file_class(
@@ -5403,7 +5482,10 @@ def check_for_existing_series(group=False):
                                                     os.path.basename(root),
                                                     file_objects,
                                                 )
-                                                print(folder_accessor.root)
+                                                print(
+                                                    "Looking inside: "
+                                                    + folder_accessor.root
+                                                )
                                                 if folder_accessor.dirs:
                                                     if (
                                                         root not in cached_paths
@@ -8397,15 +8479,20 @@ def get_subtitle_from_title(file, publisher=None):
     )
 
     # Third Search
-    publisher_search = (
-        re.search(
-            rf"([\[\{{\(\]])({publisher})([\]\}}\)])",
-            without_series_name,
-            re.IGNORECASE,
-        )
-        if publisher and not year_or_digital_search
-        else None
-    )
+    publisher_search = None
+    if publisher and not year_or_digital_search:
+        if publisher.from_meta:
+            publisher_search = re.search(
+                rf"([\[\{{\(\]])({publisher.from_meta})([\]\}}\)])",
+                without_series_name,
+                re.IGNORECASE,
+            )
+        if publisher.from_name and not publisher_search:
+            publisher_search = re.search(
+                rf"([\[\{{\(\]])({publisher.from_name})([\]\}}\)])",
+                without_series_name,
+                re.IGNORECASE,
+            )
 
     if dash_or_colon_search and (year_or_digital_search or publisher_search):
         # remove everything to the left of the marker
@@ -8418,9 +8505,26 @@ def get_subtitle_from_title(file, publisher=None):
             )
         else:
             # remove everything to the right of the publisher
-            subtitle = re.sub(
-                rf"([\[\{{\(\]])({publisher})([\]\}}\)])(.*)", "", subtitle
-            )
+            if (
+                publisher.from_meta
+                and publisher_search.group(2).lower().strip()
+                == publisher.from_meta.lower().strip()
+            ):
+                subtitle = re.sub(
+                    rf"([\[\{{\(\]])({publisher.from_meta})([\]\}}\)])(.*)",
+                    "",
+                    subtitle,
+                )
+            elif (
+                publisher.from_name
+                and publisher_search.group(2).lower().strip()
+                == publisher.from_name.lower().strip()
+            ):
+                subtitle = re.sub(
+                    rf"([\[\{{\(\]])({publisher.from_name})([\]\}}\)])(.*)",
+                    "",
+                    subtitle,
+                )
 
         # remove any extra spaces
         subtitle = remove_dual_space(subtitle).strip()
@@ -10003,7 +10107,7 @@ def convert_to_cbz(group=False):
 
                             if not os.path.isfile(file_path):
                                 continue
-                            print("\n\t\t{}".format(entry))
+                            print("\t\t{}".format(entry))
 
                             if extension in rar_extensions:
                                 cbr_file = file_path
