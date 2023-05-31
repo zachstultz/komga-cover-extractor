@@ -1,0 +1,12 @@
+# Ignored Files
+tests.py
+
+# Ignored Directories
+venv/
+misc/
+
+# Ignore hidden files and directories
+.*
+
+# Ignore folders and files starting with an underscore
+_*
