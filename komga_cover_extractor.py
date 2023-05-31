@@ -112,10 +112,14 @@ moved_files = []
 # Where logs are written to.
 ROOT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
 
+# Docker Status
+in_docker = False
+
 # Check if the instance is running in docker.
 # If the ROOT_DIR is /app/logs, then it's running in docker.
 if ROOT_DIR == "/app/logs":
     script_version += "-docker"
+    in_docker = True
 
 # The path location of the blank_white.jpg in the root of the script directory.
 blank_white_image_path = (
@@ -505,6 +509,7 @@ def get_all_files_recursively_in_dir(dir_path):
 
 class Handler(FileSystemEventHandler):
     def on_any_event(self, event):
+        start_time = time.time()
         try:
             global transferred_files
             global transferred_dirs
@@ -695,12 +700,14 @@ class Handler(FileSystemEventHandler):
         except Exception as e:
             send_message("Error with watchdog on_any_event(): " + str(e), error=True)
 
-        start_time = time.time()
         main()
         end_time = time.time()
 
+        # get the execution time
+        execution_time = end_time - start_time
+
         # convert to minutes
-        execution_time = (end_time - start_time) / 60
+        execution_time = execution_time / 60
 
         # convert to a single digit if it's above 0, else just round it two 2 digits
         if execution_time >= 1:
@@ -708,15 +715,21 @@ class Handler(FileSystemEventHandler):
         else:
             execution_time = round(execution_time, 2)
 
-        # whether or not to add an s to the end of minute
-        minute_keyword = "minutes" if execution_time > 1 else "minute"
+        # set our time keyword
+        time_keyword = ""
+        if execution_time > 1:
+            time_keyword = "minutes"
+        elif execution_time == 1:
+            time_keyword = "minute"
+        elif execution_time < 1 and execution_time > 0:
+            time_keyword = "seconds"
 
         # Terminal Message
         send_message(
             "\nFinished Execution (WATCHDOG)\n\tExecution Time: "
             + str(execution_time)
             + " "
-            + minute_keyword,
+            + time_keyword,
             discord=False,
         )
 
@@ -733,7 +746,7 @@ class Handler(FileSystemEventHandler):
                         "value": "```"
                         + str(execution_time)
                         + " "
-                        + minute_keyword
+                        + time_keyword
                         + "```",
                         "inline": False,
                     }
@@ -1396,6 +1409,7 @@ def clean_and_sort(
     skip_remove_unaccepted_file_types=False,
     skip_remove_hidden_folders=False,
     keep_images_in_just_these_files=False,
+    is_correct_extensions_feature=False,
 ):
     if (
         check_for_existing_series_toggle
@@ -1436,7 +1450,10 @@ def clean_and_sort(
                 )
         if not skip_remove_unaccepted_file_types:
             remove_unnaccepted_file_types_start = time.time()
-            files = remove_unaccepted_file_types(files, root, file_extensions)
+            if not is_correct_extensions_feature:
+                files = remove_unaccepted_file_types(files, root, file_extensions)
+            else:
+                files = remove_unaccepted_file_types(files, root, file_extensions + rar_extensions)
             if output_execution_times:
                 print_function_execution_time(
                     remove_unnaccepted_file_types_start,
@@ -1534,9 +1551,9 @@ def get_extensionless_name(file):
 
 
 # Trades out our regular files for file objects
-def upgrade_to_file_class(files, root, skip_get_file_extension_from_header=True):
+def upgrade_to_file_class(files, root, skip_get_file_extension_from_header=True, is_correct_extensions_feature=False):
     start_time = time.time()
-    files = clean_and_sort(root, files)[0]
+    files = clean_and_sort(root, files, is_correct_extensions_feature=is_correct_extensions_feature)[0]
 
     # Create a list of tuples with arguments to pass to the File constructor
     file_args = [
@@ -10387,18 +10404,21 @@ def correct_file_extensions(group=False):
                             dirs,
                             just_these_files=transferred_files,
                             just_these_dirs=transferred_dirs,
+                            is_correct_extensions_feature=True
                         )
                     else:
                         clean = clean_and_sort(
                             root,
                             files,
                             dirs,
+                            is_correct_extensions_feature=True
                         )
                     files, dirs = clean[0], clean[1]
                     volumes = upgrade_to_file_class(
                         [f for f in files if os.path.isfile(os.path.join(root, f))],
                         root,
                         skip_get_file_extension_from_header=False,
+                        is_correct_extensions_feature=True
                     )
                     if volumes:
                         for volume in volumes:
