@@ -1,5 +1,7 @@
 # Ignored Files
 tests.py
+READMETEMPLATE.md
+README.md
 
 # Ignored Directories
 venv/
