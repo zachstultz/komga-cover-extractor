@@ -10579,6 +10579,7 @@ def main():
         and log_to_file
         and paths
         and not watchdog_toggle
+        and not in_docker
     ):
         if os.path.isfile(os.path.join(ROOT_DIR, "skipped_release_group_files.txt")):
             skipped_release_group_files_read = get_lines_from_file(
