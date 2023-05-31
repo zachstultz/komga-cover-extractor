@@ -1,17 +1,17 @@
 # Komga Cover Extractor
-A python automation script that detects and extracts the cover from your zip, cbz, and epub files for each individal volume. 
+A python automation script that detects and extracts the cover from your zip, cbz, and epub files for each individual volume. 
 Then takes the cover from the first volume and copies that as a cover file for your overall collection.
 
 Allowing the user to use local high-resolution covers within Komga instead of the compressed versions that Komga generates.
 
-Primary usage is with https://github.com/gotson/komga, **with volume releases**.
+Primary usage is with https://github.com/gotson/komga, **with volume-based releases**.
 
 **There is no compression of the cover by default, see usage at the bottom for compressing the covers.**
 
 ## Cover Detection
-Detection is based on various scene releases, if none are detected, it will default to the first image. Which, unless you have scans from online, will almost always be the cover.
+Detection is based on various scene releases, if none are detected, it will default to the first image. Which, unless you have scans from the internet, it will almost always be the cover.
 
-## Finished Result EX:
+## Finished Result Example:
 ![image](https://user-images.githubusercontent.com/8385256/152403016-90660098-0b04-4178-babd-87e56ff1b390.png)
 
 ## Instructions
@@ -52,6 +52,6 @@ without compression example:
 
 ## Goals
 1. Transform script into manga/light novel manager with many features that includes cover extraction, but is not exclusive to it. ***(in-progress)***
-2. Modularize volume keyword regexes across the script. ***(in-progress)***
+2. Modularize volume/chapter keyword regexes across the script. ***(in-progress)***
 3. Better documentation. ***(in-progress)***
 
