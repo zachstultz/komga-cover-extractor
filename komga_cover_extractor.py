@@ -991,8 +991,8 @@ def parse_my_args():
             print("\tpaths_with_types:")
             for item in paths_with_types:
                 print("\t\tpath: " + str(item.path))
-                print("\t\ttypes: " + str(item.path_types))
-                print("\t\textensions: " + str(item.path_extensions))
+                print("\t\t\ttypes: " + str(item.path_types))
+                print("\t\t\textensions: " + str(item.path_extensions))
 
     if parser.download_folders is not None:
         new_download_folders = []
@@ -1453,7 +1453,9 @@ def clean_and_sort(
             if not is_correct_extensions_feature:
                 files = remove_unaccepted_file_types(files, root, file_extensions)
             else:
-                files = remove_unaccepted_file_types(files, root, file_extensions + rar_extensions)
+                files = remove_unaccepted_file_types(
+                    files, root, file_extensions + rar_extensions
+                )
             if output_execution_times:
                 print_function_execution_time(
                     remove_unnaccepted_file_types_start,
@@ -1551,9 +1553,16 @@ def get_extensionless_name(file):
 
 
 # Trades out our regular files for file objects
-def upgrade_to_file_class(files, root, skip_get_file_extension_from_header=True, is_correct_extensions_feature=False):
+def upgrade_to_file_class(
+    files,
+    root,
+    skip_get_file_extension_from_header=True,
+    is_correct_extensions_feature=False,
+):
     start_time = time.time()
-    files = clean_and_sort(root, files, is_correct_extensions_feature=is_correct_extensions_feature)[0]
+    files = clean_and_sort(
+        root, files, is_correct_extensions_feature=is_correct_extensions_feature
+    )[0]
 
     # Create a list of tuples with arguments to pass to the File constructor
     file_args = [
@@ -4082,7 +4091,7 @@ def convert_to_ascii(s):
 
 
 # convert array to string separated by whatever is passed in the separator parameter
-def array_to_string(array, separator):
+def array_to_string(array, separator=", "):
     if isinstance(array, list):
         return separator.join([str(x) for x in array])
     elif isinstance(array, int) or isinstance(array, float) or isinstance(array, str):
@@ -4409,7 +4418,7 @@ def check_upgrade(
                     "\t\t\t"
                     + volume.file_type.capitalize()
                     + " "
-                    + array_to_string(volume.volume_number, ", ")
+                    + array_to_string(volume.volume_number)
                     + ": "
                     + volume.name
                     + " does not exist in: "
@@ -4430,9 +4439,7 @@ def check_upgrade(
                 fields = [
                     {
                         "name": volume.file_type.capitalize() + " Number(s)",
-                        "value": "```"
-                        + array_to_string(volume.volume_number, ", ")
-                        + "```",
+                        "value": "```" + array_to_string(volume.volume_number) + "```",
                         "inline": False,
                     },
                     {
@@ -5435,7 +5442,9 @@ def check_for_existing_series(group=False):
                                                             "\nSkipping path: "
                                                             + path
                                                             + " - Path: "
-                                                            + str(item.path_types)
+                                                            + array_to_string(
+                                                                item.path_types
+                                                            )
                                                             + " File: "
                                                             + str(file.file_type)
                                                         )
@@ -5449,7 +5458,9 @@ def check_for_existing_series(group=False):
                                                             "\nSkipping path: "
                                                             + path
                                                             + " - Path: "
-                                                            + str(item.path_extensions)
+                                                            + array_to_string(
+                                                                item.path_extensions
+                                                            )
                                                             + " File: "
                                                             + str(file.extension)
                                                         )
@@ -10404,21 +10415,18 @@ def correct_file_extensions(group=False):
                             dirs,
                             just_these_files=transferred_files,
                             just_these_dirs=transferred_dirs,
-                            is_correct_extensions_feature=True
+                            is_correct_extensions_feature=True,
                         )
                     else:
                         clean = clean_and_sort(
-                            root,
-                            files,
-                            dirs,
-                            is_correct_extensions_feature=True
+                            root, files, dirs, is_correct_extensions_feature=True
                         )
                     files, dirs = clean[0], clean[1]
                     volumes = upgrade_to_file_class(
                         [f for f in files if os.path.isfile(os.path.join(root, f))],
                         root,
                         skip_get_file_extension_from_header=False,
-                        is_correct_extensions_feature=True
+                        is_correct_extensions_feature=True,
                     )
                     if volumes:
                         for volume in volumes:
