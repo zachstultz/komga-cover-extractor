@@ -42,7 +42,7 @@ optional arguments:
                         The quality of the compressed cover images.
 ```
 ## Examples
-with compression example:
+with compression :
   
   &nbsp;&nbsp;&nbsp;```python3 komga_cover_extractor.py -p "/path/to/manga" -p "/path/to/novels" -c "True" -cq "60"```
 
