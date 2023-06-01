@@ -13,14 +13,13 @@ ARG PGID=1000
 RUN echo "deb http://deb.debian.org/debian bullseye non-free" >> /etc/apt/sources.list
 RUN apt-get update
 RUN groupmod -o -g "$PGID" appuser && usermod -o -u "$PUID" appuser
-RUN chown -R appuser:appuser /app
 
 # Allow users to specify UMASK (default value is 022)
 ENV UMASK 022
 RUN umask "$UMASK"
 
 # Copy the current directory contents into the container at /app
-COPY . .
+COPY --chown=appuser:appuser . .
 
 # Install necessary packages and requirements
 RUN apt-get install -y unrar tzdata nano
