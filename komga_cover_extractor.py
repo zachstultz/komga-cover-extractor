@@ -702,26 +702,19 @@ class Handler(FileSystemEventHandler):
 
         main()
         end_time = time.time()
+        time_keyword = ""
 
         # get the execution time
         execution_time = end_time - start_time
 
-        # convert to minutes
-        execution_time = execution_time / 60
-
-        # convert to a single digit if it's above 0, else just round it two 2 digits
-        if execution_time >= 1:
-            execution_time = int(execution_time)
+        if execution_time > 60:
+            execution_time = int(execution_time / 60)
+            if execution_time == 1:
+                time_keyword = "minute"
+            else:
+                time_keyword = "minutes"
         else:
-            execution_time = round(execution_time, 2)
-
-        # set our time keyword
-        time_keyword = ""
-        if execution_time > 1:
-            time_keyword = "minutes"
-        elif execution_time == 1:
-            time_keyword = "minute"
-        elif execution_time < 1 and execution_time > 0:
+            execution_time = int(execution_time)
             time_keyword = "seconds"
 
         # Terminal Message
@@ -9585,7 +9578,7 @@ def cache_paths():
 def scan_komga_libraries():
     komga_url = f"{komga_ip}:{komga_port}"
     if komga_library_ids and komga_url and komga_login_email and komga_login_password:
-        print("\n\tSending Komga Scan Request...")
+        print("\n\tSending Komga Scan Request:")
         for library_id in komga_library_ids:
             try:
                 request = requests.post(
