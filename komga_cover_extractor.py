@@ -7248,7 +7248,7 @@ def rename_files_in_download_folders(only_these_files=[], group=False):
                                             remove_dual_space(
                                                 re.sub(
                                                     r"_extra",
-                                                    ".1",
+                                                    ".5",
                                                     file.name,
                                                     flags=re.IGNORECASE,
                                                 )
