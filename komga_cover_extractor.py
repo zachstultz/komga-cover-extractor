@@ -715,7 +715,10 @@ class Handler(FileSystemEventHandler):
                 time_keyword = "minutes"
         else:
             execution_time = int(execution_time)
-            time_keyword = "seconds"
+            if execution_time == 1:
+                time_keyword = "second"
+            else:
+                time_keyword = "seconds"
 
         # Terminal Message
         send_message(
@@ -1327,6 +1330,9 @@ def remove_hidden_folders(dirs):
 # check if volume file name is a chapter
 @lru_cache(maxsize=None)
 def contains_chapter_keywords(file_name):
+    file_name = remove_dual_space(
+        re.sub(r"_extra", " ", file_name, flags=re.IGNORECASE)
+    ).strip()
     # Removes underscores from the file name
     file_name_clean = replace_underscore_in_name(file_name)
     file_name_clean = re.sub(r"c1fi7", "", file_name_clean, re.IGNORECASE)
@@ -1371,6 +1377,8 @@ volume_regex = re.compile(
 # Checks if the passed string contains volume keywords
 @lru_cache(maxsize=None)
 def contains_volume_keywords(file):
+    # remove _extra from the file name, replace with space
+    file = remove_dual_space(re.sub(r"_extra", " ", file, flags=re.IGNORECASE)).strip()
     result = volume_regex.search(
         replace_underscore_in_name(remove_bracketed_info_from_name(file))
     )
@@ -1826,6 +1834,8 @@ def move_images(
 # Retrieves the series name through various regexes
 # Removes the volume number and anything to the right of it, and strips it.
 def get_series_name_from_file_name(name, root):
+    name = remove_dual_space(re.sub(r"_extra", " ", name, flags=re.IGNORECASE)).strip()
+
     # name = remove_bracketed_info_from_name(name)
     start_time = time.time()
     if is_one_shot(name, root):
@@ -1929,6 +1939,8 @@ def chapter_file_name_cleaning(file_name, chapter_number="", skip=False):
 
 
 def get_series_name_from_file_name_chapter(name, root, chapter_number=""):
+    name = remove_dual_space(re.sub(r"_extra", " ", name, flags=re.IGNORECASE)).strip()
+
     start_time = time.time()
     # remove the file extension
     name = re.sub(r"(%s)$" % file_extensions_regex, "", name).strip()
@@ -2242,6 +2254,9 @@ def remove_everything_but_volume_num(files, chapter=False):
     if chapter:
         keywords = chapter_regex_keywords
     for file in files[:]:
+        file = remove_dual_space(
+            re.sub(r"_extra", " ", file, flags=re.IGNORECASE)
+        ).strip()
         result = None
         file = replace_underscore_in_name(file)
         is_multi_volume = check_for_multi_volume_file(file, chapter=chapter)
@@ -6201,6 +6216,7 @@ def group_similar_series(messages_to_send):
 # !OLD METHOD!: Only used for cleaning a folder name as a backup if no volumes were found inside the folder
 # when renaming folders in the dowload directory.
 def get_series_name(dir):
+    dir = remove_dual_space(re.sub(r"_extra", " ", dir, flags=re.IGNORECASE)).strip()
     dir = (
         re.sub(
             r"(\b|\s)((\s|)-(\s|)|)(Part|)(%s)([-_. ]|)([-_. ]|)([0-9]+)(\b|\s).*"
@@ -6982,7 +6998,18 @@ def rename_files_in_download_folders(only_these_files=[], group=False):
                             )
                         ):
                             for regex in chapter_searches:
-                                result = re.search(regex, file.name, re.IGNORECASE)
+                                result = re.search(
+                                    regex,
+                                    remove_dual_space(
+                                        re.sub(
+                                            r"_extra",
+                                            " ",
+                                            file.name,
+                                            flags=re.IGNORECASE,
+                                        )
+                                    ).strip(),
+                                    re.IGNORECASE,
+                                )
                                 if result:
                                     result = chapter_file_name_cleaning(
                                         result.group(), skip=True
@@ -7218,7 +7245,14 @@ def rename_files_in_download_folders(only_these_files=[], group=False):
                                             " "
                                             + preferred_naming_format
                                             + str(converted_and_filled),
-                                            file.name,
+                                            remove_dual_space(
+                                                re.sub(
+                                                    r"_extra",
+                                                    ".1",
+                                                    file.name,
+                                                    flags=re.IGNORECASE,
+                                                )
+                                            ).strip(),
                                             flags=re.IGNORECASE,
                                             count=1,
                                         )
