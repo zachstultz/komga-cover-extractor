@@ -523,7 +523,7 @@ class Handler(FileSystemEventHandler):
             if not event.event_type == "created":
                 return None
 
-            if not is_valid_file or extension in image_extensions:
+            if not is_valid_file or extension in image_extensions or is_hidden:
                 return None
 
             print("\n\tEvent Type: " + event.event_type)
@@ -539,20 +539,10 @@ class Handler(FileSystemEventHandler):
                 print("\t\t -Is a directory, skipped.")
                 return None
 
-            # if the event is a hidden file, return None
-            elif is_hidden:
-                print("\t\t -Is a hidden file, skipped.")
-                return None
-
             # if transferred_files, and the file is already in transferred_files
             # then it already has been processed, so return None
             elif transferred_files and event.src_path in transferred_files:
                 print("\t\t -Already processed, skipped.")
-                return None
-
-            # if the file is an image, return None
-            elif extension in image_extensions:
-                print("\t\t -Is an image, skipped.")
                 return None
 
             # check if the extension is not in our accepted file extensions
