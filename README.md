@@ -20,8 +20,8 @@ Detection is based on various scene releases, if none are detected, it will defa
 3. (OPTIONAL) (IGNORE IF ALL YOU INTEND TO USE IS COVER EXTRACTION) (ONLY REQUIRED FOR OPT RAR FEATURES)
     - Install unrar 
       - Linux: ```sudo apt-get install unrar```
-      - MacOS: ```brew install unrar```
-      - Windows: Install UnRAR.dll from https://www.rarlab.com/rar_add.htm
+      - MacOS: ```brew install unrar``` (untested)
+      - Windows: Install UnRAR.dll from https://www.rarlab.com/rar_add.htm (untested)
 4. Read usage below and enjoy!
 
 ## Usage
