@@ -24,7 +24,7 @@ check_for_missing_volumes_toggle = False
 # caches the roots of each item obtained through os.scandir at the beginning of the script,
 # used when matching a downloaded volume to an existing library
 cache_each_root_for_each_path_in_paths_at_beginning_toggle = False
-# sends a scan request to each komga library after check_for_existing_series is done, requires komga settings at the bottom
+# sends a scan request to each komga library after check_for_existing_series is done, if something got added, requires komga settings at the bottom
 send_scan_request_to_komga_libraries_toggle = False
 ################################################################
 
@@ -34,15 +34,15 @@ send_scan_request_to_komga_libraries_toggle = False
 # IF YOU WANT A SPACE BETWEEN THE TWO, ADD IT IN THE PREFERRED NAMING.
 preferred_volume_renaming_format = "v"
 
-# Whether or not to add a volume number one to one-shot volumes
+# Adds a volume number one to one-shot volumes
 # Useful for Comictagger matching, and enabling upgrading of
 # one-shot volumes.
 # Requires the one shot to be the only manga or novel file within the folder.
 add_volume_one_number_to_one_shots = False
 
-# Whether or not to add the issue number to the file name
+# Adds the issue number to the file name
 # Useful when using ComicTagger
-# TRUE: manga v01 #01 (2001).extension
+# TRUE:  manga v01 #01 (2001).extension
 # FALSE: manga v01 (2001).extension
 add_issue_number_to_manga_file_name = False
 
@@ -55,12 +55,10 @@ manual_rename = True
 # Also changes the series name to the folder name that it's being moved to.
 resturcture_when_renaming = False
 
-# Whether or not to search a novel file for premium content if no
-# premium keyword is found, then it adds it into the file name in square brackets.
+# Searches a novel file for premium content and adds it to the file name.
 search_and_add_premium_to_file_name = False
 
-# Whether or not to add the pulled publisher from the manga or novel file to the
-# file name when renmaing.
+# Adds the pulled publisher from the manga or novel file to the file name when renmaing.
 add_publisher_name_to_file_name_when_renaming = False
 
 # Exception keywords used when deleting chapter files with the delete_chapters_from_downloads() function.
@@ -86,36 +84,34 @@ exception_keywords = [
 # AFTER : Series Name v01 (f) (Group).extension
 move_release_group_to_end_of_file_name = False
 
-# Whether or not to use unidecode on a file name
-# when restructuring a file name.
+# Uses unidecode to replace unicode characters when restructuring a file name.
 # Requires: resturcture_when_renaming = True
 replace_unicode_when_restructuring = False
+
+# Will forgo sending any discord notifications related to renaming files.
+mute_discord_rename_notifications = False
+
+# When creating a folder for a lone file, if enabled, it will first check if any existing folder names
+# are similar enough, and instead use that.
+# (Fixes multiple folders for the same series where the file name did or did not include punctuation)
+# (Similarity check uses required_similarity_score)
+# Requires: create_folders_for_items_in_download_folder_toggle = True
+move_lone_files_to_similar_folder = False
+
+# Replaces the series name in the file name with the similar folders name.
+# Requires: move_lone_files_to_similar_folder = True
+replace_series_name_in_file_name_with_similar_folder_name = False
 ################################################################
 
 ########################### UPGRADING ###########################
-# Whether or not an isbn/series_id match should be used
-# as an alternative when matching a downloaded file to
-# the existing library.
-# ONLY ACTIVATE IF MY ISBN SCRIPT IS RELEASED
-# AND YOU ARE USING IT
-match_through_isbn_or_series_id = False
-
-# True = Multi-volumes can match against single volumes, but not the other way around.
-#   EX: volume 3-4 can match to the individual volumes 3 and 4.
-# False = Multi-volumes can only match against multi-volumes.
-#   EX: volume 3-4 can only match to another multi-volume release of 3-4
-allow_matching_single_volumes_with_multi_volumes = False
-
-# The required file type matching percentage between
-# the download folder and the existing folder
-#
-# For exmpale, 90% of the folder's files must be have an extension in manga_extensions or novel_extensions
-# Used to avoid accdientally matching a novel volume to a manga library
-# or vice versa because they can have the same exact series name.
-required_matching_percentage = 90
+# Zip comment identifier match
+# when matching a downloaded file to the existing library.
+# (ONLY ACTIVATE IF MY ISBN SCRIPT IS RELEASED AND YOU ARE USING IT)
+match_through_identifiers = False
 
 # The required score when comparing two strings likeness, used when matching a series_name to a folder name.
 required_similarity_score = 0.9790
+
 
 # Keyword Class
 class Keyword:
@@ -124,70 +120,51 @@ class Keyword:
         self.score = score
         self.file_type = file_type
 
+    # to string
+    def __str__(self):
+        return f"Name: {self.name}, Score: {self.score}, File Type: {self.file_type}"
+
+    def __repr__(self):
+        return str(self)
+
+
 # Keywords ranked by point values, used when determining if a downloaded volume
-# is an upgrade to the existing volume in the library.
-# Case is ignored when checked.
-# EX: Keyword(r"Keyword or Regex", point_value, "chapter" or "volume" or "both") # "both" is default
+# is an upgrade to the existing volume in the library. Case is ignored when checked.
+#
+# EX: Keyword(
+#       r"Keyword or Regex", point_value, "chapter" or "volume" or "both"
+#     )
+# "both" is default
 ranked_keywords = []
 #################################################################
 
 ############################# MISC #############################
 # Folder names to be ignored
-ignored_folder_names = [""]
+ignored_folder_names = []
 
-
-# file extensions that will be deleted from the download folders in an optional method. EX: [".example"]
-unaccepted_file_extensions = []
-series_cover_file_names = ["cover", "poster"]
-# Whether or not to output errors and changes to a log file
+# Outputs errors and changes to a log file
 log_to_file = False
-# Whether or not to check the library against bookwalker for new releases.
-bookwalker_check = False
-# Prompts the user when deleting a lower-ranking duplicate volume when running
-# check_for_duplicate_volumes()
-manual_delete = True
+
 # Any keywords/regexes within this array that are found within a file name,
 # will be automatically deleted from the download_folders by delete_unacceptable_files()
 # Case is ignored.
 # EX: r"Keyword or Regex"
 unacceptable_keywords = []
 
-# When creating a folder for a lone file, if enabled, it will first check if any existing folder names
-# are similar enough, and instead use that.
-# (Fixes multiple folders for the same series where the file name did or did not include punctuation)
-# (Similarity check uses required_similarity_score)
-move_lone_files_to_similar_folder = True
-
-# Replaces the series name in the file name with the similar folders name.
-replace_series_name_in_file_name_with_similar_folder_name = True
-
-
-###### EXPERIMENTAL SETTINGS/FEATURES ######
-
-# KOMGA SCAN REQUEST - sends a scan request to komga after files have been moved
-komga_ip = ""  # ex: http://localhost
+# Komaga Server Settings
+komga_ip = ""  # Ex: http://localhost
 komga_port = ""  # komga default is 8080
 komga_login_email = ""  # your login email
 komga_login_password = ""  # your login password
 
-# ex: http://localhost:8080/libraries/0647PPYWAC6AX/series
-# ex: komga_library_ids = ["0647PPYWAC6AX"] separate ids by commas
-komga_library_ids = []
-
-# Whether or not to generate a release_groups.txt file in the logs folder or add to it
+###### EXPERIMENTAL SETTINGS/FEATURES ######
+# Generates a release_groups.txt file in the logs folder or add to it
 # with the help of the user's input. (remember to disable afterwards!)
 # Used when renaming files with reorganize_and_rename.
 # Release group names will be moved to the end of the file name.
 # encased by () brackets with manga, [] brackets with light novels
 # REQUIRES log_to_file=True above!
 generate_release_group_list_toggle = False
-
-# The similarity score requirement when matching any brackted release group
-# within a file name. Used when rebuilding the file name in reorganize_and_rename.
-release_group_similarity_score = 0.8
-
-# Will forgo sending any discord notifications related to renaming files.
-mute_discord_rename_notifications = False
 
 # Chapter support is currently experimental and may not work as intended.
 # This will enable chapter support for all relavent functions and features.
@@ -198,24 +175,19 @@ chapter_support_toggle = False  # EXPERIMENTAL
 # IF YOU WANT A SPACE BETWEEN THE TWO, ADD IT IN THE PREFERRED NAMING.
 preferred_chapter_renaming_format = "c"
 
-# Whether or not covers should be outputted to discord when a new chapter release
+# Outputs chapter covers to discord when there's a new chapter release.
 # is moved to the library.
 output_chapter_covers_to_discord = False
 
-# Whether or not to rename the chapter number in releases with the preferred chapter keyword.
+# Renames the chapter number in releases with the preferred chapter keyword.
 rename_chapters_with_preferred_chapter_keyword = False
 
-# Whether or not to extract chapter covers from chapter files.
+# Extracts chapter covers from chapter files.
 extract_chapter_covers = False
 
-# When the program has detected a cover image file within the manga file or novel file, it will compare that image
+# When the program has detected a cover image file within the manga or novel file, it will compare that image
 # against a blank white image and a blank black image to avoid picking the wrong cover.
 compare_detected_cover_to_blank_images = False  # WILL INCREASE PROCESSING TIME
-
-# The required similarity score between the detected cover and the blank image to be considered a match.
-# If the similarity score is equal to or greater than this value, the cover will be ignored as
-# it is most likely a blank cover.
-blank_cover_required_similarity_score = 0.90
 
 # Uses the latest volume cover as the series cover, when extracting covers, instead of the first volumes' cover.
 # Using modification date and hashing for matching, it can automatically switch your covers back and forth
