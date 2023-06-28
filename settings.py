@@ -153,7 +153,7 @@ unacceptable_keywords = []
 
 # Komaga Server Settings
 komga_ip = ""  # Ex: http://localhost
-komga_port = ""  # komga default is 8080
+komga_port = ""  # komga default is 25600
 komga_login_email = ""  # your login email
 komga_login_password = ""  # your login password
 
