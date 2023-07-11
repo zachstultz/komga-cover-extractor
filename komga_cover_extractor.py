@@ -42,7 +42,7 @@ from watchdog.observers import Observer
 from settings import *
 
 # Version of the script
-script_version = (2, 4, 2)
+script_version = (2, 4, 3)
 script_version_text = "v{}.{}.{}".format(*script_version)
 
 # Paths = existing library
@@ -7060,7 +7060,8 @@ def rename_files_in_download_folders(only_these_files=[], group=False):
                                             file.name,
                                             flags=re.IGNORECASE,
                                         )
-                                    )
+                                    ),
+                                    chapter=True,
                                 )
                                 or (
                                     file.volume_number
@@ -10204,11 +10205,14 @@ def generate_rename_lists():
 
 
 # Checks if a string only contains one set of numbers
-def only_has_one_set_of_numbers(string):
+def only_has_one_set_of_numbers(string, chapter=False):
+    keywords = volume_regex_keywords
+    if chapter:
+        keywords = chapter_regex_keywords + "|"
     result = False
     search = re.findall(
-        r"\b(%s)(([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?(#([0-9]+)(([-_.])([0-9]+)|)+)?(_extra)?)\b"
-        % exclusion_keywords_regex,
+        r"\b(%s)(%s)?(([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?(#([0-9]+)(([-_.])([0-9]+)|)+)?(_extra)?)\b"
+        % (exclusion_keywords_regex, keywords),
         string,
         re.IGNORECASE,
     )
