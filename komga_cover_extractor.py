@@ -42,7 +42,8 @@ from watchdog.observers import Observer
 from settings import *
 
 # Version of the script
-script_version = (2, 4, 1)
+script_version = (2, 4, 2)
+script_version_text = "v{}.{}.{}".format(*script_version)
 
 # Paths = existing library
 # Download_folders = newly acquired manga/novels
@@ -71,7 +72,6 @@ items_changed = []
 # A discord webhook url used to send messages to discord about the changes made.
 # Pass in via cli
 discord_webhook_url = []
-
 
 # Two webhooks specific to the bookwalker check.
 # One is used for released books, the other is used for upcoming books.
@@ -117,6 +117,8 @@ in_docker = False
 # If the ROOT_DIR is /app/logs, then it's running in docker.
 if ROOT_DIR == "/app/logs":
     in_docker = True
+    script_version_text += "-docker"
+
 
 # The path location of the blank_white.jpg in the root of the script directory.
 blank_white_image_path = (
@@ -159,7 +161,6 @@ manga_extensions = [x for x in zip_extensions if x not in novel_extensions]
 # All the accepted file extensions
 file_extensions = novel_extensions + manga_extensions
 
-
 # All the accepted image extensions
 image_extensions = [".jpg", ".jpeg", ".png", ".tbn", ".webp"]
 
@@ -182,7 +183,7 @@ volume_keywords = [
     "T",
 ]
 
-# Chapter Regex Keywords to be used throughout the script
+# Chapter Regex Keywords used throughout the script
 chapter_keywords = [
     "Chapters?",
     "Chaps?",
@@ -192,6 +193,8 @@ chapter_keywords = [
 ]
 
 # Keywords to be avoided in a chapter regex.
+# Helps avoid picking the wrong chapter number
+# when no chapter keyword was used before it.
 exclusion_keywords = [
     "Part",
     "Episode",
@@ -205,18 +208,23 @@ exclusion_keywords = [
     "Side Story",
     " S",
     "Act",
+    "Special Episode",
+    "Ep\.?(\s+)?",
 ]
 
 # Volume Regex Keywords to be used throughout the script
 volume_regex_keywords = "(?<![A-Za-z])" + "|(?<![A-Za-z])".join(volume_keywords)
 
+# Exclusion keywords joined by just |
+exclusion_keywords_joined = "|".join(exclusion_keywords)
+
 # Exclusion Regex Keywords to be used in the Chapter Regex Keywords to avoid incorrect number matches.
-exclusion_keywords_joined = "|".join(
+exclusion_keywords_joined_with_exclusion = "|".join(
     keyword + r"(\s)" for keyword in exclusion_keywords
 )
 
-# Put the exclusion_keywords_joined inside of (?<!%s)
-exclusion_keywords_regex = r"(?<!%s)" % exclusion_keywords_joined
+# Put the exclusion_keywords_joined_with_exclusion inside of (?<!%s)
+exclusion_keywords_regex = r"(?<!%s)" % exclusion_keywords_joined_with_exclusion
 
 # Chapter Regex Keywords to be used throughout the script
 chapter_regex_keywords = r"(?<![A-Za-z])" + (r"|(?<![A-Za-z])").join(chapter_keywords)
@@ -233,35 +241,38 @@ image_extensions_regex = "|".join(image_extensions).replace(".", "\.")
 
 # REMINDER: ORDER IS IMPORTANT, Top to bottom is the order it will be checked in.
 # Once a match is found, it will stop checking the rest.
+# IMPORTANT: Any change of order or swapping of regexes, requires change in full_chapter_match_attempt_allowed alternative logic!
 chapter_searches = [
     r"\s-(\s+)?(#)?([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?(\s+)?-\s",
     r"(\b(%s)((\.)|)(\s+)?([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?\b)"
     % chapter_regex_keywords,
     r"((\b(%s|)((\.)|)(\s+)?(%s)([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?(#([0-9]+)(([-_.])([0-9]+)|)+)?\b)(\s+)?((\(|\{|\[)\w+(([-_. ])+\w+)?(\]|\}|\))|((?<!\w(\s))|(?<!\w))(%s)(?!\w)))"
     % (chapter_regex_keywords, exclusion_keywords_regex, manga_extensions_regex),
-    r"(?<!([A-Za-z]|(Part|Episode|Season|Story|Arc|Epilogue)(\s+)?))(((%s)([-_. ]+)?([0-9]+))|\s+([0-9]+)(\.[0-9]+)?(x\d+((\.\d+)+)?)?(\s+|#\d+|%s))"
-    % (chapter_regex_keywords, manga_extensions_regex),
+    r"(?<!([A-Za-z]|(%s)(\s+)?))(((%s)([-_. ]+)?([0-9]+))|\s+([0-9]+)(\.[0-9]+)?(x\d+((\.\d+)+)?)?(\s+|#\d+|%s))"
+    % (exclusion_keywords_joined, chapter_regex_keywords, manga_extensions_regex),
     r"^((#)?([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?(#([0-9]+)(([-_.])([0-9]+)|)+)?)$",
 ]
 
-# Used in check_for_existing_series when sending
-# a bulk amount of chapter releases to discord after the function is done,
-# so they can be sent in one message or in order.
+# Used in check_for_existing_series() when sending
+# a bulk amount of chapter release notifications to discord after the function is done,
+# also allows them to be sent in number order.
 messages_to_send = []
 
 # Used to store multiple embeds to be sent in one message
 grouped_notifications = []
 
-# The maximum amount of embeds that can be sent in one message
+# Discord's maximum amount of embeds that can be sent in one message
 discord_embed_limit = 10
 
-# The time to wait before performing the next action
+# The time to wait before performing the next action in
+# the watchdog event handler.
 sleep_timer = 10
 
-# The time to wait before scraping another bookwalker page
+# The time to wait before scraping another bookwalker page in
+# the bookwalker_check feature.
 sleep_timer_bk = 2
 
-# The fill values for the chapter and volume files when renaming
+# The fill values for the chapter and volume files when renaming.
 # VOLUME
 zfill_volume_int_value = 2  # 01
 zfill_volume_float_value = 4  # 01.0
@@ -272,7 +283,7 @@ zfill_chapter_float_value = 5  # 001.0
 # The Discord colors used for the embeds
 purple_color = 7615723  # Starting Execution Notification
 red_color = 16711680  # Removing File Notification
-grey_color = 8421504  # Renaming, Reorganizing, Moving, and Series Matching Notification
+grey_color = 8421504  # Renaming, Reorganizing, Moving, Series Matching, and Bookwalker Release Notification
 yellow_color = 16776960  # Not Upgradeable Notification
 green_color = 65280  # Upgradeable and New Release Notification
 preorder_blue_color = 5919485  # Bookwalker Preorder Notification
@@ -937,6 +948,8 @@ def parse_my_args():
         print("Exiting...")
         exit()
 
+    print(f"\nScript Version: {script_version_text}")
+
     print("\nRun Settings:")
     if parser.paths is not None:
         new_paths = []
@@ -1161,10 +1174,18 @@ def parse_my_args():
         if setting == "ranked_keywords" or setting == "unacceptable_keywords":
             continue
 
-        if "password" not in setting.lower() and "email" not in setting.lower():
+        if (
+            "password" not in setting.lower()
+            and "email" not in setting.lower()
+            and "token" not in setting.lower()
+        ):
             print("\t" + setting + ": " + str(getattr(settings_file, setting)))
         else:
             print("\t" + setting + ": " + "********")
+
+    print("\t" + "in_docker: " + str(in_docker))
+    print("\t" + "blank_black_image_path: " + str(blank_black_image_path))
+    print("\t" + "blank_white_image_path: " + str(blank_white_image_path))
 
 
 def set_num_as_float_or_int(volume_number, silent=False):
@@ -1341,10 +1362,7 @@ def send_discord_message(
                 if len(embeds) > 10:
                     embeds = embeds[:10]
                 for embed in embeds:
-                    if script_version:
-                        script_version_text = "v{}.{}.{}".format(*script_version)
-                        if in_docker:
-                            script_version_text += "-docker"
+                    if script_version_text:
                         embed.embed.set_footer(text=script_version_text)
                     if timestamp and not embed.embed.timestamp:
                         embed.embed.set_timestamp()
@@ -2294,12 +2312,14 @@ def remove_everything_but_volume_num(files, chapter=False):
         else:
             if has_multiple_numbers(file):
                 if re.search(
-                    r"((Episode|Ep)(\.)?(\s+)?(#)?(([0-9]+)(([-_.])([0-9]+)|)+))$",
+                    r"((%s)(\.)?(\s+)?(#)?(([0-9]+)(([-_.])([0-9]+)|)+))$"
+                    % exclusion_keywords_joined,
                     re.sub(r"(%s)" % file_extensions_regex, "", file),
                     re.IGNORECASE,
                 ):
                     file = re.sub(
-                        r"((Episode|Ep)(\.)?(\s+)?(#)?(([0-9]+)(([-_.])([0-9]+)|)+))$",
+                        r"((%s)(\.)?(\s+)?(#)?(([0-9]+)(([-_.])([0-9]+)|)+))$"
+                        % exclusion_keywords_joined,
                         "",
                         re.sub(r"(%s)" % file_extensions_regex, "", file),
                         re.IGNORECASE,
@@ -2324,6 +2344,10 @@ def remove_everything_but_volume_num(files, chapter=False):
                 else:
                     file = ""
                 if chapter:
+                    # Removes starting period
+                    # EX: "series_name. 031 (2023).cbz" --> "'. 031 (2023)"" --> "031 (2023)"
+                    file = re.sub(r"^(\s+)?(\.)", "", file, re.IGNORECASE).strip()
+
                     # Removes # from the number
                     # EX: #001 becomes 001
                     file = re.sub(r"($#)", "", file, re.IGNORECASE).strip()
@@ -2416,6 +2440,7 @@ volume_year_regex = r"(\(|\[|\{)(\d{4})(\)|\]|\})"
 # Get the release year from the file metadata, if present, otherwise from the file name
 def get_release_year(name, metadata=None):
     result = None
+    converted = None
     match = re.search(volume_year_regex, name, re.IGNORECASE)
     if match:
         result = int(re.sub(r"(\(|\[|\{)|(\)|\]|\})", "", match.group(0)))
@@ -2424,14 +2449,17 @@ def get_release_year(name, metadata=None):
         if "Year" in metadata:
             release_year_from_file = metadata["Year"]
             if release_year_from_file and release_year_from_file.isdigit():
-                result = int(release_year_from_file)
+                converted = int(release_year_from_file)
         elif "dc:date" in metadata:
             release_year_from_file = metadata["dc:date"].strip()
             release_year_from_file = re.search(r"\d{4}", release_year_from_file)
             if release_year_from_file:
                 release_year_from_file = release_year_from_file.group(0)
                 if release_year_from_file and release_year_from_file.isdigit():
-                    result = int(release_year_from_file)
+                    converted = int(release_year_from_file)
+        if converted and converted >= 1000:
+            result = converted
+
     return result
 
 
@@ -3401,6 +3429,7 @@ def write_to_file(
     check_for_dup=False,
     write_to=None,
 ):
+    write_status = False
     logs_dir = None
     if not write_to:
         logs_dir = ROOT_DIR
@@ -3439,11 +3468,13 @@ def write_to_file(
                             file.write("\n " + message)
                         else:
                             file.write("\n" + dt_string + " " + message)
+                        write_status = True
                         file.close()
                 except Exception as e:
                     send_message(e, error=True, log=False)
             except Exception as e:
                 send_message(e, error=True, log=False)
+    return write_status
 
 
 # Checks for any missing volumes between the lowest volume of a series and the highest volume.
@@ -7009,52 +7040,51 @@ def rename_files_in_download_folders(only_these_files=[], group=False):
                             file.name,
                             re.IGNORECASE,
                         )
-                        if (
+                        # chapter match is allwoed to continue
+                        full_chapter_match_attempt_allowed = False
+
+                        # The number of the regex inside the regex array that was matched to
+                        regex_match_number = None
+
+                        if result:
+                            full_chapter_match_attempt_allowed = True
+                        elif (
                             not result
                             and file.file_type == "chapter"
                             and (
                                 only_has_one_set_of_numbers(
-                                    remove_bracketed_info_from_name(file.name)
+                                    remove_bracketed_info_from_name(
+                                        re.sub(
+                                            re.escape(file.series_name),
+                                            "",
+                                            file.name,
+                                            flags=re.IGNORECASE,
+                                        )
+                                    )
                                 )
                                 or (
                                     file.volume_number
                                     and (
-                                        not re.search(
-                                            r"\b(%s)(0+)?%s\b"
-                                            % (
-                                                exclusion_keywords_regex,
-                                                set_num_as_float_or_int(
-                                                    file.volume_number
-                                                ),
-                                            ),
-                                            file.series_name,
-                                            re.IGNORECASE,
+                                        extract_all_numbers_from_string(
+                                            file.name
+                                        ).count(
+                                            set_num_as_float_or_int(file.volume_number)
                                         )
-                                        and (
-                                            only_has_one_set_of_numbers(
-                                                remove_bracketed_info_from_name(
-                                                    re.sub(
-                                                        re.escape(file.series_name),
-                                                        "",
-                                                        file.name,
-                                                        flags=re.IGNORECASE,
-                                                    )
-                                                )
-                                            )
-                                            or extract_all_numbers_from_string(
-                                                file.name
-                                            ).count(
-                                                set_num_as_float_or_int(
-                                                    file.volume_number
-                                                )
-                                            )
-                                            == 1
-                                        )
+                                        == 1
                                     )
                                 )
                             )
                         ):
-                            for regex in chapter_searches:
+                            full_chapter_match_attempt_allowed = True
+
+                        if file.file_type == "chapter" and not result:
+                            searches = []
+                            if full_chapter_match_attempt_allowed:
+                                searches = chapter_searches
+                            else:
+                                # only include the first search
+                                searches = [chapter_searches[0]]
+                            for regex in searches:
                                 result = re.search(
                                     regex,
                                     remove_dual_space(
@@ -7068,6 +7098,7 @@ def rename_files_in_download_folders(only_these_files=[], group=False):
                                     re.IGNORECASE,
                                 )
                                 if result:
+                                    regex_match_number = searches.index(regex)
                                     result = chapter_file_name_cleaning(
                                         result.group(), skip=True
                                     )
@@ -7115,6 +7146,7 @@ def rename_files_in_download_folders(only_these_files=[], group=False):
                                             elif set_num_as_float_or_int(result) == "":
                                                 result = None
                                     break
+
                         if result or (
                             file.is_one_shot
                             and add_volume_one_number_to_one_shots == True
@@ -7297,7 +7329,25 @@ def rename_files_in_download_folders(only_these_files=[], group=False):
                                         and converted_and_filled
                                     ):
                                         optional_following_zero = rf"\b({str(exclusion_keywords_regex)})(0+)?{str(converted_value)}(\b|(?=x|#))"
-                                        replacement = re.sub(
+
+                                        # Gets rid of unwanted "#"
+                                        # EX: 'Tower of God - #404 - [Season 2] Ep. 324.cbz'
+                                        if (
+                                            file.file_type == "chapter"
+                                            and regex_match_number == 0
+                                        ):
+                                            optional_following_zero = (
+                                                rf"(#)?{optional_following_zero}"
+                                            )
+                                        # remove the file.series_name from file.name, store it in a variable
+                                        without_series_name = re.sub(
+                                            re.escape(file.series_name),
+                                            "",
+                                            file.name,
+                                            flags=re.IGNORECASE,
+                                            count=1,
+                                        )
+                                        without_series_name_replacement = re.sub(
                                             optional_following_zero,
                                             " "
                                             + preferred_naming_format
@@ -7306,14 +7356,24 @@ def rename_files_in_download_folders(only_these_files=[], group=False):
                                                 re.sub(
                                                     r"_extra",
                                                     ".5",
-                                                    file.name,
+                                                    without_series_name,
                                                     flags=re.IGNORECASE,
                                                 )
-                                            ).strip(),
+                                            ),
                                             flags=re.IGNORECASE,
                                             count=1,
                                         )
-                                        replacement = remove_dual_space(replacement)
+                                        # now re.sub without_series_name_replacement into file.name
+                                        replacement = re.sub(
+                                            re.escape(without_series_name),
+                                            without_series_name_replacement,
+                                            file.name,
+                                            flags=re.IGNORECASE,
+                                            count=1,
+                                        )
+                                        replacement = remove_dual_space(
+                                            replacement
+                                        ).strip()
                                     else:
                                         replacement = re.sub(
                                             r"((?<![A-Za-z]+)|)(\[|\(|\{)?(?<![A-Za-z])(%s)(\.|)([-_. ]|)(([0-9]+)((([-_.]|)([0-9]+))+|))(\s#(([0-9]+)((([-_.]|)([0-9]+))+|)))?(\]|\)|\})?"
@@ -7411,10 +7471,7 @@ def rename_files_in_download_folders(only_these_files=[], group=False):
                                                     os.path.join(root, replacement)
                                                 ):
                                                     send_message(
-                                                        "\t\t\tSuccessfully renamed file: \n\t\t\t\t"
-                                                        + file.name
-                                                        + "\n\t\t\t\t\tto \n\t\t\t\t"
-                                                        + replacement,
+                                                        "\t\t\tSuccessfully renamed file.",
                                                         discord=False,
                                                     )
                                                     if (
@@ -8676,7 +8733,7 @@ def get_subtitle_from_title(file, publisher=None):
     # remove the series name from the title
     without_series_name = re.sub(
         rf"{re.escape(file.series_name)}", "", file.name, flags=re.IGNORECASE
-    )
+    ).strip()
 
     # First Search
     dash_or_colon_search = re.search(r"((\s(-)|:)\s)", without_series_name)
@@ -8688,7 +8745,9 @@ def get_subtitle_from_title(file, publisher=None):
 
     # Third Search
     publisher_search = None
-    if publisher and not year_or_digital_search:
+    if (
+        publisher and (publisher.from_meta or publisher.from_name)
+    ) and not year_or_digital_search:
         if publisher.from_meta:
             publisher_search = re.search(
                 rf"([\[\{{\(\]])({publisher.from_meta})([\]\}}\)])",
@@ -8705,6 +8764,10 @@ def get_subtitle_from_title(file, publisher=None):
     if dash_or_colon_search and (year_or_digital_search or publisher_search):
         # remove everything to the left of the marker
         subtitle = re.sub(r"(.*)((\s(-)|:)\s)", "", without_series_name)
+
+        # remove the file extension, using file.extension
+        # EX: series_name c001 (2021) (Digital) - Instincts.cbz --> Instincts.cbz
+        subtitle = re.sub(rf"\{file.extension}$", "", subtitle).strip()
 
         if not publisher_search:
             # remove everything to the right of the release year/digital
@@ -8747,8 +8810,8 @@ def get_subtitle_from_title(file, publisher=None):
 
         # check that the subtitle isn't just the volume keyword and number
         if file.volume_number and re.search(
-            rf"{volume_regex_keywords}(\s+)?(0+)?{set_num_as_float_or_int(file.volume_number)}",
-            subtitle,
+            rf"^({volume_regex_keywords})(\s+)?(0+)?{set_num_as_float_or_int(file.volume_number)}$",
+            subtitle.strip(),
             re.IGNORECASE,
         ):
             subtitle = ""
@@ -9741,8 +9804,10 @@ def check_for_bonus_xhtml(zip):
 
 
 # caches all roots encountered when walking paths
-def cache_paths():
+def cache_existing_library_paths():
     global cached_paths
+    paths_cached = []
+    print("\nCaching paths recursively...")
     for path in paths:
         if os.path.exists(path):
             if path not in download_folders:
@@ -9758,13 +9823,27 @@ def cache_paths():
                                 without_timestamp=True,
                                 check_for_dup=True,
                             )
+                            if path not in paths_cached:
+                                paths_cached.append(path)
                 except Exception as e:
                     send_message(e, error=True)
+            else:
+                print(
+                    "\tSkipping: "
+                    + path
+                    + " because it's in the download folders list."
+                )
         else:
             if path == "":
                 send_message("\nERROR: Path cannot be empty.", error=True)
             else:
                 print("\nERROR: " + path + " is an invalid path.\n")
+    print("\tdone")
+
+    if paths_cached:
+        print("\nRoot paths that were recursively cached:")
+        for path in paths_cached:
+            print("\t" + path)
 
 
 # Sends scan requests to komga for all passed-in libraries
@@ -10127,12 +10206,13 @@ def generate_rename_lists():
 # Checks if a string only contains one set of numbers
 def only_has_one_set_of_numbers(string):
     result = False
-    search = re.search(
-        r"(^[^\d]*(([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?(#([0-9]+)(([-_.])([0-9]+)|)+)?)?[^\d]*$)",
+    search = re.findall(
+        r"\b(%s)(([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?(#([0-9]+)(([-_.])([0-9]+)|)+)?(_extra)?)\b"
+        % exclusion_keywords_regex,
         string,
         re.IGNORECASE,
     )
-    if search:
+    if search and len(search) == 1:
         result = True
     return result
 
@@ -10729,11 +10809,14 @@ def main():
     moved_files = []
     download_folder_in_paths = False
 
+    # Determines when the cover_extraction should be run
     if download_folders and paths:
         for folder in download_folders:
             if folder in paths:
                 download_folder_in_paths = True
                 break
+
+    # Load cached_paths.txt into cached_paths
     if (
         os.path.isfile(os.path.join(ROOT_DIR, "cached_paths.txt"))
         and check_for_existing_series_toggle
@@ -10744,6 +10827,8 @@ def main():
             ignore=paths + download_folders,
             ignore_paths_not_in_paths=True,
         )
+
+    # Cache the paths if the user doesn't have a cached_paths.txt file
     if (
         (
             cache_each_root_for_each_path_in_paths_at_beginning_toggle
@@ -10753,26 +10838,45 @@ def main():
         and check_for_existing_series_toggle
         and not cached_paths
     ):
-        cache_paths()
+        cache_existing_library_paths()
+        if cached_paths:
+            print(f"\n\tLoaded {len(cached_paths)} cached paths")
+
+    # Load release_groups.txt into release_groups
     if os.path.isfile(os.path.join(ROOT_DIR, "release_groups.txt")):
         release_groups_read = get_lines_from_file(
             os.path.join(ROOT_DIR, "release_groups.txt")
         )
         if release_groups_read:
             release_groups = release_groups_read
+            print(
+                f"\tLoaded {len(release_groups)} release groups from release_groups.txt"
+            )
 
+    # Load publishers.txt into publishers
     if os.path.isfile(os.path.join(ROOT_DIR, "publishers.txt")):
         publishers_read = get_lines_from_file(os.path.join(ROOT_DIR, "publishers.txt"))
         if publishers_read:
             publishers = publishers_read
+            print(f"\tLoaded {len(publishers)} publishers from publishers.txt")
+
+    # Correct any incorrect file extensions
     if correct_file_extensions_toggle and download_folders:
         correct_file_extensions(group=True)
+
+    # Convert any non-cbz supported file to cbz
     if convert_to_cbz_toggle and download_folders:
         convert_to_cbz(group=True)
+
+    # Delete any files with unacceptable keywords in their name
     if delete_unacceptable_files_toggle and download_folders and unacceptable_keywords:
         delete_unacceptable_files(group=True)
+
+    # Delete any chapters from the downloads folder
     if delete_chapters_from_downloads_toggle and download_folders:
         delete_chapters_from_downloads(group=True)
+
+    # Generate the release group list
     if (
         generate_release_group_list_toggle
         and log_to_file
@@ -10780,49 +10884,79 @@ def main():
         and not watchdog_toggle
         and not in_docker
     ):
+        # Loads skipped_release_group_files.txt into skipped_release_group_files
         if os.path.isfile(os.path.join(ROOT_DIR, "skipped_release_group_files.txt")):
             skipped_release_group_files_read = get_lines_from_file(
                 os.path.join(ROOT_DIR, "skipped_release_group_files.txt")
             )
             if skipped_release_group_files_read:
                 skipped_release_group_files = skipped_release_group_files_read
+                print(
+                    f"\n\tLoaded {len(skipped_release_group_files)} skipped release group files from skipped_release_group_files.txt"
+                )
+
+        # Loads skipped_publisher_files.txt into skipped_publisher_files
         if os.path.isfile(os.path.join(ROOT_DIR, "skipped_publisher_files.txt")):
             skipped_publisher_files_read = get_lines_from_file(
                 os.path.join(ROOT_DIR, "skipped_publisher_files.txt")
             )
             if skipped_publisher_files_read:
                 skipped_publisher_files = skipped_publisher_files_read
+                print(
+                    f"\tLoaded {len(skipped_publisher_files)} skipped publisher files from skipped_publisher_files.txt"
+                )
         generate_rename_lists()
+
+    # Rename the files in the download folders
     if rename_files_in_download_folders_toggle and download_folders:
         rename_files_in_download_folders(group=True)
+
+    # Create folders for items in the download folder
     if create_folders_for_items_in_download_folder_toggle and download_folders:
         create_folders_for_items_in_download_folder(group=True)
+
+    # Rename the root directory folders in the download folder
     if rename_dirs_in_download_folder_toggle and download_folders:
         rename_dirs_in_download_folder(group=True)
+
+    # Checks for duplicate volumes/chapters in the download folders
     if check_for_duplicate_volumes_toggle and download_folders:
         check_for_duplicate_volumes(download_folders, group=True)
+
+    # Extract the covers from the files in the download folders
     if extract_covers_toggle and paths and download_folder_in_paths:
         extract_covers()
+
+    # Match the files in the download folders to the files in the library
     if check_for_existing_series_toggle and download_folders and paths:
         check_for_existing_series(group=True)
+
+    # Extract the covers from the files in the library
     if extract_covers_toggle and paths and not download_folder_in_paths:
         extract_covers()
+
+    # Check for missing volumes in the library (local solution)
     if check_for_missing_volumes_toggle and paths:
         check_for_missing_volumes()
+
+    # Check for missing volumes in the library (bookwalker solution)
     if bookwalker_check and not watchdog_toggle:
-        # currently slowed down to avoid rate limiting,
-        # advised not to run on each use, but rather once a week
-        check_for_new_volumes_on_bookwalker()  # checks the library against bookwalker for any missing volumes that are released or on pre-order
+        check_for_new_volumes_on_bookwalker()
+
+    # Print the number of files encountered, and their extensions
     if extract_covers_toggle and paths:
         print_stats()
+
     if watchdog_toggle:
         if transferred_files:
             # remove any deleted/renamed/moved files
             transferred_files = [x for x in transferred_files if os.path.isfile(x)]
+
+        # remove any deleted/renamed/moved directories
         if transferred_dirs:
-            # remove any deleted/renamed/moved directories
             transferred_dirs = [x for x in transferred_dirs if os.path.isdir(x.root)]
 
+    # Sends a scan request to Komga for each library that had a file moved into it.
     if send_scan_request_to_komga_libraries_toggle and moved_files:
         # The paths we've already scanned, to avoid unnecessary scans.
         libraries_to_scan = []
@@ -10849,6 +10983,7 @@ def main():
             for library_id in libraries_to_scan:
                 scan_komga_library(library_id)
 
+    # Send any remaining queued notifications to Discord
     if watchdog_toggle and grouped_notifications:
         send_discord_message(None, grouped_notifications)
 
