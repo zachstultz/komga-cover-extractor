@@ -42,7 +42,7 @@ from watchdog.observers import Observer
 from settings import *
 
 # Version of the script
-script_version = (2, 4, 3)
+script_version = (2, 4, 4)
 script_version_text = "v{}.{}.{}".format(*script_version)
 
 # Paths = existing library
@@ -204,12 +204,14 @@ exclusion_keywords = [
     "Epilogue",
     "Omake",
     "Extra",
-    "Special",
+    "- Special",
     "Side Story",
-    " S",
+    "S",
     "Act",
     "Special Episode",
-    "Ep\.?(\s+)?",
+    "Ep",
+    "Version",
+    "Ver",
 ]
 
 # Volume Regex Keywords to be used throughout the script
@@ -220,7 +222,7 @@ exclusion_keywords_joined = "|".join(exclusion_keywords)
 
 # Exclusion Regex Keywords to be used in the Chapter Regex Keywords to avoid incorrect number matches.
 exclusion_keywords_joined_with_exclusion = "|".join(
-    keyword + r"(\s)" for keyword in exclusion_keywords
+    r"(\s)" + keyword + r"(\s)" for keyword in exclusion_keywords
 )
 
 # Put the exclusion_keywords_joined_with_exclusion inside of (?<!%s)
@@ -246,8 +248,10 @@ chapter_searches = [
     r"\s-(\s+)?(#)?([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?(\s+)?-\s",
     r"(\b(%s)((\.)|)(\s+)?([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?\b)"
     % chapter_regex_keywords,
-    r"((\b(%s|)((\.)|)(\s+)?(%s)([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?(#([0-9]+)(([-_.])([0-9]+)|)+)?\b)(\s+)?((\(|\{|\[)\w+(([-_. ])+\w+)?(\]|\}|\))|((?<!\w(\s))|(?<!\w))(%s)(?!\w)))"
+    r"((\b(%s|)((\.)|)(\s+)?(%s)([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?(#([0-9]+)(([-_.])([0-9]+)|)+)?\b)(\s+)?((\[[^\]]*\]|\([^\)]*\)|\{[^}]*\})|((?<!\w(\s))|(?<!\w))(%s)(?!\w)))"
     % (chapter_regex_keywords, exclusion_keywords_regex, manga_extensions_regex),
+    r"((\b((\.)|)(\s+)?(%s)([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?(#([0-9]+)(([-_.])([0-9]+)|)+)?\b)((\s+(-)|:)\s+).*?(?=(\s+)?[\(\[\{](\d{4}|Digital)[\)\]\}]))"
+    % exclusion_keywords_regex,
     r"(?<!([A-Za-z]|(%s)(\s+)?))(((%s)([-_. ]+)?([0-9]+))|\s+([0-9]+)(\.[0-9]+)?(x\d+((\.\d+)+)?)?(\s+|#\d+|%s))"
     % (exclusion_keywords_joined, chapter_regex_keywords, manga_extensions_regex),
     r"^((#)?([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?(#([0-9]+)(([-_.])([0-9]+)|)+)?)$",
@@ -344,6 +348,12 @@ release_group_similarity_score = 0.8
 
 # searches for and copies an existing volume cover from a volume library over to the chapter library
 copy_existing_volume_covers_toggle = False
+
+# The percentage of words in the array of words,
+# parsed from a shortened series_name to be kept
+# for both series_names being compared.
+# EX: 0.6 = 60%
+shortened_word_filter_percentage = 0.6
 
 
 # Folder Class
@@ -1395,12 +1405,12 @@ def remove_hidden_files(files):
 
 
 # Removes any unaccepted file types
-def remove_unaccepted_file_types(files, root, accepted_extensions):
+def remove_unaccepted_file_types(files, root, accepted_extensions, test_mode=False):
     return [
         file
         for file in files
         if get_file_extension(file) in accepted_extensions
-        and os.path.isfile(os.path.join(root, file))
+        and (os.path.isfile(os.path.join(root, file)) or test_mode)
     ]
 
 
@@ -1498,6 +1508,7 @@ def clean_and_sort(
     skip_remove_hidden_folders=False,
     keep_images_in_just_these_files=False,
     is_correct_extensions_feature=False,
+    test_mode=False,
 ):
     if (
         check_for_existing_series_toggle
@@ -1505,6 +1516,7 @@ def clean_and_sort(
         and root not in download_folders
         and root not in paths
         and not any(root.startswith(path) for path in download_folders)
+        and not test_mode
     ):
         write_to_file(
             "cached_paths.txt",
@@ -1525,10 +1537,12 @@ def clean_and_sort(
             files = remove_hidden_files(files)
         if not skip_remove_unaccepted_file_types:
             if not is_correct_extensions_feature:
-                files = remove_unaccepted_file_types(files, root, file_extensions)
+                files = remove_unaccepted_file_types(
+                    files, root, file_extensions, test_mode=test_mode
+                )
             else:
                 files = remove_unaccepted_file_types(
-                    files, root, file_extensions + rar_extensions
+                    files, root, file_extensions + rar_extensions, test_mode=test_mode
                 )
         if just_these_files and files:
             # just_these_basenames = [os.path.basename(x) for x in just_these_files]
@@ -1607,9 +1621,16 @@ def upgrade_to_file_class(
     root,
     skip_get_file_extension_from_header=True,
     is_correct_extensions_feature=False,
+    test_mode=False,
 ):
+    if test_mode:
+        skip_get_file_extension_from_header = True
+
     files = clean_and_sort(
-        root, files, is_correct_extensions_feature=is_correct_extensions_feature
+        root,
+        files,
+        is_correct_extensions_feature=is_correct_extensions_feature,
+        test_mode=test_mode,
     )[0]
 
     # Create a list of tuples with arguments to pass to the File constructor
@@ -1620,7 +1641,7 @@ def upgrade_to_file_class(
             (
                 get_series_name_from_file_name_chapter(file, root, chapter_number)
                 if file_type == "chapter"
-                else get_series_name_from_file_name(file, root)
+                else get_series_name_from_file_name(file, root, test_mode=test_mode)
             ),
             get_file_extension(file),
             root,
@@ -1753,12 +1774,14 @@ def is_volume_one(volume_name):
 
 # Checks for volume keywords and chapter keywords.
 # If neither are present, the volume is assumed to be a one-shot volume.
-def is_one_shot(file_name, root=None, skip_folder_check=False):
+def is_one_shot(file_name, root=None, skip_folder_check=False, test_mode=False):
     files = []
+    if test_mode:
+        skip_folder_check = True
     if not skip_folder_check:
         files = clean_and_sort(root, os.listdir(root))[0]
     if (len(files) == 1 or skip_folder_check) or (
-        download_folders and root == download_folders[0]
+        download_folders and root in download_folders
     ):
         volume_file_status = contains_volume_keywords(file_name)
         chapter_file_status = contains_chapter_keywords(file_name)
@@ -1888,11 +1911,11 @@ def move_images(
 
 # Retrieves the series name through various regexes
 # Removes the volume number and anything to the right of it, and strips it.
-def get_series_name_from_file_name(name, root):
+def get_series_name_from_file_name(name, root, test_mode=False):
     name = remove_dual_space(re.sub(r"_extra", " ", name, flags=re.IGNORECASE)).strip()
 
     # name = remove_bracketed_info_from_name(name)
-    if is_one_shot(name, root):
+    if is_one_shot(name, root, test_mode=test_mode):
         name = re.sub(
             r"([-_ ]+|)(((\[|\(|\{).*(\]|\)|\}))|LN)([-_. ]+|)(%s|).*"
             % file_extensions_regex.replace("\.", ""),
@@ -1937,7 +1960,9 @@ def get_series_name_from_file_name(name, root):
     return name
 
 
-def chapter_file_name_cleaning(file_name, chapter_number="", skip=False):
+def chapter_file_name_cleaning(
+    file_name, chapter_number="", skip=False, regex_matched=False
+):
     # removes any brackets and their contents
     file_name = remove_bracketed_info_from_name(file_name)
 
@@ -1946,9 +1971,10 @@ def chapter_file_name_cleaning(file_name, chapter_number="", skip=False):
     file_name = re.sub(r"(\s(([\(\[\{])|([\)\]\}])))$", "", file_name).strip()
 
     # EX: "006.3 - One Piece" --> "One Piece"
-    file_name = re.sub(
-        r"(^([0-9]+)(([-_.])([0-9]+)|)+(\s+)?([-_]+)(\s+))", "", file_name
-    ).strip()
+    if regex_matched != 3:
+        file_name = re.sub(
+            r"(^([0-9]+)(([-_.])([0-9]+)|)+(\s+)?([-_]+)(\s+))", "", file_name
+        ).strip()
 
     # Remove - at the end of the file_name
     # EX: " One Piece -" --> "One Piece"
@@ -1962,28 +1988,37 @@ def chapter_file_name_cleaning(file_name, chapter_number="", skip=False):
 
     # if chapter_number and it's at the end of the file_name, remove it
     # EX: "One Piece 001" --> "One Piece"
-    if chapter_number != "" and re.search(
-        r"-?(\s+)?((?<!({})(\s+)?)(\s+)?\b#?((0+)?({}|{}))#?$)".format(
-            chapter_regex_keywords,
-            chapter_number,
-            set_num_as_float_or_int(chapter_number),
-        ),
-        file_name,
-    ):
-        file_name = re.sub(
+    if not regex_matched:
+        if chapter_number != "" and re.search(
             r"-?(\s+)?((?<!({})(\s+)?)(\s+)?\b#?((0+)?({}|{}))#?$)".format(
                 chapter_regex_keywords,
                 chapter_number,
                 set_num_as_float_or_int(chapter_number),
             ),
-            "",
             file_name,
-        ).strip()
+        ):
+            file_name = re.sub(
+                r"-?(\s+)?((?<!({})(\s+)?)(\s+)?\b#?((0+)?({}|{}))#?$)".format(
+                    chapter_regex_keywords,
+                    chapter_number,
+                    set_num_as_float_or_int(chapter_number),
+                ),
+                "",
+                file_name,
+            ).strip()
+
     # Remove any season keywords
-    if re.search(r"(Season|Sea|S)(\s+)?([0-9]+)$", file_name, re.IGNORECASE):
+    if re.search(r"(Season|Sea| S)(\s+)?([0-9]+)$", file_name, re.IGNORECASE):
         file_name = re.sub(
-            r"(Season|Sea|S)(\s+)?([0-9]+)$", "", file_name, flags=re.IGNORECASE
+            r"(Season|Sea| S)(\s+)?([0-9]+)$", "", file_name, flags=re.IGNORECASE
         )
+
+    # Remove any subtitle
+    # EX: "Solo Leveling 179.1 - Epilogue 01 (2023) (Digital) (LuCaZ).cbz"
+    # "179.1 - Epilogue 01" --> "179.1"
+    if re.search(r"(^\d+)", file_name.strip()):
+        file_name = re.sub(r"((\s+(-)|:)\s+).*$", "", file_name, re.IGNORECASE).strip()
+
     return file_name
 
 
@@ -1996,15 +2031,22 @@ def get_series_name_from_file_name_chapter(name, root, chapter_number=""):
     # remove underscores
     name = replace_underscore_in_name(name)
 
+    regex_matched = False
     for regex in chapter_searches:
-        search = re.search(regex, name, flags=re.IGNORECASE)
+        search = re.search(regex, name, re.IGNORECASE)
         if search:
+            regex_matched = True
             name = re.sub(regex + "(.*)", "", name, flags=re.IGNORECASE).strip()
             break
+
     if isinstance(chapter_number, list):
-        result = chapter_file_name_cleaning(name, chapter_number[0])
+        result = chapter_file_name_cleaning(
+            name, chapter_number[0], regex_matched=regex_matched
+        )
     else:
-        result = chapter_file_name_cleaning(name, chapter_number)
+        result = chapter_file_name_cleaning(
+            name, chapter_number, regex_matched=regex_matched
+        )
     if (
         not result
         and root
@@ -2329,6 +2371,7 @@ def remove_everything_but_volume_num(files, chapter=False):
                         r"-(\s+)?(#)?([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?(\s+)?-", file
                     ) and re.search(r"(-)$", file):
                         file = re.sub(r"(-)$", "", file).strip()
+
             # With a chapter keyword, without, but before bracketed info, or without and with a manga extension or a novel exteion after the number
             # Series Name c001.extension or Series Name 001 (2021) (Digital) (Release).extension or Series Name 001.extension
             for search in chapter_searches:
@@ -2336,6 +2379,7 @@ def remove_everything_but_volume_num(files, chapter=False):
                 if search_result:
                     result = search_result
                     break
+
         if result:
             try:
                 file = result
@@ -2344,6 +2388,14 @@ def remove_everything_but_volume_num(files, chapter=False):
                 else:
                     file = ""
                 if chapter:
+                    # Remove any subtitle
+                    # EX: "Solo Leveling 179.1 - Epilogue 01 (2023) (Digital) (LuCaZ).cbz" -->
+                    # "" 179.1 - Epilogue 01"  --> "179.1"
+                    if re.search(r"(^\d+)", file.strip()):
+                        file = re.sub(
+                            r"((\s+(-)|:)\s+).*$", "", file, re.IGNORECASE
+                        ).strip()
+
                     # Removes starting period
                     # EX: "series_name. 031 (2023).cbz" --> "'. 031 (2023)"" --> "031 (2023)"
                     file = re.sub(r"^(\s+)?(\.)", "", file, re.IGNORECASE).strip()
@@ -2364,9 +2416,7 @@ def remove_everything_but_volume_num(files, chapter=False):
                     file = re.sub(r"(x[0-9]+)", "", file, re.IGNORECASE).strip()
 
                     # removes the bracketed info from the end of the string, empty or not
-                    file = re.sub(
-                        r"(\(|\{|\[)(\w+(([-_. ])+\w+)?)?(\]|\}|\))", "", file
-                    ).strip()
+                    file = remove_bracketed_info_from_name(file)
 
                     # Removes the - characters.extension from the end of the string, with
                     # the dash and characters being optional
@@ -2377,17 +2427,21 @@ def remove_everything_but_volume_num(files, chapter=False):
                         file,
                         re.IGNORECASE,
                     ).strip()
+
                     # - #404 - becomes #404
                     file = re.sub(r"^- | -$", "", file).strip()
+
                     # remove # at the beginning of the string
                     # EX: #001 becomes 001
                     file = re.sub(r"^#", "", file).strip()
+
                 file = re.sub(
                     r"\b({})(\.|)([-_. ])?".format(keywords),
                     "",
                     file,
                     flags=re.IGNORECASE,
                 ).strip()
+
                 if re.search(
                     r"\b[0-9]+({})[0-9]+\b".format(keywords),
                     file,
@@ -2589,7 +2643,12 @@ def upgrade_to_volume_class(
     skip_premium_content=False,
     skip_subtitle=False,
     skip_multi_volume=False,
+    test_mode=False,
 ):
+    if test_mode:
+        skip_release_year = True
+        skip_publisher = True
+        skip_premium_content = True
     results = []
     for file in files:
         internal_metadata = None
@@ -2644,7 +2703,7 @@ def upgrade_to_volume_class(
                 else False
             ),
             (
-                is_one_shot(file.name, file.root)
+                is_one_shot(file.name, file.root, test_mode=test_mode)
                 if file.file_type != "chapter"
                 else False
             ),
@@ -3979,11 +4038,7 @@ def reorganize_and_rename(files, dir, group=False):
                                 if file.path in transferred_files:
                                     transferred_files.remove(file.path)
                                 send_message(
-                                    "\t\t\tSuccessfully reorganized & renamed file: \n\t\t\t\t"
-                                    + file.name
-                                    + "\n\t\t\t\t\tto \n\t\t\t\t"
-                                    + rename
-                                    + "\n",
+                                    "\t\t\tSuccessfully reorganized & renamed file.\n",
                                     discord=False,
                                 )
                                 if not mute_discord_rename_notifications:
@@ -4480,7 +4535,7 @@ def check_upgrade(
                 embed = [
                     handle_fields(
                         DiscordEmbed(
-                            title="Found Series Match (Matching Image)",
+                            title="Found Series Match (Cover Match)",
                             color=grey_color,
                         ),
                         fields=fields,
@@ -5145,6 +5200,21 @@ def get_identifiers_from_zip_comment(zip_comment):
     return metadata
 
 
+# Parses the individual words from the passed string and returns them as an array
+# without punctuation, unidecoded, and in lowercase.
+@lru_cache(maxsize=None)
+def parse_words(user_string):
+    words = []
+    try:
+        translator = str.maketrans("", "", string.punctuation)
+        words = user_string.translate(translator)
+        words = words.lower()
+        words = unidecode(words).split()
+    except Exception as e:
+        send_message(f"parse_words(string={string}) - Error: {str(e)}", error=True)
+    return words
+
+
 # Checks for an existing series by pulling the series name from each elidable file in the downloads_folder
 # and comparing it to an existin folder within the user's library.
 def check_for_existing_series(group=False):
@@ -5591,7 +5661,7 @@ def check_for_existing_series(group=False):
                                                 ):
                                                     continue
                                                 clean_two = clean_and_sort(
-                                                    root, files, dirs, sort=True
+                                                    root, files, dirs
                                                 )
                                                 files, dirs = clean_two[0], clean_two[1]
                                                 file_objects = upgrade_to_file_class(
@@ -5846,6 +5916,73 @@ def check_for_existing_series(group=False):
                                                                     shortened_folder_name
                                                                     and file_shortened_series_name
                                                                 ):
+                                                                    # use parse_words() to get the words from both strings
+                                                                    file_shortened_series_name_words = (
+                                                                        []
+                                                                    )
+                                                                    shortened_folder_name_words = parse_words(
+                                                                        shortened_folder_name
+                                                                    )
+
+                                                                    if shortened_folder_name_words:
+                                                                        file_shortened_series_name_words = parse_words(
+                                                                            file_shortened_series_name
+                                                                        )
+
+                                                                    if (
+                                                                        file_shortened_series_name_words
+                                                                        and shortened_folder_name_words
+                                                                    ):
+                                                                        if len(
+                                                                            file_shortened_series_name_words
+                                                                        ) != len(
+                                                                            shortened_folder_name_words
+                                                                        ):
+                                                                            # determine which array is smaller, then get 40% of that length
+                                                                            shortened_length = (
+                                                                                1
+                                                                            )
+                                                                            if len(
+                                                                                file_shortened_series_name_words
+                                                                            ) < len(
+                                                                                shortened_folder_name_words
+                                                                            ):
+                                                                                shortened_length = int(
+                                                                                    len(
+                                                                                        file_shortened_series_name_words
+                                                                                    )
+                                                                                    * shortened_word_filter_percentage
+                                                                                )
+                                                                            else:
+                                                                                shortened_length = int(
+                                                                                    len(
+                                                                                        shortened_folder_name_words
+                                                                                    )
+                                                                                    * shortened_word_filter_percentage
+                                                                                )
+
+                                                                            # print(
+                                                                            #     str(
+                                                                            #         shortened_length
+                                                                            #     )
+                                                                            # )
+
+                                                                            if (
+                                                                                shortened_length
+                                                                                == 0
+                                                                            ):
+                                                                                shortened_length = (
+                                                                                    1
+                                                                                )
+
+                                                                            # shorten the arrays, so if the value was 3, then get the first 3 elements for both
+                                                                            file_shortened_series_name_words = file_shortened_series_name_words[
+                                                                                :shortened_length
+                                                                            ]
+                                                                            shortened_folder_name_words = shortened_folder_name_words[
+                                                                                :shortened_length
+                                                                            ]
+
                                                                     if (
                                                                         shortened_folder_name
                                                                         == file_shortened_series_name.lower()
@@ -5854,6 +5991,14 @@ def check_for_existing_series(group=False):
                                                                             file_shortened_series_name,
                                                                         )
                                                                         >= required_similarity_score
+                                                                        or (
+                                                                            shortened_folder_name_words
+                                                                            and file_shortened_series_name_words
+                                                                        )
+                                                                        and (
+                                                                            shortened_folder_name_words
+                                                                            == file_shortened_series_name_words
+                                                                        )
                                                                     ):
                                                                         print(
                                                                             "\n\t\tAttempting alternative match through cover image similarity..."
@@ -6268,6 +6413,9 @@ def check_for_existing_series(group=False):
     # clear the cache for get_zip_comment
     if not watchdog_toggle:
         get_zip_comment.cache_clear()
+
+    # clear lru_cache for parse_words
+    parse_words.cache_clear()
 
 
 # Groups messages by series name
@@ -6984,12 +7132,17 @@ def parse_html_tags(html):
 
 
 # Renames files.
-def rename_files_in_download_folders(only_these_files=[], group=False):
+def rename_files_in_download_folders(
+    only_these_files=[], group=False, download_folders=download_folders, test_mode=False
+):
     global transferred_files
     print("\nSearching for files to rename...")
     for path in download_folders:
         if os.path.exists(path):
             for root, dirs, files in scandir.walk(path):
+                if test_mode:
+                    dirs = []
+                    files = only_these_files
                 clean = None
                 if (
                     watchdog_toggle
@@ -7002,20 +7155,36 @@ def rename_files_in_download_folders(only_these_files=[], group=False):
                         dirs,
                         just_these_files=transferred_files,
                         just_these_dirs=transferred_dirs,
+                        test_mode=test_mode,
                     )
                 else:
-                    clean = clean_and_sort(root, files, dirs)
+                    clean = clean_and_sort(root, files, dirs, test_mode=test_mode)
                 files, dirs = clean[0], clean[1]
                 if not files:
                     continue
                 volumes = upgrade_to_volume_class(
                     upgrade_to_file_class(
-                        [f for f in files if os.path.isfile(os.path.join(root, f))],
+                        [
+                            f
+                            for f in files
+                            if os.path.isfile(os.path.join(root, f)) or test_mode
+                        ],
                         root,
-                    )
+                        test_mode=test_mode,
+                    ),
+                    test_mode=test_mode,
                 )
                 print("\t" + root)
                 for file in volumes:
+                    if test_mode:
+                        print(
+                            "\t\t["
+                            + str(volumes.index(file) + 1)
+                            + "/"
+                            + str(len(volumes))
+                            + "] "
+                            + file.name
+                        )
                     if (
                         file.file_type == "chapter"
                         and not rename_chapters_with_preferred_chapter_keyword
@@ -7040,6 +7209,7 @@ def rename_files_in_download_folders(only_these_files=[], group=False):
                             file.name,
                             re.IGNORECASE,
                         )
+
                         # chapter match is allwoed to continue
                         full_chapter_match_attempt_allowed = False
 
@@ -7055,13 +7225,19 @@ def rename_files_in_download_folders(only_these_files=[], group=False):
                                 only_has_one_set_of_numbers(
                                     remove_bracketed_info_from_name(
                                         re.sub(
-                                            re.escape(file.series_name),
+                                            r"((\[[^\]]*\]|\([^\)]*\)|\{[^}]*\})\s?){2,}.*",
                                             "",
-                                            file.name,
+                                            re.sub(
+                                                rf"^{re.escape(file.series_name)}",
+                                                "",
+                                                file.name,
+                                                flags=re.IGNORECASE,
+                                            ),
                                             flags=re.IGNORECASE,
                                         )
                                     ),
                                     chapter=True,
+                                    file=file,
                                 )
                                 or (
                                     file.volume_number
@@ -7101,7 +7277,9 @@ def rename_files_in_download_folders(only_these_files=[], group=False):
                                 if result:
                                     regex_match_number = searches.index(regex)
                                     result = chapter_file_name_cleaning(
-                                        result.group(), skip=True
+                                        result.group(),
+                                        skip=True,
+                                        regex_matched=regex_match_number,
                                     )
                                     if result:
                                         chapter_num_search = None
@@ -7340,15 +7518,26 @@ def rename_files_in_download_folders(only_these_files=[], group=False):
                                             optional_following_zero = (
                                                 rf"(#)?{optional_following_zero}"
                                             )
-                                        # remove the file.series_name from file.name, store it in a variable
+
+                                        # remove the file.series_name from file.name, and everything to the left of it, store it in a variable
                                         without_series_name = re.sub(
-                                            re.escape(file.series_name),
+                                            rf"^{re.escape(file.series_name)}",
                                             "",
                                             file.name,
                                             flags=re.IGNORECASE,
                                             count=1,
                                         )
-                                        without_series_name_replacement = re.sub(
+
+                                        # remove the end brackets and anything after them.
+                                        without_end_brackets = re.sub(
+                                            r"((\[[^\]]*\]|\([^\)]*\)|\{[^}]*\})\s?){2,}.*",
+                                            "",
+                                            without_series_name,
+                                            flags=re.IGNORECASE,
+                                            count=1,
+                                        )
+
+                                        without_brackets_replacement = re.sub(
                                             optional_following_zero,
                                             " "
                                             + preferred_naming_format
@@ -7357,13 +7546,23 @@ def rename_files_in_download_folders(only_these_files=[], group=False):
                                                 re.sub(
                                                     r"_extra",
                                                     ".5",
-                                                    without_series_name,
+                                                    without_end_brackets,
                                                     flags=re.IGNORECASE,
                                                 )
                                             ),
                                             flags=re.IGNORECASE,
                                             count=1,
                                         )
+
+                                        # now replace without_brackets_replacement into without_series_name
+                                        without_series_name_replacement = re.sub(
+                                            re.escape(without_end_brackets),
+                                            without_brackets_replacement,
+                                            without_series_name,
+                                            flags=re.IGNORECASE,
+                                            count=1,
+                                        )
+
                                         # now re.sub without_series_name_replacement into file.name
                                         replacement = re.sub(
                                             re.escape(without_series_name),
@@ -7426,6 +7625,15 @@ def rename_files_in_download_folders(only_these_files=[], group=False):
                                 replacement = remove_dual_space(replacement)
                                 processed_files.append(replacement)
                                 if file.name != replacement:
+                                    if test_mode:
+                                        write_to_file(
+                                            "test_renamed_files.txt",
+                                            file.name + " -> " + replacement,
+                                            without_timestamp=True,
+                                            check_for_dup=True,
+                                        )
+                                        continue
+
                                     if watchdog_toggle:
                                         transferred_files.append(
                                             os.path.join(file.root, replacement)
@@ -7536,6 +7744,15 @@ def rename_files_in_download_folders(only_these_files=[], group=False):
                                             continue
                                     except OSError as ose:
                                         send_message(ose, error=True)
+                                else:
+                                    if test_mode:
+                                        write_to_file(
+                                            "test_renamed_files.txt",
+                                            file.name + " -> " + replacement,
+                                            without_timestamp=True,
+                                            check_for_dup=True,
+                                        )
+                                        continue
                             else:
                                 send_message(
                                     "More than two for either array: " + file.name,
@@ -7551,7 +7768,7 @@ def rename_files_in_download_folders(only_these_files=[], group=False):
                         send_message(
                             "\nERROR: " + str(e) + " (" + file.name + ")", error=True
                         )
-                    if resturcture_when_renaming:
+                    if resturcture_when_renaming and not test_mode:
                         reorganize_and_rename([file], file.series_name, group=group)
         else:
             if path == "":
@@ -8720,8 +8937,8 @@ def combine_series(series_list):
 # EX: Series Name - Subtitle --> Series Name
 def get_shortened_title(title):
     shortened_title = ""
-    if re.search(r"((\s(-)|:)\s)", title):
-        shortened_title = re.sub(r"((\s(-)|:)\s.*)", "", title).strip()
+    if re.search(r"((\s+(-)|:)\s+)", title):
+        shortened_title = re.sub(r"((\s+(-)|:)\s+.*)", "", title).strip()
     return shortened_title
 
 
@@ -8733,15 +8950,17 @@ def get_subtitle_from_title(file, publisher=None):
 
     # remove the series name from the title
     without_series_name = re.sub(
-        rf"{re.escape(file.series_name)}", "", file.name, flags=re.IGNORECASE
+        rf"^{re.escape(file.series_name)}", "", file.name, flags=re.IGNORECASE
     ).strip()
 
     # First Search
-    dash_or_colon_search = re.search(r"((\s(-)|:)\s)", without_series_name)
+    dash_or_colon_search = re.search(r"((\s+(-)|:)\s+)", without_series_name)
 
     # Second Search
     year_or_digital_search = re.search(
-        r"([\[\{\(]((\d{4})|(Digital))[\]\}\)])", without_series_name
+        r"([\[\{\(]((\d{4})|(Digital))[\]\}\)])",
+        without_series_name,
+        re.IGNORECASE,
     )
 
     # Third Search
@@ -8764,7 +8983,7 @@ def get_subtitle_from_title(file, publisher=None):
 
     if dash_or_colon_search and (year_or_digital_search or publisher_search):
         # remove everything to the left of the marker
-        subtitle = re.sub(r"(.*)((\s(-)|:)\s)", "", without_series_name)
+        subtitle = re.sub(r"(.*)((\s+(-)|:)\s+)", "", without_series_name)
 
         # remove the file extension, using file.extension
         # EX: series_name c001 (2021) (Digital) - Instincts.cbz --> Instincts.cbz
@@ -8773,7 +8992,10 @@ def get_subtitle_from_title(file, publisher=None):
         if not publisher_search:
             # remove everything to the right of the release year/digital
             subtitle = re.sub(
-                r"([\[\{\(]((\d{4})|(Digital))[\]\}\)])(.*)", "", subtitle
+                r"([\[\{\(]((\d{4})|(Digital))[\]\}\)])(.*)",
+                "",
+                subtitle,
+                flags=re.IGNORECASE,
             )
         else:
             # remove everything to the right of the publisher
@@ -10205,7 +10427,7 @@ def generate_rename_lists():
 
 
 # Checks if a string only contains one set of numbers
-def only_has_one_set_of_numbers(string, chapter=False):
+def only_has_one_set_of_numbers(string, chapter=False, file=None):
     keywords = volume_regex_keywords
     if chapter:
         keywords = chapter_regex_keywords + "|"
@@ -10256,9 +10478,7 @@ def extract_all_numbers_from_string(string):
                             continue
                         if re.search(r"(#([0-9]+)(([-_.])([0-9]+)|)+)", item):
                             continue
-                        if re.search(r"((([-_.])([0-9]+))+)", item) or re.search(
-                            r"-", item
-                        ):
+                        if re.search(r"^(-|\.)$", item):
                             continue
                         if item:
                             new_numbers.append(set_num_as_float_or_int(item))
@@ -10268,9 +10488,7 @@ def extract_all_numbers_from_string(string):
                         continue
                     if re.search(r"(#([0-9]+)(([-_.])([0-9]+)|)+)", number):
                         continue
-                    if re.search(r"((([-_.])([0-9]+))+)", number) or re.search(
-                        r"-", number
-                    ):
+                    if re.search(r"^(-|\.)$", number):
                         continue
                     if number:
                         new_numbers.append(set_num_as_float_or_int(number))
@@ -10970,7 +11188,6 @@ def main():
 
         for path in moved_files:
             if os.path.isfile(path):
-                
                 # Scan the Komga libraries for matching root path
                 # and trigger a scan.
                 if komga_libraries:
