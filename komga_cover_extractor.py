@@ -42,7 +42,7 @@ from watchdog.observers import Observer
 from settings import *
 
 # Version of the script
-script_version = (2, 4, 4)
+script_version = (2, 4, 5)
 script_version_text = "v{}.{}.{}".format(*script_version)
 
 # Paths = existing library
@@ -162,7 +162,7 @@ manga_extensions = [x for x in zip_extensions if x not in novel_extensions]
 file_extensions = novel_extensions + manga_extensions
 
 # All the accepted image extensions
-image_extensions = [".jpg", ".jpeg", ".png", ".tbn", ".webp"]
+image_extensions = {".jpg", ".jpeg", ".png", ".tbn", ".webp"}
 
 # Volume Regex Keywords to be used throughout the script
 # ORDER IS IMPORTANT, if a single character volume keyword is checked first, then that can break
@@ -210,7 +210,7 @@ exclusion_keywords = [
     "Act",
     "Special Episode",
     "Ep",
-    "Version",
+    "- Version",
     "Ver",
 ]
 
@@ -354,6 +354,14 @@ copy_existing_volume_covers_toggle = False
 # for both series_names being compared.
 # EX: 0.6 = 60%
 shortened_word_filter_percentage = 0.6
+
+# The amount of time to sleep before checking again if all the files are fully transferred.
+# Slower network response times may require a higher value.
+watchdog_sleep_time = 5
+
+# The libraries on the user's komga server.
+# Used for sending scan reqeusts after files have been moved over.
+komga_libraries = []
 
 
 # Folder Class
@@ -715,7 +723,7 @@ class Handler(FileSystemEventHandler):
                         break
 
                 if all_files_transferred:
-                    time.sleep(5)
+                    time.sleep(watchdog_sleep_time)
 
                     # The current list of files in the root directory and its subdirectories.
                     new_files = get_all_files_recursively_in_dir(download_folders[0])
@@ -735,7 +743,7 @@ class Handler(FileSystemEventHandler):
                     elif files == new_files:
                         break
 
-                time.sleep(5)
+                time.sleep(watchdog_sleep_time)
 
             # Proceed with the next steps here.
             print("\nAll files are transferred.")
@@ -878,6 +886,8 @@ def parse_my_args():
     global download_folders
     global discord_webhook_url
     global paths_with_types
+    global komga_libraries
+
     parser = argparse.ArgumentParser(
         description="Scans for and extracts covers from "
         + ", ".join(file_extensions)
@@ -1197,7 +1207,18 @@ def parse_my_args():
     print("\t" + "blank_black_image_path: " + str(blank_black_image_path))
     print("\t" + "blank_white_image_path: " + str(blank_white_image_path))
 
+    if (
+        send_scan_request_to_komga_libraries_toggle
+        and check_for_existing_series_toggle
+        and watchdog_toggle
+    ):
+        komga_libraries = get_komga_libraries()
+        komga_library_paths = [x["root"] for x in komga_libraries]
+        print("\tkomga_libraries: " + str(komga_library_paths))
 
+
+# Converts the passed volume_number into a float or an int.
+@lru_cache(maxsize=None)
 def set_num_as_float_or_int(volume_number, silent=False):
     try:
         if volume_number != "":
@@ -1622,16 +1643,20 @@ def upgrade_to_file_class(
     skip_get_file_extension_from_header=True,
     is_correct_extensions_feature=False,
     test_mode=False,
+    clean=True,
 ):
+    # Avoid any features that require an actual file
     if test_mode:
         skip_get_file_extension_from_header = True
 
-    files = clean_and_sort(
-        root,
-        files,
-        is_correct_extensions_feature=is_correct_extensions_feature,
-        test_mode=test_mode,
-    )[0]
+    # Clean up the files array before usage
+    if clean:
+        files = clean_and_sort(
+            root,
+            files,
+            is_correct_extensions_feature=is_correct_extensions_feature,
+            test_mode=test_mode,
+        )[0]
 
     # Create a list of tuples with arguments to pass to the File constructor
     file_args = [
@@ -1682,12 +1707,6 @@ def upgrade_to_file_class(
 
     # Process the files sequentially
     results = [File(*args) for args in file_args]
-
-    # clear lru_cache for contains_chapter_keywords
-    contains_chapter_keywords.cache_clear()
-
-    # clear lru_cache for contains_volume_keywords
-    contains_volume_keywords.cache_clear()
 
     return results
 
@@ -1757,6 +1776,7 @@ def get_novel_cover(novel_path):
 
 
 # Checks if the passed string is a volume one.
+@lru_cache(maxsize=None)
 def is_volume_one(volume_name):
     keywords = volume_regex_keywords
     if contains_chapter_keywords(volume_name) and not contains_volume_keywords(
@@ -1911,6 +1931,7 @@ def move_images(
 
 # Retrieves the series name through various regexes
 # Removes the volume number and anything to the right of it, and strips it.
+@lru_cache(maxsize=None)
 def get_series_name_from_file_name(name, root, test_mode=False):
     name = remove_dual_space(re.sub(r"_extra", " ", name, flags=re.IGNORECASE)).strip()
 
@@ -1960,6 +1981,8 @@ def get_series_name_from_file_name(name, root, test_mode=False):
     return name
 
 
+# Cleans the chapter file_name to retrieve the series_name
+@lru_cache(maxsize=None)
 def chapter_file_name_cleaning(
     file_name, chapter_number="", skip=False, regex_matched=False
 ):
@@ -2227,45 +2250,35 @@ def create_folders_for_items_in_download_folder(group=False):
         send_discord_message(None, grouped_notifications)
 
 
-# Returns the percentage of files in the given list that have the specified extension or file type.
 def get_percent_for_folder(files, extensions=None, file_type=None):
     # If the list of files is empty, return 0
     if not files:
         return 0
 
+    # Initialize the count of matching files
+    count = 0
+
     # If a file type is specified, count the number of files in the list that match that type
     if file_type:
-        count = len([file for file in files if file.file_type == file_type])
+        count = sum(1 for file in files if file.file_type == file_type)
     # Otherwise, if a list of extensions is specified, count the number of files in the list that have one of those extensions
     elif extensions:
-        count = len([file for file in files if get_file_extension(file) in extensions])
+        # Create a set of extensions for efficient lookup
+        extension_set = set(extensions)
+        # Count the number of files with extensions in the extension_set
+        count = sum(1 for file in files if get_file_extension(file) in extension_set)
     # If neither a file type nor a list of extensions is specified, return 0
     else:
         return 0
 
     # Calculate the percentage of files in the list that match the specified extension or file type
-    return (count / len(files)) * 100 if count != 0 else 0
-
-
-def check_for_multi_volume_file(file_name, chapter=False):
-    keywords = volume_regex_keywords
-    if chapter:
-        keywords = chapter_regex_keywords + "|"
-    if re.search(
-        r"(\b({})(\.)?(\s+)?([0-9]+(\.[0-9]+)?)([-]([0-9]+(\.[0-9]+)?))+\b)".format(
-            keywords
-        ),
-        remove_bracketed_info_from_name(file_name),
-        re.IGNORECASE,
-    ):
-        return True
-    else:
-        return False
+    return (count / len(files)) * 100
 
 
 # Determines if a volume file is a multi-volume file or not
 # EX: TRUE == series_title v01-03.cbz
 # EX: FALSE == series_title v01.cbz
+@lru_cache(maxsize=None)
 def check_for_multi_volume_file(file_name, chapter=False):
     # Set the list of keywords to search for, volume keywords by default
     keywords = volume_regex_keywords
@@ -2524,6 +2537,7 @@ fixed_volume_pattern = re.compile(
 
 
 # Determines if the release is a fixed release
+@lru_cache(maxsize=None)
 def is_fixed_volume(name, fixed_volume_pattern=fixed_volume_pattern):
     result = fixed_volume_pattern.search(name)
     return True if result else False
@@ -2577,6 +2591,7 @@ rx_remove_x_hash = re.compile(r"((x|#))", re.IGNORECASE)
 
 
 # Retrieves and returns the file part from the file name
+@lru_cache(maxsize=None)
 def get_file_part(file, chapter=False, series_name=None, subtitle=None):
     result = ""
     if series_name:
@@ -3362,90 +3377,6 @@ def remove_duplicate_releases_from_download(
                                     None,
                                     grouped_notifications,
                                 )
-                    elif (download.volume_number == original.volume_number) and (
-                        (download.volume_number != "" and original.volume_number != "")
-                        and (not download.volume_part and original.volume_part)
-                        and download.file_type == original.file_type
-                    ):
-                        upgrade_status = is_upgradeable(download, original)
-                        if not upgrade_status.is_upgrade:
-                            send_message(
-                                "\t\tNOT UPGRADEABLE: "
-                                + download.name
-                                + " is not an upgrade to: "
-                                + original.name
-                                + "\n\t\tDeleting: "
-                                + download.name
-                                + " from download folder.",
-                                discord=False,
-                            )
-                            embed = [
-                                handle_fields(
-                                    DiscordEmbed(
-                                        title="Upgrade Process (Not Upgradeable)",
-                                        color=yellow_color,
-                                    ),
-                                    fields=fields,
-                                )
-                            ]
-                            add_to_grouped_notifications(Embed(embed[0], None))
-                            if download in downloaded_releases:
-                                downloaded_releases.remove(download)
-                            remove_file(download.path, group=group)
-                        else:
-                            send_message(
-                                "\t\tUPGRADE: "
-                                + download.name
-                                + " is an upgrade to: "
-                                + original.name
-                                + "\n\tUpgrading "
-                                + original.name,
-                                discord=False,
-                            )
-                            embed = [
-                                handle_fields(
-                                    DiscordEmbed(
-                                        title="Upgrade Process (Upgradeable)",
-                                        color=green_color,
-                                    ),
-                                    fields=fields,
-                                )
-                            ]
-                            add_to_grouped_notifications(Embed(embed[0], None))
-                            send_message(
-                                "\t\tRemoving remaining part files with matching release numbers:"
-                            )
-                            clone_original_releases = original_releases.copy()
-                            clone_original_releases.remove(original)
-                            for v in clone_original_releases:
-                                if (
-                                    (download.volume_number == v.volume_number)
-                                    and (
-                                        download.volume_number != ""
-                                        and v.volume_number != ""
-                                    )
-                                    and (not download.volume_part and v.volume_part)
-                                ):
-                                    remove_file(v.path, group=group)
-                                    original_releases.remove(v)
-                            replace_file_status = replace_file(
-                                original, download, group=group
-                            )
-                            if replace_file_status:
-                                # append the new path to moved_files
-                                moved_files.append(
-                                    os.path.join(original.root, download.name)
-                                )
-                            if download in downloaded_releases:
-                                downloaded_releases.remove(download)
-                            if (
-                                grouped_notifications
-                                and not group_discord_notifications_until_max
-                            ):
-                                send_discord_message(
-                                    None,
-                                    grouped_notifications,
-                                )
 
 
 # Checks if the folder is empty, then deletes if it is
@@ -4101,6 +4032,7 @@ def reorganize_and_rename(files, dir, group=False):
 
 
 # Replaces any pesky double spaces
+@lru_cache(maxsize=None)
 def remove_dual_space(s):
     return re.sub("(\s{2,})", " ", s)
 
@@ -4108,6 +4040,7 @@ def remove_dual_space(s):
 # Removes common words to improve string matching accuracy between a series_name
 # from a file name, and a folder name, useful for when releasers sometimes include them,
 # and sometimes don't.
+@lru_cache(maxsize=None)
 def normalize_string_for_matching(
     s,
     skip_common_words=False,
@@ -4138,7 +4071,7 @@ def normalize_string_for_matching(
                 "Exclusive",
                 "Anniversary",
                 "Deluxe",
-                "Omnibus",
+                # "Omnibus",
                 "Digital",
                 "Official",
                 "Anthology",
@@ -4193,11 +4126,13 @@ def normalize_string_for_matching(
 
 
 # Removes the s from any words that end in s
+@lru_cache(maxsize=None)
 def remove_s(s):
     return re.sub(r"\b(\w+)(s)\b", r"\1", s, flags=re.IGNORECASE).strip()
 
 
 # Returns a string without punctuation.
+@lru_cache(maxsize=None)
 def remove_punctuation(s, disable_lang=False):
     s = re.sub(r":", " ", s)
     s = remove_dual_space(s)
@@ -4219,6 +4154,7 @@ def remove_punctuation(s, disable_lang=False):
 
 
 # detect language of the passed string using langdetect
+@lru_cache(maxsize=None)
 def detect_language(s):
     language = ""
     if s and len(s) >= 5 and re.search(r"[\p{L}\p{M}]+", s):
@@ -4231,6 +4167,7 @@ def detect_language(s):
 
 
 # convert string to acsii
+@lru_cache(maxsize=None)
 def convert_to_ascii(s):
     return "".join(i for i in s if ord(i) < 128)
 
@@ -4272,7 +4209,7 @@ def get_toc_or_copyright(file):
                         r"(Bonus\s+((Color\s+)?Illustrations?|(Short\s+)?Stories))",
                         lines,
                     )
-                    if search:
+                    if search and re.search(r"J-Novel", lines, re.IGNORECASE):
                         bonus_content_found = search.group(0)
                         break
                 elif os.path.basename(name) == "copyright.xhtml":
@@ -4711,6 +4648,7 @@ def get_zip_comment(zip_file):
 
 # Removes bracketed content from the string, alongwith any whitespace.
 # As long as the bracketed content is not immediately preceded or followed by a dash.
+@lru_cache(maxsize=None)
 def remove_bracketed_info_from_name(string):
     # Avoid a string that is only a bracket
     # Probably a series name
@@ -5108,25 +5046,50 @@ def check_for_duplicate_volumes(paths_to_search=[], group=False):
 # Gets the hash of the passed file and returns it as a string
 def get_file_hash(file):
     try:
-        return hashlib.md5(open(file, "rb").read()).hexdigest()
+        BUF_SIZE = 65536  # 64KB buffer size (adjust as needed)
+        hash_obj = hashlib.sha256()
+
+        with open(file, "rb") as f:
+            while True:
+                data = f.read(BUF_SIZE)
+                if not data:
+                    break
+                hash_obj.update(data)
+
+        return hash_obj.hexdigest()
+    except FileNotFoundError as e:
+        # Handle file not found error
+        send_message("\n\t\t\tError: File not found - " + str(e), error=True)
+        return None
     except Exception as e:
+        # Handle other exceptions
         send_message("\n\t\t\tError: " + str(e), error=True)
         return None
 
 
-# Retrieves the hash of the passed file.
+# Retrieves the internal file within the passed zip file.
 def get_internal_file_hash(zip_file, file_name):
-    hash = None
     try:
+        BUF_SIZE = 65536  # 64KB buffer size (adjust as needed)
+        hash_obj = hashlib.sha256()
+
         with zipfile.ZipFile(zip_file) as zip:
             with zip.open(file_name) as file:
-                hasher = hashlib.md5()
-                while chunk := file.read(4096):
-                    hasher.update(chunk)
-                hash = hasher.hexdigest()
+                while True:
+                    data = file.read(BUF_SIZE)
+                    if not data:
+                        break
+                    hash_obj.update(data)
+
+        return hash_obj.hexdigest()
+    except KeyError as e:
+        # Handle file not found in the zip error
+        send_message("\n\t\t\tError: File not found in the zip - " + str(e), error=True)
+        return None
     except Exception as e:
+        # Handle other exceptions
         send_message("\n\t\t\tError: " + str(e), error=True)
-    return hash
+        return None
 
 
 # regex out underscore from passed string and return it
@@ -5247,15 +5210,19 @@ def check_for_existing_series(group=False):
                         )
                     else:
                         clean = clean_and_sort(root, files, dirs, sort=True)
+
                     files, dirs = clean[0], clean[1]
+
                     if not files:
                         continue
+
                     volumes = upgrade_to_volume_class(
                         upgrade_to_file_class(
                             [f for f in files if os.path.isfile(os.path.join(root, f))],
                             root,
                         )
                     )
+
                     exclude = None
                     similar.cache_clear()
                     for file in volumes:
@@ -5267,10 +5234,12 @@ def check_for_existing_series(group=False):
                                     + "\n\t\t - has no series_name"
                                 )
                                 continue
+
                             if (
                                 file.name in processed_files or not processed_files
                             ) and os.path.isfile(file.path):
                                 done = False
+
                                 if (
                                     cached_image_similarity_results
                                     and match_through_image_similarity
@@ -5315,6 +5284,7 @@ def check_for_existing_series(group=False):
                                                 break
                                 if done:
                                     continue
+
                                 if unmatched_series and (
                                     (
                                         not match_through_identifiers
@@ -6947,6 +6917,7 @@ def rename_dirs_in_download_folder(group=False):
         send_discord_message(None, grouped_notifications)
 
 
+# Retrieves any bracketed information in the name that isn't the release year.
 def get_extras(file_name, chapter=False, series_name="", subtitle=""):
     extension = get_file_extension(file_name)
     if series_name and re.search(re.escape(series_name), file_name, re.IGNORECASE):
@@ -8076,34 +8047,38 @@ def get_highest_release(releases, is_chapter_directory=False):
 
     if use_latest_volume_cover_as_series_cover and not is_chapter_directory:
         for item in releases:
-            if item.file_type == "volume" and item.volume_number:
-                part = None
-                if hasattr(item, "volume_part"):
-                    part = item.volume_part
-                else:
-                    part = get_file_part(item.name)
-                number = item.volume_number
-                if isinstance(number, (int, float)):
-                    if highest_volume_number is None or number > highest_volume_number:
-                        highest_volume_number = number
-                        highest_volume_part_number = part
-                    elif (
-                        number == highest_volume_number
-                        and part > highest_volume_part_number
-                    ):
-                        highest_volume_part_number = part
-                elif isinstance(number, list):
-                    if (
-                        highest_volume_number is None
-                        or max(number) > highest_volume_number
-                    ):
-                        highest_volume_number = max(number)
-                        highest_volume_part_number = part
-                    elif (
-                        max(number) == highest_volume_number
-                        and part > highest_volume_part_number
-                    ):
-                        highest_volume_part_number = part
+            if not item.file_type == "volume":
+                continue
+
+            if not item.volume_number:
+                continue
+
+            part = None
+
+            if hasattr(item, "volume_part"):
+                part = item.volume_part
+            else:
+                part = get_file_part(item.name)
+
+            number = item.volume_number
+            if isinstance(number, (int, float)):
+                if highest_volume_number is None or number > highest_volume_number:
+                    highest_volume_number = number
+                    highest_volume_part_number = part
+                elif (
+                    number == highest_volume_number
+                    and part > highest_volume_part_number
+                ):
+                    highest_volume_part_number = part
+            elif isinstance(number, list):
+                if highest_volume_number is None or max(number) > highest_volume_number:
+                    highest_volume_number = max(number)
+                    highest_volume_part_number = part
+                elif (
+                    max(number) == highest_volume_number
+                    and part > highest_volume_part_number
+                ):
+                    highest_volume_part_number = part
 
     return highest_volume_number, highest_volume_part_number
 
@@ -8112,133 +8087,190 @@ def get_highest_release(releases, is_chapter_directory=False):
 checked_series = []
 
 
+# takes a time.time, gets the current time and prints the execution time,
+def print_execution_time(start_time, function_name):
+    print(
+        "\nExecution time for: "
+        + function_name
+        + ": "
+        + str(time.time() - start_time)
+        + " seconds"
+    )
+
+
 # Extracts the covers out from our manga and novel files.
 def extract_covers():
     global checked_series
     print("\nLooking for covers to extract...")
+
+    # Only volume defined paths in the paths_with_types list
+    # Used for copying existing volume covers from a
+    # volume library to a chapter library
+    volume_paths = []
+
+    # Iterate over each path
     for path in paths:
+        # Check if the path exists
+        if not os.path.exists(path):
+            # Print an error message for an invalid or empty path
+            print("\nERROR: " + path + " is an invalid path.\n")
+            continue  # Move to the next iteration
+
         checked_series = []
-        if os.path.exists(path):
-            os.chdir(path)
-            for root, dirs, files in scandir.walk(path):
-                clean = None
-                if (
-                    watchdog_toggle
-                    and download_folders
-                    and any(x for x in download_folders if root.startswith(x))
-                ):
-                    clean = clean_and_sort(
-                        root,
-                        files,
-                        dirs,
-                        just_these_files=transferred_files,
-                        just_these_dirs=transferred_dirs,
-                    )
-                else:
-                    clean = clean_and_sort(root, files, dirs)
-                files, dirs = clean[0], clean[1]
-                global folder_accessor
-                print("\nRoot: " + root)
-                # print("Dirs: " + str(dirs))
-                print("Files: " + str(files))
-                if files:
-                    file_objects = upgrade_to_file_class(files, root)
-                    folder_accessor = Folder(
-                        root,
-                        dirs,
-                        os.path.basename(os.path.dirname(root)),
-                        os.path.basename(root),
-                        upgrade_to_volume_class(
-                            file_objects,
-                            skip_release_year=True,
-                            skip_fixed_volume=True,
-                            skip_release_group=True,
-                            skip_extras=True,
-                            skip_publisher=True,
-                            skip_premium_content=True,
-                            skip_subtitle=True,
-                            skip_multi_volume=True,
-                        ),
-                    )
-                    is_chapter_directory = get_percent_for_folder(
-                        folder_accessor.files, file_type="chapter"
-                    )
-                    if is_chapter_directory != None:
-                        is_chapter_directory = (
-                            is_chapter_directory >= required_matching_percentage
-                        )
-                    contains_volume_one = None
-                    if (
-                        not use_latest_volume_cover_as_series_cover
-                        or is_chapter_directory
-                    ):
-                        contains_volume_one = any(
-                            file.file_type == "volume" and file.volume_number == 1
-                            for file in folder_accessor.files
-                        )
-                    highest_volume_number = None
-                    highest_volume_part_number = ""
+        os.chdir(path)
+
+        # Traverse the directory tree rooted at the path
+        for root, dirs, files in scandir.walk(path):
+            clean = None
+
+            # Clean and sort the files and directories
+            if (
+                watchdog_toggle
+                and download_folders
+                and any(x for x in download_folders if root.startswith(x))
+            ):
+                clean = clean_and_sort(
+                    root,
+                    files,
+                    dirs,
+                    just_these_files=transferred_files,
+                    just_these_dirs=transferred_dirs,
+                )
+            else:
+                clean = clean_and_sort(root, files, dirs)
+            global folder_accessor
+
+            files, dirs = clean[0], clean[1]
+            print("\nRoot: " + root)
+            print("Files: " + str(files))
+
+            if files:
+                # Upgrade file objects to a file class
+                file_objects = upgrade_to_file_class(files, root, clean=False)
+
+                # Create a folder accessor object
+                folder_accessor = Folder(
+                    root,
+                    dirs,
+                    os.path.basename(os.path.dirname(root)),
+                    os.path.basename(root),
+                    upgrade_to_volume_class(
+                        file_objects,
+                        skip_release_year=True,
+                        skip_fixed_volume=True,
+                        skip_release_group=True,
+                        skip_extras=True,
+                        skip_publisher=True,
+                        skip_premium_content=True,
+                        skip_subtitle=True,
+                        skip_multi_volume=True,
+                    ),
+                )
+
+                # Get the series cover
+                series_cover_path = next(
                     (
+                        os.path.join(folder_accessor.root, f"cover{ext}")
+                        for ext in image_extensions
+                        if os.path.exists(
+                            os.path.join(folder_accessor.root, f"cover{ext}")
+                        )
+                    ),
+                    None,
+                )
+
+                # Set the directory type
+                is_chapter_directory = (
+                    True if folder_accessor.files[0].file_type == "chapter" else False
+                )
+
+                # Used when filtering the series_folders of each paths_with_types
+                # by the first letter of a cleaned up name
+                clean_basename = None
+
+                if copy_existing_volume_covers_toggle and is_chapter_directory:
+                    # Set the value of volume_paths
+                    if not volume_paths and paths_with_types:
+                        volume_paths = [
+                            x
+                            for x in paths_with_types
+                            if "volume" in x.path_types
+                            and folder_accessor.files[0].extension in x.path_extensions
+                        ]
+                        if volume_paths:
+                            for v_path in volume_paths:
+                                # Get all the folders in v_path.path
+                                volume_series_folders = [
+                                    x
+                                    for x in os.listdir(v_path.path)
+                                    if not x.startswith(".")
+                                ]
+                                v_path.series_folders = volume_series_folders
+
+                    clean_basename = (
+                        replace_underscore_in_name(
+                            remove_punctuation(
+                                remove_bracketed_info_from_name(
+                                    os.path.basename(folder_accessor.root)
+                                )
+                            )
+                        )
+                        .lower()
+                        .strip()
+                    )
+
+                # Get the highest volume number and part number
+                highest_volume_number, highest_volume_part_number = (
+                    get_highest_release(folder_accessor.files, is_chapter_directory)
+                    if not is_chapter_directory
+                    else (None, "")
+                )
+
+                if highest_volume_number:
+                    print(f"\n\t\tHighest Volume Number: {highest_volume_number}")
+
+                if highest_volume_part_number:
+                    print(
+                        f"\t\tHighest Volume Part Number: {highest_volume_part_number}"
+                    )
+
+                # Check if it contains multiple volume ones
+                contains_multiple_volume_ones = False
+                if not use_latest_volume_cover_as_series_cover or is_chapter_directory:
+                    volume_ones_counter = 0
+
+                    for file in folder_accessor.files:
+                        if not file.is_one_shot and not file.volume_part:
+                            if file.volume_number == 1:
+                                volume_ones_counter += 1
+                                if volume_ones_counter > 1:
+                                    contains_multiple_volume_ones = True
+                                    break
+                            elif (
+                                isinstance(file.volume_number, list)
+                                and 1 in file.volume_number
+                            ):
+                                volume_ones_counter += 1
+                                if volume_ones_counter > 1:
+                                    contains_multiple_volume_ones = True
+                                    break
+
+                # Process cover extraction for each file
+                [
+                    process_cover_extraction(
+                        file,
+                        contains_multiple_volume_ones,
                         highest_volume_number,
                         highest_volume_part_number,
-                    ) = get_highest_release(folder_accessor.files, is_chapter_directory)
-                    if highest_volume_number:
-                        print(
-                            "\n\t\tHighest Volume Number: "
-                            + str(highest_volume_number)
-                            + "\n"
-                        )
-                    if highest_volume_part_number:
-                        print(
-                            "\t\tHighest Volume Part Number: "
-                            + str(highest_volume_part_number)
-                            + "\n"
-                        )
-                    contains_multiple_volume_ones = None
-                    if (
-                        not use_latest_volume_cover_as_series_cover
-                        or is_chapter_directory
-                    ):
-                        contains_multiple_volume_ones = (
-                            len(
-                                [
-                                    file
-                                    for file in folder_accessor.files
-                                    if file.file_type == "volume"
-                                    and (
-                                        (
-                                            file.volume_number == 1
-                                            and not file.volume_part
-                                        )
-                                        or (
-                                            isinstance(file.volume_number, list)
-                                            and 1 in file.volume_number
-                                            and not file.volume_part
-                                        )
-                                    )
-                                    and not file.is_one_shot
-                                ]
-                            )
-                            > 1
-                        )
-                    [
-                        process_cover_extraction(
-                            file,
-                            contains_volume_one,
-                            contains_multiple_volume_ones,
-                            highest_volume_number,
-                            highest_volume_part_number,
-                            is_chapter_directory,
-                        )
-                        for file in folder_accessor.files
-                        if file.file_type == "volume"
-                        or (file.file_type == "chapter" and extract_chapter_covers)
-                    ]
-        else:
-            if path == "":
-                print("\nERROR: Path cannot be empty.")
-            else:
-                print("\nERROR: " + path + " is an invalid path.\n")
+                        is_chapter_directory,
+                        series_cover_path,
+                        volume_paths,
+                        clean_basename,
+                    )
+                    for file in folder_accessor.files
+                    if file.file_type == "volume"
+                    or (file.file_type == "chapter" and extract_chapter_covers)
+                ]
 
 
 # Converts the passed path of a .webp file to a .jpg file
@@ -8279,73 +8311,82 @@ def get_modification_date(file_path):
 
 def process_cover_extraction(
     file,
-    contains_volume_one,
     contains_multiple_volume_ones,
     highest_volume_number,
     highest_volume_part_number,
     is_chapter_directory,
+    series_cover_path,
+    volume_paths,
+    clean_basename,
 ):
     global image_count
     update_stats(file)
+
     try:
         has_cover = False
         printed = False
-        cover = ""
+
+        # Check if a cover image is already present
         cover = next(
             (
                 file.extensionless_path + extension
                 for extension in image_extensions
-                if os.path.isfile(file.extensionless_path + extension)
+                if os.path.exists(file.extensionless_path + extension)
             ),
             "",
         )
-        if cover:
-            has_cover = True
 
-        if not has_cover:
+        if cover:
+            # Cover image found
+            has_cover = True
+            image_count += 1
+        else:
+            # Cover image not found, try to find it and extract it
             if not printed:
-                print("\n\tFile: " + file.name)
+                print(f"\n\tFile: {file.name}")
                 printed = True
             print("\t\tFile does not have a cover.")
             result = find_and_extract_cover(file)
+
             if result and result.endswith(".webp"):
+                # Cover image is a .webp file, attempt to convert to .jpg
                 print("\t\tCover is a .webp file. Converting to .jpg...")
                 conversion_result = convert_webp_to_jpg(result)
+
                 if conversion_result:
+                    # Cover image successfully converted to .jpg
                     print("\t\tCover successfully converted to .jpg")
                     result = conversion_result
                 else:
+                    # Cover conversion failed, clean up the webp file
                     print("\t\tCover conversion failed.")
                     print("\t\tCleaning up webp file...")
                     remove_file(result, silent=True)
+
+                    # Verify that the webp file was deleted
                     if not os.path.isfile(result):
                         print("\t\tWebp file successfully deleted.")
                     else:
                         print("\t\tWebp file could not be deleted.")
+
                     result = None
+
+            # Cover image successfully extracted
             if result:
-                image_count += 1
                 print("\t\tCover successfully extracted.\n")
                 has_cover = True
                 cover = result
+                image_count += 1
             else:
                 print("\t\tCover not found.")
-        else:
-            image_count += 1
 
-        cover_paths = [
-            os.path.join(file.root, f"cover{ext}")
-            for ext in image_extensions
-            if os.path.isfile(os.path.join(file.root, f"cover{ext}"))
-        ]
-
-        if cover_paths:
-            series_cover_path = cover_paths[0]
-        else:
-            series_cover_path = None
-        latest_volume_matches_cover = False
         if (
             file.file_type == "volume"
+            and not is_chapter_directory
+            and cover
+            and series_cover_path
+            and not contains_multiple_volume_ones
+            and file.volume_part == highest_volume_part_number
             and (
                 (
                     use_latest_volume_cover_as_series_cover
@@ -8369,218 +8410,192 @@ def process_cover_extraction(
                     )
                 )
             )
-            and file.volume_part == highest_volume_part_number
-            and not is_chapter_directory
-            and cover
-            and series_cover_path
-            and not contains_multiple_volume_ones
         ):
             # get the modification date of the series cover and the latest volume cover
             current_series_cover_modification_date = get_modification_date(
                 series_cover_path
             )
             latest_volume_cover_modification_date = get_modification_date(cover)
+
             if (
                 current_series_cover_modification_date
                 and latest_volume_cover_modification_date
+            ) and (
+                current_series_cover_modification_date
+                != latest_volume_cover_modification_date
             ):
                 # if they don't match, then we will hash the series cover and the latest volume cover,
                 # and if the hashes don't match, then we will replace the series cover with the latest volume cover
-                if (
-                    current_series_cover_modification_date
-                    != latest_volume_cover_modification_date
-                ):
-                    if get_file_hash(series_cover_path) != get_file_hash(cover):
-                        print(
-                            "\t\tCurrent series cover does not match the appropriate volume cover."
-                        )
-                        print("\t\tRemoving current series cover...")
-                        remove_file(series_cover_path, silent=True)
-                        if not os.path.isfile(series_cover_path):
-                            print("\t\tSeries cover successfully removed.\n")
-                            series_cover_path = None
-                        else:
-                            print("\t\tSeries cover could not be removed.\n")
-                    else:
-                        set_modification_date(
-                            series_cover_path, latest_volume_cover_modification_date
-                        )
-        if (
-            is_chapter_directory
-            and paths_with_types
-            and copy_existing_volume_covers_toggle
-            and file.root not in checked_series
-        ):
-            volume_paths = [
-                x
-                for x in paths_with_types
-                if "volume" in x.path_types and file.extension in x.path_extensions
-            ]
-            if volume_paths:
-                clean_basename = (
-                    replace_underscore_in_name(
-                        remove_punctuation(
-                            remove_bracketed_info_from_name(os.path.basename(file.root))
-                        )
+                if get_file_hash(series_cover_path) != get_file_hash(cover):
+                    print(
+                        "\t\tCurrent series cover does not match the appropriate volume cover."
                     )
-                    .lower()
-                    .strip()
-                )
-                for v_path in volume_paths:
-                    # get all the folders in v_path.path
-                    volume_series_folders = [
-                        x for x in os.listdir(v_path.path) if not x.startswith(".")
+                    print("\t\tRemoving current series cover...")
+                    remove_file(series_cover_path, silent=True)
+
+                    if not os.path.isfile(series_cover_path):
+                        print("\t\tSeries cover successfully removed.\n")
+                        series_cover_path = None
+                    else:
+                        print("\t\tSeries cover could not be removed.\n")
+                else:
+                    set_modification_date(
+                        series_cover_path, latest_volume_cover_modification_date
+                    )
+
+        # Check the volume libaries for a matching series so the series cover can be copied
+        # to the chapter library series folder
+        if (
+            volume_paths
+            and is_chapter_directory
+            and file.root not in checked_series
+            and clean_basename
+        ):
+            for v_path in volume_paths:
+                if not (hasattr(v_path, "series_folders") and v_path.series_folders):
+                    continue
+
+                filtered_series = v_path.series_folders
+
+                # Get the first letter of file.basename
+                # and remove any that don't start with it
+                first_letter = re.search(r"^[A-Za-z]+", file.basename)
+                if first_letter:
+                    first_letter = first_letter.group(0)
+                    # Filter filtered_series to only include folders that start with first_set_of_letters
+                    filtered_series = [
+                        x
+                        for x in filtered_series
+                        if re.search(r"^" + first_letter, x, re.IGNORECASE)
                     ]
-                    # get the first letter of file.basename
-                    first_set_of_letters = re.search(r"^[A-Za-z]+", file.basename)
-                    if first_set_of_letters:
-                        first_set_of_letters = first_set_of_letters.group(0).lower()
-                        # filter volume_series_folders to only include folders that start with first_set_of_letters, case insensitive
-                        volume_series_folders = [
-                            x
-                            for x in volume_series_folders
-                            if re.search(r"^" + first_set_of_letters, x, re.IGNORECASE)
-                        ]
-                    if volume_series_folders:
-                        for folder in volume_series_folders:
-                            folder_path = os.path.join(v_path.path, folder)
-                            clean_folder = (
-                                replace_underscore_in_name(
-                                    remove_punctuation(
-                                        remove_bracketed_info_from_name(folder)
-                                    )
+
+                for folder in filtered_series:
+                    folder_path = os.path.join(v_path.path, folder)
+                    clean_folder = (
+                        replace_underscore_in_name(
+                            remove_punctuation(remove_bracketed_info_from_name(folder))
+                        )
+                        .lower()
+                        .strip()
+                    )
+                    if clean_folder == clean_basename or (
+                        similar(clean_folder, clean_basename)
+                        >= required_similarity_score
+                    ):
+                        volumes = upgrade_to_file_class(
+                            [
+                                f
+                                for f in os.listdir(folder_path)
+                                if os.path.isfile(os.path.join(folder_path, f))
+                            ],
+                            folder_path,
+                        )
+                        if volumes:
+                            volume_one = [
+                                x
+                                for x in volumes
+                                if x.volume_number == 1
+                                or (
+                                    isinstance(file.volume_number, list)
+                                    and 1 in file.volume_number
                                 )
-                                .lower()
-                                .strip()
-                            )
-                            if clean_folder == clean_basename or (
-                                similar(clean_folder, clean_basename)
-                                >= required_similarity_score
-                            ):
-                                volumes = upgrade_to_volume_class(
-                                    upgrade_to_file_class(
-                                        [
-                                            f
-                                            for f in os.listdir(folder_path)
-                                            if os.path.isfile(
-                                                os.path.join(folder_path, f)
-                                            )
-                                        ],
-                                        folder_path,
-                                    )
+                            ]
+                            if volume_one and len(volume_one) == 1:
+                                volume_one = volume_one[0]
+                                # find the image cover
+                                cover_path = None
+                                for extension in image_extensions:
+                                    if os.path.isfile(
+                                        volume_one.extensionless_path + extension
+                                    ):
+                                        cover_path = (
+                                            volume_one.extensionless_path + extension
+                                        )
+                                        break
+                                volume_one_modification_date = get_modification_date(
+                                    cover_path
                                 )
-                                if volumes:
-                                    volume_one = [
-                                        x
-                                        for x in volumes
-                                        if x.volume_number == 1
-                                        or (
-                                            isinstance(file.volume_number, list)
-                                            and 1 in file.volume_number
+                                if series_cover_path:
+                                    cover_modification_date = (
+                                        get_modification_date(series_cover_path)
+                                        if series_cover_path
+                                        else None
+                                    )
+                                    if (
+                                        cover_modification_date
+                                        and volume_one_modification_date
+                                    ) and (
+                                        cover_modification_date
+                                        != volume_one_modification_date
+                                    ):
+                                        cover_hash = (
+                                            get_file_hash(series_cover_path)
+                                            if series_cover_path
+                                            else None
                                         )
-                                    ]
-                                    if volume_one and len(volume_one) == 1:
-                                        volume_one = volume_one[0]
-                                        volume_one_modification_date = (
-                                            get_modification_date(volume_one.path)
+                                        volume_one_hash = (
+                                            get_file_hash(cover_path)
+                                            if series_cover_path
+                                            else None
                                         )
-                                        if series_cover_path:
-                                            cover_modification_date = (
-                                                get_modification_date(series_cover_path)
-                                                if series_cover_path
-                                                else None
+                                        if (cover_hash and volume_one_hash) and (
+                                            cover_hash != volume_one_hash
+                                        ):
+                                            print(
+                                                "\t\tCurrent series cover does not match the appropriate volume cover."
                                             )
-                                            if (
-                                                cover_modification_date
-                                                and volume_one_modification_date
-                                            ) and (
-                                                cover_modification_date
-                                                != volume_one_modification_date
-                                            ):
-                                                cover_hash = (
-                                                    get_file_hash(series_cover_path)
-                                                    if series_cover_path
-                                                    else None
+                                            print(
+                                                "\t\tRemoving current series cover..."
+                                            )
+                                            remove_file(series_cover_path, silent=True)
+                                            if not os.path.isfile(series_cover_path):
+                                                print(
+                                                    "\t\tSeries cover successfully removed.\n"
                                                 )
-                                                volume_one_hash = (
-                                                    get_file_hash(volume_one.path)
-                                                    if series_cover_path
-                                                    else None
+                                                series_cover_path = None
+                                            else:
+                                                print(
+                                                    "\t\tSeries cover could not be removed.\n"
                                                 )
-                                                if (
-                                                    cover_hash and volume_one_hash
-                                                ) and (cover_hash != volume_one_hash):
-                                                    print(
-                                                        "\t\tCurrent series cover does not match the appropriate volume cover."
-                                                    )
-                                                    print(
-                                                        "\t\tRemoving current series cover..."
-                                                    )
-                                                    remove_file(
-                                                        series_cover_path, silent=True
-                                                    )
-                                                    if not os.path.isfile(
-                                                        series_cover_path
-                                                    ):
-                                                        print(
-                                                            "\t\tSeries cover successfully removed.\n"
-                                                        )
-                                                        series_cover_path = None
-                                                    else:
-                                                        print(
-                                                            "\t\tSeries cover could not be removed.\n"
-                                                        )
-                                                    print(
-                                                        "\t\tFound volume for series cover."
-                                                    )
-                                                else:
-                                                    # set the modification date
-                                                    set_modification_date(
-                                                        series_cover_path,
-                                                        volume_one_modification_date,
-                                                    )
-                                        if not series_cover_path:
-                                            # find the image cover
-                                            cover_path = None
-                                            for extension in image_extensions:
-                                                if os.path.isfile(
-                                                    volume_one.extensionless_path
-                                                    + extension
-                                                ):
-                                                    cover_path = (
-                                                        volume_one.extensionless_path
-                                                        + extension
-                                                    )
-                                                    break
-                                            if cover_path:
-                                                # copy the file to the series cover folder
-                                                series_cover_path = os.path.join(
-                                                    file.root, "cover" + extension
-                                                )
-                                                shutil.copy(
-                                                    cover_path,
-                                                    series_cover_path,
-                                                )
-                                                if os.path.isfile(series_cover_path):
-                                                    print(
-                                                        "\t\tCopied volume one cover from volume library as series cover."
-                                                    )
-                                                    # set the modification date of the series cover to match the volume cover
-                                                    set_modification_date(
-                                                        series_cover_path,
-                                                        volume_one_modification_date,
-                                                    )
-                                                    checked_series.append(file.root)
-                                                    return
+                                            print("\t\tFound volume for series cover.")
                                         else:
-                                            checked_series.append(file.root)
-                                            return
-                        else:
-                            checked_series.append(file.root)
+                                            # set the modification date
+                                            set_modification_date(
+                                                series_cover_path,
+                                                volume_one_modification_date,
+                                            )
+                                if not series_cover_path and cover_path:
+                                    # copy the file to the series cover folder
+                                    series_cover_path = os.path.join(
+                                        file.root, "cover" + extension
+                                    )
+                                    shutil.copy(
+                                        cover_path,
+                                        series_cover_path,
+                                    )
+                                    if os.path.isfile(series_cover_path):
+                                        print(
+                                            "\t\tCopied volume one cover from volume library as series cover."
+                                        )
+                                        # set the modification date of the series cover to match the volume cover
+                                        set_modification_date(
+                                            series_cover_path,
+                                            volume_one_modification_date,
+                                        )
+                                        checked_series.append(file.root)
+                                        return
+                                else:
+                                    checked_series.append(file.root)
+                                    return
+                else:
+                    checked_series.append(file.root)
 
         if (
             not contains_multiple_volume_ones
             and not series_cover_path
+            and file.root not in download_folders
+            and has_cover
+            and cover
             and (
                 (
                     file.volume_number == 1
@@ -8604,37 +8619,30 @@ def process_cover_extraction(
                     and file.volume_part == highest_volume_part_number
                 )
             )
-            and file.root not in download_folders
-            and has_cover
-            and cover
         ):
-            if (
-                file.file_type == "chapter" and not contains_volume_one
-            ) or file.file_type == "volume":
-                if not printed:
-                    print("\tFile: " + file.name)
-                    printed = True
-                print("\t\tMissing series cover.")
-                print("\t\tFound volume for series cover.")
-                cover_extension = get_file_extension(os.path.basename(cover))
-                if os.path.isfile(os.path.join(file.root, os.path.basename(cover))):
-                    shutil.copy(
-                        os.path.join(file.root, os.path.basename(cover)),
-                        os.path.join(file.root, "cover" + cover_extension),
-                    )
-                    print("\t\tCopied cover as series cover.")
-                    # set the creation and modification dates of the series cover to match the volume cover
-                    set_modification_date(
-                        os.path.join(file.root, "cover" + cover_extension),
-                        get_modification_date(
-                            os.path.join(file.root, os.path.basename(cover))
-                        ),
-                    )
-                else:
-                    print(
-                        "\t\tCover does not exist at: "
-                        + str(os.path.join(file.root, os.path.basename(cover)))
-                    )
+            if not printed:
+                print("\tFile: " + file.name)
+                printed = True
+            print("\t\tMissing series cover.")
+            print("\t\tFound volume for series cover.")
+
+            cover_extension = get_file_extension(os.path.basename(cover))
+            cover_path = os.path.join(file.root, os.path.basename(cover))
+            series_cover_path = os.path.join(file.root, "cover" + cover_extension)
+
+            if os.path.isfile(cover_path):
+                shutil.copy(
+                    cover_path,
+                    series_cover_path,
+                )
+                print("\t\tCopied cover as series cover.")
+                # set the creation and modification dates of the series cover to match the volume cover
+                set_modification_date(
+                    series_cover_path,
+                    get_modification_date(cover_path),
+                )
+            else:
+                print("\t\tCover does not exist at: " + str(cover_path))
     except Exception as e:
         send_message(
             "\nERROR in extract_covers(): " + str(e) + " with file: " + file.name,
@@ -8945,6 +8953,7 @@ def get_shortened_title(title):
 # Extracts the subtitle from a file.name
 # (year required in brackets at the end of the subtitle)
 # EX: Sword Art Online v13 - Alicization Dividing [2018].epub --> Alicization Dividing
+@lru_cache(maxsize=None)
 def get_subtitle_from_title(file, publisher=None):
     subtitle = ""
 
@@ -9031,7 +9040,7 @@ def get_subtitle_from_title(file, publisher=None):
         ):
             subtitle = ""
 
-        # check that the subtitle isn't just the volume keyword and number
+        # check that the subtitle isn't just the volume keyword and a number
         if file.volume_number and re.search(
             rf"^({volume_regex_keywords})(\s+)?(0+)?{set_num_as_float_or_int(file.volume_number)}$",
             subtitle.strip(),
@@ -10072,41 +10081,72 @@ def cache_existing_library_paths():
 # Sends scan requests to komga for all passed-in libraries
 # Reqiores komga settings to be set in settings.py
 def scan_komga_library(library_id):
+    if not komga_ip:
+        send_message(
+            "Komga IP is not set in settings.py. Please set it and try again.",
+            error=True,
+        )
+        return
+
+    if not komga_port:
+        send_message(
+            "Komga Port is not set in settings.py. Please set it and try again.",
+            error=True,
+        )
+        return
+
+    if not komga_login_email:
+        send_message(
+            "Komga Login Email is not set in settings.py. Please set it and try again.",
+            error=True,
+        )
+        return
+
+    if not komga_login_password:
+        send_message(
+            "Komga Login Password is not set in settings.py. Please set it and try again.",
+            error=True,
+        )
+        return
+
     komga_url = f"{komga_ip}:{komga_port}"
-    if library_id and komga_url and komga_login_email and komga_login_password:
-        print("\n\tSending Komga Scan Request:")
-        try:
-            request = requests.post(
-                f"{komga_url}/api/v1/libraries/{library_id}/scan",
-                headers={
-                    "Authorization": "Basic %s"
-                    % b64encode(
-                        f"{komga_login_email}:{komga_login_password}".encode("utf-8")
-                    ).decode("utf-8"),
-                    "Accept": "*/*",
-                },
-            )
-            if request.status_code == 202:
-                send_message(
-                    "\t\tSuccessfully Initiated Scan for: " + library_id + " Library.",
-                    discord=False,
-                )
-            else:
-                send_message(
-                    "\t\tFailed to Initiate Scan for: "
-                    + library_id
-                    + " Library"
-                    + " Status Code: "
-                    + str(request.status_code)
-                    + " Response: "
-                    + request.text,
-                    error=True,
-                )
-        except Exception as e:
+
+    print("\nSending Komga Scan Request:")
+    try:
+        request = requests.post(
+            f"{komga_url}/api/v1/libraries/{library_id}/scan",
+            headers={
+                "Authorization": "Basic %s"
+                % b64encode(
+                    f"{komga_login_email}:{komga_login_password}".encode("utf-8")
+                ).decode("utf-8"),
+                "Accept": "*/*",
+            },
+        )
+        if request.status_code == 202:
             send_message(
-                "Failed to Initiate Scan for: " + library_id + " Komga Library.",
+                "\t\tSuccessfully Initiated Scan for: " + library_id + " Library.",
+                discord=False,
+            )
+        else:
+            send_message(
+                "\t\tFailed to Initiate Scan for: "
+                + library_id
+                + " Library"
+                + " Status Code: "
+                + str(request.status_code)
+                + " Response: "
+                + request.text,
                 error=True,
             )
+    except Exception as e:
+        send_message(
+            "Failed to Initiate Scan for: "
+            + library_id
+            + " Komga Library, ERROR: "
+            + str(e),
+            error=True,
+        )
 
 
 # Sends a GET library request to Komga for all libraries using
@@ -10114,36 +10154,65 @@ def scan_komga_library(library_id):
 # Requires komga settings to be set in settings.py
 def get_komga_libraries():
     results = []
+
+    if not komga_ip:
+        send_message(
+            "Komga IP is not set in settings.py. Please set it and try again.",
+            error=True,
+        )
+        return
+
+    if not komga_port:
+        send_message(
+            "Komga Port is not set in settings.py. Please set it and try again.",
+            error=True,
+        )
+        return
+
+    if not komga_login_email:
+        send_message(
+            "Komga Login Email is not set in settings.py. Please set it and try again.",
+            error=True,
+        )
+        return
+
+    if not komga_login_password:
+        send_message(
+            "Komga Login Password is not set in settings.py. Please set it and try again.",
+            error=True,
+        )
+        return
+
     komga_url = f"{komga_ip}:{komga_port}"
 
-    if komga_url and komga_login_email and komga_login_password:
-        try:
-            request = requests.get(
-                f"{komga_url}/api/v1/libraries",
-                headers={
-                    "Authorization": "Basic %s"
-                    % b64encode(
-                        f"{komga_login_email}:{komga_login_password}".encode("utf-8")
-                    ).decode("utf-8"),
-                    "Accept": "*/*",
-                },
-            )
-            if request.status_code == 200:
-                results = request.json()
-            else:
-                send_message(
-                    "\t\tFailed to Get Komga Libraries"
-                    + " Status Code: "
-                    + str(request.status_code)
-                    + " Response: "
-                    + request.text,
-                    error=True,
-                )
-        except Exception as e:
+    try:
+        request = requests.get(
+            f"{komga_url}/api/v1/libraries",
+            headers={
+                "Authorization": "Basic %s"
+                % b64encode(
+                    f"{komga_login_email}:{komga_login_password}".encode("utf-8")
+                ).decode("utf-8"),
+                "Accept": "*/*",
+            },
+        )
+        if request.status_code == 200:
+            results = request.json()
+        else:
             send_message(
-                "Failed to Get Komga Libraries.",
+                "\t\tFailed to Get Komga Libraries"
+                + " Status Code: "
+                + str(request.status_code)
+                + " Response: "
+                + request.text,
                 error=True,
             )
+    except Exception as e:
+        send_message(
+            "Failed to Get Komga Libraries, ERROR: " + str(e),
+            error=True,
+        )
+
     return results
 
 
@@ -10444,6 +10513,7 @@ def only_has_one_set_of_numbers(string, chapter=False, file=None):
 
 
 # Checks if the file name contains multiple numbers
+@lru_cache(maxsize=None)
 def has_multiple_numbers(file_name):
     numbers = re.findall(r"([0-9]+(\.[0-9]+)?)", file_name)
     new_numbers = []
@@ -11026,6 +11096,7 @@ def main():
     global skipped_publisher_files
     global transferred_files
     global transferred_dirs
+    global komga_libraries
 
     processed_files = []
     moved_files = []
@@ -11179,12 +11250,17 @@ def main():
             transferred_dirs = [x for x in transferred_dirs if os.path.isdir(x.root)]
 
     # Sends a scan request to Komga for each library that had a file moved into it.
-    if send_scan_request_to_komga_libraries_toggle and moved_files:
+    if (
+        send_scan_request_to_komga_libraries_toggle
+        and check_for_existing_series_toggle
+        and moved_files
+    ):
         # The paths we've already scanned, to avoid unnecessary scans.
         libraries_to_scan = []
 
-        # Retrieve the Komga libraries
-        komga_libraries = get_komga_libraries()
+        if not komga_libraries:
+            # Retrieve the Komga libraries
+            komga_libraries = get_komga_libraries()
 
         for path in moved_files:
             if os.path.isfile(path):
