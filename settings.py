@@ -1,7 +1,7 @@
 ########################### FEATURES ###########################
 # corrects any incorrect file extensions in the download_folders, using the file header
 correct_file_extensions_toggle = False
-# converts any rar/cbr files in the download_folders to cbz files
+# converts any rar/cbr/7zip files in the download_folders to cbz files
 convert_to_cbz_toggle = False
 # deletes any file with an extension in unaccepted_file_extensions from the download_folers
 delete_unacceptable_files_toggle = False
