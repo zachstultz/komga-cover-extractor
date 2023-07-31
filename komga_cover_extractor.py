@@ -24,6 +24,7 @@ from urllib.parse import urlparse
 import cv2
 import filetype
 import numpy as np
+import py7zr
 import rarfile
 import regex as re
 import requests
@@ -42,7 +43,7 @@ from watchdog.observers import Observer
 from settings import *
 
 # Version of the script
-script_version = (2, 4, 5)
+script_version = (2, 4, 6)
 script_version_text = "v{}.{}.{}".format(*script_version)
 
 # Paths = existing library
@@ -107,15 +108,21 @@ processed_files = []
 # Any files moved to the existing library. Used for triggering a library scan in komga.
 moved_files = []
 
+# The script's root directory
+ROOT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)))
+
 # Where logs are written to.
-ROOT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+LOGS_DIR = os.path.join(ROOT_DIR, "logs")
+
+# Where the addon scripts are located.
+ADDONS_DIR = os.path.join(ROOT_DIR, "addons")
 
 # Docker Status
 in_docker = False
 
 # Check if the instance is running in docker.
-# If the ROOT_DIR is /app/logs, then it's running in docker.
-if ROOT_DIR == "/app/logs":
+# If the ROOT_DIR is /app, then it's running in docker.
+if ROOT_DIR == "/app":
     in_docker = True
     script_version_text += "-docker"
 
@@ -146,20 +153,30 @@ cached_identifier_results = []
 # watchdog toggle
 watchdog_toggle = False
 
-# Accepted file extensions for manga
+# 7zip extensions
+seven_zip_extensions = [".7z"]
+
+# Zip extensions
 zip_extensions = [
     ".zip",
     ".cbz",
     ".epub",
 ]
+
 rar_extensions = [".rar", ".cbr"]
 
-# Accepted file extensions for manga and novels
+# Accepted file extensions for novels
 novel_extensions = [".epub"]
+
+# Accepted file extensions for manga
 manga_extensions = [x for x in zip_extensions if x not in novel_extensions]
 
 # All the accepted file extensions
 file_extensions = novel_extensions + manga_extensions
+
+# All the accepted convertable file extensions for convert_to_cbz(),
+# and the watchdog handler.
+convertable_file_extensions = seven_zip_extensions + rar_extensions
 
 # All the accepted image extensions
 image_extensions = {".jpg", ".jpeg", ".png", ".tbn", ".webp"}
@@ -357,7 +374,11 @@ shortened_word_filter_percentage = 0.6
 
 # The amount of time to sleep before checking again if all the files are fully transferred.
 # Slower network response times may require a higher value.
-watchdog_sleep_time = 5
+watchdog_discover_new_files_check_interval = 5
+
+# The time to sleep between file size checks when determining if a file is fully transferred.
+# Slower network response times may require a higher value.
+watchdog_file_transferred_check_interval = 1
 
 # The libraries on the user's komga server.
 # Used for sending scan reqeusts after files have been moved over.
@@ -542,7 +563,7 @@ def check_if_file_is_transferred_by_size(file_path):
         # Get the file size before waiting for 1 second
         before_file_size = os.path.getsize(file_path)
         # Wait for 1 second
-        time.sleep(1)
+        time.sleep(watchdog_file_transferred_check_interval)
         # Get the file size after waiting for 1 second
         after_file_size = os.path.getsize(file_path)
         # Check if both file sizes are not None
@@ -639,7 +660,10 @@ class Handler(FileSystemEventHandler):
                         extension not in unacceptable_keywords
                         and "\\" + extension not in unacceptable_keywords
                     )
-                    and not (convert_to_cbz_toggle and extension in rar_extensions)
+                    and not (
+                        convert_to_cbz_toggle
+                        and extension in convertable_file_extensions
+                    )
                 ):
                     print("\t\t -Not in file extensions, skipped.")
                     return None
@@ -723,7 +747,7 @@ class Handler(FileSystemEventHandler):
                         break
 
                 if all_files_transferred:
-                    time.sleep(watchdog_sleep_time)
+                    time.sleep(watchdog_discover_new_files_check_interval)
 
                     # The current list of files in the root directory and its subdirectories.
                     new_files = get_all_files_recursively_in_dir(download_folders[0])
@@ -743,7 +767,7 @@ class Handler(FileSystemEventHandler):
                     elif files == new_files:
                         break
 
-                time.sleep(watchdog_sleep_time)
+                time.sleep(watchdog_discover_new_files_check_interval)
 
             # Proceed with the next steps here.
             print("\nAll files are transferred.")
@@ -961,6 +985,17 @@ def parse_my_args():
         help="Whether or not to log the changes and errors to a file.",
         required=False,
     )
+    parser.add_argument(
+        "--watchdog_discover_new_files_check_interval",
+        help="The amount of seconds to sleep before checking again if all the files are fully transferred.",
+        required=False,
+    )
+    parser.add_argument(
+        "--watchdog_file_transferred_check_interval",
+        help="The seconds to sleep between file size checks when determining if a file is fully transferred.",
+        required=False,
+    )
+
     parser = parser.parse_args()
 
     if not parser.paths and not parser.download_folders:
@@ -1164,6 +1199,29 @@ def parse_my_args():
                 )
     print("\twatchdog: " + str(watchdog_toggle))
 
+    if watchdog_toggle:
+        if parser.watchdog_discover_new_files_check_interval:
+            if parser.watchdog_discover_new_files_check_interval.isdigit():
+                global watchdog_discover_new_files_check_interval
+                watchdog_discover_new_files_check_interval = int(
+                    parser.watchdog_discover_new_files_check_interval
+                )
+
+        if parser.watchdog_file_transferred_check_interval:
+            if parser.watchdog_file_transferred_check_interval.isdigit():
+                global watchdog_file_transferred_check_interval
+                watchdog_file_transferred_check_interval = int(
+                    parser.watchdog_file_transferred_check_interval
+                )
+        print(
+            "\t\twatchdog_discover_new_files_check_interval: "
+            + str(watchdog_discover_new_files_check_interval)
+        )
+        print(
+            "\t\twatchdog_file_transferred_check_interval: "
+            + str(watchdog_file_transferred_check_interval)
+        )
+
     if parser.new_volume_webhook:
         global new_volume_webhook
         new_volume_webhook = parser.new_volume_webhook
@@ -1194,12 +1252,17 @@ def parse_my_args():
         if setting == "ranked_keywords" or setting == "unacceptable_keywords":
             continue
 
+        # the settings value
+        value = getattr(settings_file, setting)
+
+        # output the value as long as it isn't sensitive,
+        # otherwise censor it, assuming there was a value
         if (
             "password" not in setting.lower()
             and "email" not in setting.lower()
             and "token" not in setting.lower()
-        ):
-            print("\t" + setting + ": " + str(getattr(settings_file, setting)))
+        ) or not value:
+            print("\t" + setting + ": " + str(value))
         else:
             print("\t" + setting + ": " + "********")
 
@@ -1213,7 +1276,9 @@ def parse_my_args():
         and watchdog_toggle
     ):
         komga_libraries = get_komga_libraries()
-        komga_library_paths = [x["root"] for x in komga_libraries]
+        komga_library_paths = (
+            [x["root"] for x in komga_libraries] if komga_libraries else []
+        )
         print("\tkomga_libraries: " + str(komga_library_paths))
 
 
@@ -3420,27 +3485,30 @@ def write_to_file(
     write_to=None,
 ):
     write_status = False
-    logs_dir = None
-    if not write_to:
-        logs_dir = ROOT_DIR
-    else:
-        logs_dir = write_to
-    if not os.path.exists(logs_dir):
+    logs_dir_loc = LOGS_DIR if not write_to else write_to
+
+    # check if the logs directory exists, if not create it
+    if not os.path.exists(logs_dir_loc):
         try:
-            os.makedirs(logs_dir)
+            os.makedirs(logs_dir_loc)
         except OSError as e:
             send_message(e, error=True)
             return
-    if log_to_file and logs_dir:
+
+    if log_to_file and logs_dir_loc:
+        # get rid of formatting
         message = re.sub("\t|\n", "", str(message), flags=re.IGNORECASE).strip()
         contains = False
-        if check_for_dup and os.path.isfile(os.path.join(logs_dir, file)):
+
+        # check if it already contains the message
+        if check_for_dup and os.path.isfile(os.path.join(logs_dir_loc, file)):
             contains = check_text_file_for_message(
-                os.path.join(logs_dir, file), message
+                os.path.join(logs_dir_loc, file), message
             )
+
         if not contains or overwrite:
             try:
-                file_path = os.path.join(logs_dir, file)
+                file_path = os.path.join(logs_dir_loc, file)
                 append_write = ""
                 if os.path.exists(file_path):
                     if not overwrite:
@@ -4630,12 +4698,11 @@ def remove_duplicates(items):
 # Return the zip comment for the passed zip file
 @lru_cache(maxsize=None)
 def get_zip_comment(zip_file):
+    comment = ""
     try:
         with zipfile.ZipFile(zip_file, "r") as zip_ref:
             if zip_ref.comment:
-                return zip_ref.comment.decode("utf-8")
-            else:
-                return ""
+                comment = zip_ref.comment.decode("utf-8")
     except Exception as e:
         send_message(str(e), error=True)
         send_message("\tFailed to get zip comment for: " + zip_file, error=True)
@@ -4643,7 +4710,7 @@ def get_zip_comment(zip_file):
         exc_type, exc_obj, exc_tb = sys.exc_info()
         fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
         print(exc_type, fname, exc_tb.tb_lineno)
-        return ""
+    return comment
 
 
 # Removes bracketed content from the string, alongwith any whitespace.
@@ -5555,8 +5622,12 @@ def check_for_existing_series(group=False):
                                         )
                                     continue
                                 download_file_zip_comment = get_zip_comment(file.path)
-                                download_file_meta = get_identifiers_from_zip_comment(
-                                    download_file_zip_comment
+                                download_file_meta = (
+                                    get_identifiers_from_zip_comment(
+                                        download_file_zip_comment
+                                    )
+                                    if download_file_zip_comment
+                                    else []
                                 )
                                 directories_found = []
                                 matched_ids = []
@@ -9839,10 +9910,10 @@ def check_for_new_volumes_on_bookwalker():
     released.sort(key=lambda x: x.date, reverse=False)
     if log_to_file:
         # Get rid of the old released and pre-orders and replace them with new ones.
-        if os.path.isfile(os.path.join(ROOT_DIR, "released.txt")):
-            remove_file(os.path.join(ROOT_DIR, "released.txt"), silent=True)
-        if os.path.isfile(os.path.join(ROOT_DIR, "pre-orders.txt")):
-            remove_file(os.path.join(ROOT_DIR, "pre-orders.txt"), silent=True)
+        if os.path.isfile(os.path.join(LOGS_DIR, "released.txt")):
+            remove_file(os.path.join(LOGS_DIR, "released.txt"), silent=True)
+        if os.path.isfile(os.path.join(LOGS_DIR, "pre-orders.txt")):
+            remove_file(os.path.join(LOGS_DIR, "pre-orders.txt"), silent=True)
     if len(released) > 0:
         print("\nNew Releases:")
         for r in released:
@@ -10638,15 +10709,20 @@ def compare_images(imageA, imageB, silent=False):
     return ssim_score
 
 
-# Extracts a RAR archive to a temporary directory.
-def extract(rar_filename, temp_dir):
+# Extracts a supported archive to a temporary directory.
+def extract(file_path, temp_dir, extension):
     successfull = False
     try:
-        with rarfile.RarFile(rar_filename) as rar:
-            rar.extractall(temp_dir)
-            successfull = True
+        if extension in rar_extensions:
+            with rarfile.RarFile(file_path) as rar:
+                rar.extractall(temp_dir)
+                successfull = True
+        elif extension in seven_zip_extensions:
+            with py7zr.SevenZipFile(file_path, "r") as archive:
+                archive.extractall(temp_dir)
+                successfull = True
     except Exception as e:
-        send_message(f"Error extracting {rar_filename}: {e}", error=True)
+        send_message(f"Error extracting {file_path}: {e}", error=True)
     return successfull
 
 
@@ -10667,14 +10743,14 @@ def compress(temp_dir, cbz_filename):
     return successfull
 
 
-# Converts RAR/CBR archives to CBZ archives found in download_folders
+# Converts supported archives to CBZ.
 def convert_to_cbz(group=False):
     global transferred_files
     if download_folders:
-        print("\nConverting archives to CBZ...")
+        print("\nLooking for archives to convert to CBZ...")
         for folder in download_folders:
             if os.path.isdir(folder):
-                print("\t{}".format(folder))
+                print(f"\t{folder}")
                 for root, dirs, files in os.walk(folder):
                     clean = None
                     if (
@@ -10706,29 +10782,30 @@ def convert_to_cbz(group=False):
 
                             if not os.path.isfile(file_path):
                                 continue
-                            print("\t\t{}".format(entry))
 
-                            if extension in rar_extensions:
-                                cbr_file = file_path
-                                cbz_file = "{}.cbz".format(
-                                    os.path.splitext(cbr_file)[0]
+                            print(f"\t\t{entry}")
+
+                            if extension in convertable_file_extensions:
+                                source_file = file_path
+                                repacked_file = (
+                                    f"{get_extensionless_name(source_file)}.cbz"
                                 )
 
                                 # check that the cbz file doesn't already exist
-                                if os.path.isfile(cbz_file):
+                                if os.path.isfile(repacked_file):
                                     # if the file is zero bytes, delete it and continue, otherwise skip
-                                    if get_file_size(cbz_file) == 0:
+                                    if get_file_size(repacked_file) == 0:
                                         send_message(
                                             f"\t\t\tCBZ file is zero bytes, deleting...",
                                             discord=False,
                                         )
-                                        remove_file(cbz_file, discord=False)
-                                    elif not zipfile.is_zipfile(cbz_file):
+                                        remove_file(repacked_file, group=group)
+                                    elif not zipfile.is_zipfile(repacked_file):
                                         send_message(
                                             f"\t\t\tCBZ file is not a valid zip file, deleting...",
                                             discord=False,
                                         )
-                                        remove_file(cbz_file, discord=False)
+                                        remove_file(repacked_file, group=group)
                                     else:
                                         send_message(
                                             f"\t\t\tCBZ file already exists, skipping...",
@@ -10736,7 +10813,7 @@ def convert_to_cbz(group=False):
                                         )
                                         continue
 
-                                temp_dir = tempfile.mkdtemp("cbr2cbz")
+                                temp_dir = tempfile.mkdtemp("_source2cbz")
 
                                 # if there's already contents in the temp directory, delete it
                                 if os.listdir(temp_dir):
@@ -10746,7 +10823,7 @@ def convert_to_cbz(group=False):
                                     )
                                     remove_folder(temp_dir)
                                     # recreate the temp directory
-                                    temp_dir = tempfile.mkdtemp("cbr2cbz")
+                                    temp_dir = tempfile.mkdtemp("source2cbz")
 
                                 if not os.path.isdir(temp_dir):
                                     send_message(
@@ -10760,18 +10837,21 @@ def convert_to_cbz(group=False):
                                     discord=False,
                                 )
 
-                                extract_status = extract(cbr_file, temp_dir)
+                                # Extract the archive to the temp directory
+                                extract_status = extract(
+                                    source_file, temp_dir, extension
+                                )
 
                                 if not extract_status:
                                     send_message(
-                                        f"\t\t\tFailed to extract {cbr_file}",
+                                        f"\t\t\tFailed to extract {source_file}",
                                         error=True,
                                     )
                                     # remove temp directory
                                     remove_folder(temp_dir)
                                     continue
 
-                                print(f"\t\t\tExtracted to {temp_dir}")
+                                print(f"\t\t\tExtracted contents to {temp_dir}")
 
                                 # Get hashes of all files in archive
                                 hashes = []
@@ -10780,53 +10860,68 @@ def convert_to_cbz(group=False):
                                         path = os.path.join(root2, file2)
                                         hashes.append(get_file_hash(path))
 
-                                compress_status = compress(temp_dir, cbz_file)
+                                compress_status = compress(temp_dir, repacked_file)
 
                                 if not compress_status:
                                     # remove temp directory
                                     remove_folder(temp_dir)
                                     continue
 
-                                print(f"\t\t\tCompressed to {cbz_file}")
+                                print(f"\t\t\tCompressed to {repacked_file}")
 
                                 # Check that the number of files in both archives is the same
                                 # Print any files that aren't shared between the two archives
-                                cbz_file_list = []
-                                cbr_file_list = []
-                                if os.path.isfile(cbz_file):
-                                    with zipfile.ZipFile(cbz_file) as zip:
+                                source_file_list = []
+                                repacked_file_list = []
+
+                                if os.path.isfile(source_file):
+                                    if extension in rar_extensions:
+                                        with rarfile.RarFile(source_file) as rar:
+                                            for file in rar.namelist():
+                                                if get_file_extension(file):
+                                                    source_file_list.append(file)
+                                    elif extension in seven_zip_extensions:
+                                        with py7zr.SevenZipFile(
+                                            source_file
+                                        ) as seven_zip:
+                                            for file in seven_zip.getnames():
+                                                if get_file_extension(file):
+                                                    source_file_list.append(file)
+
+                                if os.path.isfile(repacked_file):
+                                    with zipfile.ZipFile(repacked_file) as zip:
                                         for file in zip.namelist():
-                                            if not file.endswith("/"):
-                                                cbz_file_list.append(file)
-                                if os.path.isfile(cbr_file):
-                                    with rarfile.RarFile(cbr_file) as rar:
-                                        for file in rar.namelist():
-                                            if not file.endswith("/"):
-                                                cbr_file_list.append(file)
+                                            if get_file_extension(file):
+                                                repacked_file_list.append(file)
+
+                                # sort them
+                                source_file_list.sort()
+                                repacked_file_list.sort()
 
                                 # print any files that aren't shared between the two archives
-                                if (
-                                    cbz_file_list
-                                    and cbr_file_list
-                                    and (cbz_file_list.sort() != cbr_file_list.sort())
+                                if (source_file_list and repacked_file_list) and (
+                                    source_file_list != repacked_file_list
                                 ):
                                     print(
                                         "\t\t\tVerifying that all files are present in both archives..."
                                     )
-                                    for file in cbz_file_list:
-                                        if file not in cbr_file_list:
+                                    for file in source_file_list:
+                                        if file not in repacked_file_list:
                                             print(
-                                                f"\t\t\t\t{file} is not in {cbr_file}"
+                                                f"\t\t\t\t{file} is not in {repacked_file}"
                                             )
-                                    for file in cbr_file_list:
-                                        if file not in cbz_file_list:
+                                    for file in repacked_file_list:
+                                        if file not in source_file_list:
                                             print(
-                                                f"\t\t\t\t{file} is not in {cbz_file}"
+                                                f"\t\t\t\t{file} is not in {source_file}"
                                             )
+
                                     # remove temp directory
                                     remove_folder(temp_dir)
+
                                     # remove cbz file
-                                    remove_file(cbz_file, discord=False)
+                                    remove_file(repacked_file, group=group)
+
                                     continue
                                 else:
                                     print(
@@ -10836,11 +10931,11 @@ def convert_to_cbz(group=False):
                                 hashes_verified = False
 
                                 # Verify hashes of all files inside the cbz file
-                                with zipfile.ZipFile(cbz_file) as zip:
+                                with zipfile.ZipFile(repacked_file) as zip:
                                     for file in zip.namelist():
-                                        if not file.endswith("/"):
+                                        if get_file_extension(file):
                                             hash = get_internal_file_hash(
-                                                cbz_file, file
+                                                repacked_file, file
                                             )
                                             if hash and hash not in hashes:
                                                 print(
@@ -10858,7 +10953,7 @@ def convert_to_cbz(group=False):
                                         f"\t\t\tHashes verified.", discord=False
                                     )
                                     send_message(
-                                        f"\t\t\tConverted {cbr_file} to {cbz_file}",
+                                        f"\t\t\tConverted {source_file} to {repacked_file}",
                                         discord=False,
                                     )
                                     embed = [
@@ -10871,21 +10966,21 @@ def convert_to_cbz(group=False):
                                                 {
                                                     "name": "From:",
                                                     "value": "```"
-                                                    + os.path.basename(cbr_file)
+                                                    + os.path.basename(source_file)
                                                     + "```",
                                                     "inline": False,
                                                 },
                                                 {
                                                     "name": "To:",
                                                     "value": "```"
-                                                    + os.path.basename(cbz_file)
+                                                    + os.path.basename(repacked_file)
                                                     + "```",
                                                     "inline": False,
                                                 },
                                                 {
                                                     "name": "Location:",
                                                     "value": "```"
-                                                    + os.path.dirname(cbz_file)
+                                                    + os.path.dirname(repacked_file)
                                                     + "```",
                                                     "inline": False,
                                                 },
@@ -10893,19 +10988,22 @@ def convert_to_cbz(group=False):
                                         )
                                     ]
                                     add_to_grouped_notifications(Embed(embed[0], None))
-                                    # remove rar/cbr file
-                                    remove_file(cbr_file, group=group)
+
+                                    # remove the source file
+                                    remove_file(source_file, group=group)
+
                                     if watchdog_toggle:
-                                        if cbr_file in transferred_files:
-                                            transferred_files.remove(cbr_file)
-                                        if cbz_file not in transferred_files:
-                                            transferred_files.append(cbz_file)
+                                        if source_file in transferred_files:
+                                            transferred_files.remove(source_file)
+                                        if repacked_file not in transferred_files:
+                                            transferred_files.append(repacked_file)
                                 else:
                                     send_message(
                                         f"\t\t\tHashes did not verify", error=True
                                     )
                                     # remove cbz file
-                                    remove_file(cbz_file, group=group)
+                                    remove_file(repacked_file, group=group)
+
                             elif extension == ".zip" and rename_zip_to_cbz:
                                 header_extension = get_file_extension_from_header(
                                     file_path
@@ -10949,14 +11047,16 @@ def convert_to_cbz(group=False):
                                 f"Error when correcting extension: {entry}: {e}",
                                 error=True,
                             )
+
                             # if the tempdir exists, remove it
                             if os.path.isdir(temp_dir):
                                 remove_folder(temp_dir)
+
                             # if the cbz file exists, remove it
-                            if os.path.isfile(cbz_file):
-                                remove_file(cbz_file, group=group)
+                            if os.path.isfile(repacked_file):
+                                remove_file(repacked_file, group=group)
             else:
-                send_message("\t{} does not exist.".format(folder), error=True)
+                send_message(f"\t{folder} does not exist.", error=True)
     else:
         print("No download folders specified.")
 
@@ -11111,12 +11211,12 @@ def main():
 
     # Load cached_paths.txt into cached_paths
     if (
-        os.path.isfile(os.path.join(ROOT_DIR, "cached_paths.txt"))
+        os.path.isfile(os.path.join(LOGS_DIR, "cached_paths.txt"))
         and check_for_existing_series_toggle
         and not cached_paths
     ):
         cached_paths = get_lines_from_file(
-            os.path.join(ROOT_DIR, "cached_paths.txt"),
+            os.path.join(LOGS_DIR, "cached_paths.txt"),
             ignore=paths + download_folders,
             ignore_paths_not_in_paths=True,
         )
@@ -11125,7 +11225,7 @@ def main():
     if (
         (
             cache_each_root_for_each_path_in_paths_at_beginning_toggle
-            or not os.path.isfile(os.path.join(ROOT_DIR, "cached_paths.txt"))
+            or not os.path.isfile(os.path.join(LOGS_DIR, "cached_paths.txt"))
         )
         and paths
         and check_for_existing_series_toggle
@@ -11136,9 +11236,9 @@ def main():
             print(f"\n\tLoaded {len(cached_paths)} cached paths")
 
     # Load release_groups.txt into release_groups
-    if os.path.isfile(os.path.join(ROOT_DIR, "release_groups.txt")):
+    if os.path.isfile(os.path.join(LOGS_DIR, "release_groups.txt")):
         release_groups_read = get_lines_from_file(
-            os.path.join(ROOT_DIR, "release_groups.txt")
+            os.path.join(LOGS_DIR, "release_groups.txt")
         )
         if release_groups_read:
             release_groups = release_groups_read
@@ -11147,8 +11247,8 @@ def main():
             )
 
     # Load publishers.txt into publishers
-    if os.path.isfile(os.path.join(ROOT_DIR, "publishers.txt")):
-        publishers_read = get_lines_from_file(os.path.join(ROOT_DIR, "publishers.txt"))
+    if os.path.isfile(os.path.join(LOGS_DIR, "publishers.txt")):
+        publishers_read = get_lines_from_file(os.path.join(LOGS_DIR, "publishers.txt"))
         if publishers_read:
             publishers = publishers_read
             print(f"\tLoaded {len(publishers)} publishers from publishers.txt")
@@ -11178,9 +11278,9 @@ def main():
         and not in_docker
     ):
         # Loads skipped_release_group_files.txt into skipped_release_group_files
-        if os.path.isfile(os.path.join(ROOT_DIR, "skipped_release_group_files.txt")):
+        if os.path.isfile(os.path.join(LOGS_DIR, "skipped_release_group_files.txt")):
             skipped_release_group_files_read = get_lines_from_file(
-                os.path.join(ROOT_DIR, "skipped_release_group_files.txt")
+                os.path.join(LOGS_DIR, "skipped_release_group_files.txt")
             )
             if skipped_release_group_files_read:
                 skipped_release_group_files = skipped_release_group_files_read
@@ -11189,9 +11289,9 @@ def main():
                 )
 
         # Loads skipped_publisher_files.txt into skipped_publisher_files
-        if os.path.isfile(os.path.join(ROOT_DIR, "skipped_publisher_files.txt")):
+        if os.path.isfile(os.path.join(LOGS_DIR, "skipped_publisher_files.txt")):
             skipped_publisher_files_read = get_lines_from_file(
-                os.path.join(ROOT_DIR, "skipped_publisher_files.txt")
+                os.path.join(LOGS_DIR, "skipped_publisher_files.txt")
             )
             if skipped_publisher_files_read:
                 skipped_publisher_files = skipped_publisher_files_read
@@ -11244,7 +11344,7 @@ def main():
         if transferred_files:
             # remove any deleted/renamed/moved files
             transferred_files = [x for x in transferred_files if os.path.isfile(x)]
-
+            
         # remove any deleted/renamed/moved directories
         if transferred_dirs:
             transferred_dirs = [x for x in transferred_dirs if os.path.isdir(x.root)]
