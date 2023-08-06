@@ -43,7 +43,7 @@ from watchdog.observers import Observer
 from settings import *
 
 # Version of the script
-script_version = (2, 4, 6)
+script_version = (2, 4, 7)
 script_version_text = "v{}.{}.{}".format(*script_version)
 
 # Paths = existing library
@@ -1194,7 +1194,7 @@ def parse_my_args():
                 watchdog_toggle = True
             else:
                 send_message(
-                    "Watchdog was enabled, but no download folders were passed to the script.",
+                    "Watchdog was toggled, but no download folders were passed to the script.",
                     error=True,
                 )
     print("\twatchdog: " + str(watchdog_toggle))
@@ -4697,6 +4697,22 @@ def remove_duplicates(items):
 
 # Return the zip comment for the passed zip file
 @lru_cache(maxsize=None)
+def get_zip_comment_cache(zip_file):
+    comment = ""
+    try:
+        with zipfile.ZipFile(zip_file, "r") as zip_ref:
+            if zip_ref.comment:
+                comment = zip_ref.comment.decode("utf-8")
+    except Exception as e:
+        send_message(str(e), error=True)
+        send_message("\tFailed to get zip comment for: " + zip_file, error=True)
+        write_to_file("errors.txt", str(e))
+        exc_type, exc_obj, exc_tb = sys.exc_info()
+        fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+        print(exc_type, fname, exc_tb.tb_lineno)
+    return comment
+
+
 def get_zip_comment(zip_file):
     comment = ""
     try:
@@ -6241,7 +6257,9 @@ def check_for_existing_series(group=False):
                                                             continue
                                                         print("\t\t\t" + f.name)
                                                         existing_file_zip_comment = (
-                                                            get_zip_comment(f.path)
+                                                            get_zip_comment_cache(
+                                                                f.path
+                                                            )
                                                         )
                                                         existing_file_meta = get_identifiers_from_zip_comment(
                                                             existing_file_zip_comment
@@ -6451,9 +6469,6 @@ def check_for_existing_series(group=False):
             grouped_notifications,
             passed_webhook=webhook_use,
         )
-    # clear the cache for get_zip_comment
-    if not watchdog_toggle:
-        get_zip_comment.cache_clear()
 
     # clear lru_cache for parse_words
     parse_words.cache_clear()
@@ -8062,12 +8077,12 @@ def find_and_extract_cover(file, return_data_only=False, silent=False):
         for image_file in zip_list:
             # Check if the file matches any cover pattern
             for pattern in cover_patterns:
-                is_novel_cover = (
-                    novel_cover_path
-                    and os.path.basename(image_file) == novel_cover_path
-                )
-                if is_novel_cover or re.search(
-                    pattern, os.path.basename(image_file), re.IGNORECASE
+                image_basename = os.path.basename(image_file)
+                is_novel_cover = novel_cover_path and image_basename == novel_cover_path
+                if (
+                    is_novel_cover
+                    or pattern == image_basename
+                    or re.search(pattern, image_basename, re.IGNORECASE)
                 ):
                     # Check if the image is blank
                     if (
