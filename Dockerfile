@@ -1,5 +1,5 @@
 # Use a specific version of the Python image
-FROM python:3.11.0-slim-bullseye
+FROM python:3.11.4-slim-bullseye
 
 # Set the working directory to /app
 WORKDIR /app
@@ -28,8 +28,8 @@ RUN pip3 install --no-cache-dir -r requirements.txt
 # Install the optional addon feature manga_isbn if true
 ARG MANGA_ISBN
 RUN if [ "$MANGA_ISBN" = "true" ]; then \
-    apt-get install -y build-essential && \
     apt-get install -y wget && \
+    apt-get install -y build-essential && \
     apt-get install -y xdg-utils xz-utils libopengl0 libegl1 && \
     wget -nv -O- https://download.calibre-ebook.com/linux-installer.sh | sh /dev/stdin && \
     apt-get install -y libicu-dev pkg-config python3-icu && \
