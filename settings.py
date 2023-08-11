@@ -197,4 +197,9 @@ use_latest_volume_cover_as_series_cover = False
 # Renames .zip files to .cbz with convert_to_cbz() if they're valid zip files
 # Requires: convert_to_cbz_toggle = True
 rename_zip_to_cbz = True
+
+# Attempts to auto-classifyin the user's watchdog paths'
+# extension types and library type ("volume" or "chapter")
+# Requires: --watchdog "True" and check_for_existing_series_toggle = True
+auto_classify_watchdog_paths = False
 ################################################################
