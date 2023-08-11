@@ -43,7 +43,7 @@ from watchdog.observers import Observer
 from settings import *
 
 # Version of the script
-script_version = (2, 4, 7)
+script_version = (2, 4, 8)
 script_version_text = "v{}.{}.{}".format(*script_version)
 
 # Paths = existing library
@@ -180,6 +180,9 @@ convertable_file_extensions = seven_zip_extensions + rar_extensions
 
 # All the accepted image extensions
 image_extensions = {".jpg", ".jpeg", ".png", ".tbn", ".webp"}
+
+# Type of file formats for manga and novels
+file_formats = ["chapter", "volume"]
 
 # Volume Regex Keywords to be used throughout the script
 # ORDER IS IMPORTANT, if a single character volume keyword is checked first, then that can break
@@ -329,12 +332,6 @@ bookwalker_logo_url = "https://play-lh.googleusercontent.com/a7jUyjTxWrl_Kl1FkUS
 # An alternative matching method that uses the image similarity between covers.
 match_through_image_similarity = True
 
-# True = Multi-volumes can match against single volumes, but not the other way around.
-#   EX: volume 3-4 can match to the individual volumes 3 and 4.
-# False = Multi-volumes can only match against multi-volumes.
-#   EX: volume 3-4 can only match to another multi-volume release of 3-4
-allow_matching_single_volumes_with_multi_volumes = False
-
 # The required score for two cover images to be considered a match
 required_image_similarity_score = 0.9
 
@@ -347,7 +344,7 @@ series_cover_file_names = ["cover", "poster"]
 # The required similarity score between the detected cover and the blank image to be considered a match.
 # If the similarity score is equal to or greater than this value, the cover will be ignored as
 # it is most likely a blank cover.
-blank_cover_required_similarity_score = 0.90
+blank_cover_required_similarity_score = 0.9
 
 # Prompts the user when deleting a lower-ranking duplicate volume when running
 # check_for_duplicate_volumes()
@@ -495,9 +492,7 @@ class Volume:
 
 # Path Class
 class Path:
-    def __init__(
-        self, path, path_types=["volume", "chapter"], path_extensions=file_extensions
-    ):
+    def __init__(self, path, path_types=file_formats, path_extensions=file_extensions):
         self.path = path
         self.path_types = path_types
         self.path_extensions = path_extensions
@@ -591,10 +586,20 @@ def get_file_size(file_path):
         return None
 
 
-# Resursively gets all files in a directory
+# Recursively gets all the files in a directory
 def get_all_files_recursively_in_dir(dir_path):
     results = []
-    for root, dirs, files in os.walk(dir_path):
+    for root, dirs, files in scandir.walk(dir_path):
+        files = remove_hidden_files(files)
+        files = remove_unaccepted_file_types(files, root, file_extensions)
+        results.extend(files)
+    return results
+
+
+# Resursively gets all files in a directory for watchdog
+def get_all_files_recursively_in_dir_watchdog(dir_path):
+    results = []
+    for root, dirs, files in scandir.walk(dir_path):
         files = remove_hidden_files(files)
         for file in files:
             file_path = os.path.join(root, file)
@@ -602,7 +607,9 @@ def get_all_files_recursively_in_dir(dir_path):
                 extension = get_file_extension(file_path)
                 if extension not in image_extensions:
                     results.append(file_path)
-                elif not compress_image_option and download_folders[0] in paths:
+                elif not compress_image_option and (
+                    download_folders and download_folders[0] in paths
+                ):
                     results.append(file_path)
     return results
 
@@ -701,7 +708,7 @@ class Handler(FileSystemEventHandler):
 
             # Get a list of all files in the root directory and its subdirectories.
             files = (
-                get_all_files_recursively_in_dir(download_folders[0])
+                get_all_files_recursively_in_dir_watchdog(download_folders[0])
                 if download_folders
                 else []
             )
@@ -750,7 +757,9 @@ class Handler(FileSystemEventHandler):
                     time.sleep(watchdog_discover_new_files_check_interval)
 
                     # The current list of files in the root directory and its subdirectories.
-                    new_files = get_all_files_recursively_in_dir(download_folders[0])
+                    new_files = get_all_files_recursively_in_dir_watchdog(
+                        download_folders[0]
+                    )
 
                     # If any new files started transferring while we were checking the current files,
                     # then we have more files to check.
@@ -787,7 +796,7 @@ class Handler(FileSystemEventHandler):
                                 None,
                                 os.path.basename(os.path.dirname(x)),
                                 os.path.basename(x),
-                                get_all_files_recursively_in_dir(x),
+                                get_all_files_recursively_in_dir_watchdog(x),
                             )
                         )
 
@@ -904,6 +913,175 @@ def get_lines_from_file(file_path, ignore=[], ignore_paths_not_in_paths=False):
 new_volume_webhook = None
 
 
+# Processes the user paths
+def process_path(
+    path,
+    paths_with_types,
+    paths,
+):
+    COMMON_EXTENSION_THRESHOLD = 0.3  # 30%
+
+    def process_auto_classification():
+        nonlocal path_types, path_extensions
+
+        CHAPTER_THRESHOLD = 0.9  # 90%
+        VOLUME_THRESHOLD = 0.9  # 90%
+
+        if not (
+            watchdog_toggle
+            and auto_classify_watchdog_paths
+            and check_for_existing_series_toggle
+            and not (download_folders and path_str in download_folders)
+        ):
+            return
+
+        files = get_all_files_recursively_in_dir(path_str)
+
+        if files:
+            print("\t\t\t- attempting auto-classification...")
+            print("\t\t\t\t- got " + str(len(files)) + " files.")
+            if len(files) >= 100:
+                print("\t\t\t\t\t- trimming files to 75%...")
+                files = files[: int(len(files) * 0.75)]
+                print("\t\t\t\t\t- trimmed to " + str(len(files)) + " files.")
+
+            print("\t\t\t\t- getting file extensions:")
+            all_extensions = [get_file_extension(file) for file in files]
+
+            path_extensions = get_common_extensions(all_extensions)
+
+            path_extension_sets = [manga_extensions, novel_extensions]
+
+            # If no common extensions, use default file extensions
+            if not path_extensions:
+                print(
+                    "\t\t\t\t\t- no accepted path extensions found, defaulting to: "
+                    + str(file_extensions)
+                )
+                path_extensions = file_extensions
+            else:
+                # Extend path extensions with known extension sets
+                print("\t\t\t\t\t- path extensions found: " + str(path_extensions))
+                print(
+                    "\t\t\t\t\t- extending path extensions with known extension sets:"
+                )
+                print("\t\t\t\t\t\t- manga_extensions: " + str(manga_extensions))
+                print("\t\t\t\t\t\t- novel_extensions: " + str(novel_extensions))
+                path_extension_sets = [manga_extensions, novel_extensions]
+                for ext_set in path_extension_sets:
+                    if any(extension in path_extensions for extension in ext_set):
+                        path_extensions.extend(
+                            ext for ext in ext_set if ext not in path_extensions
+                        )
+                print("\t\t\t\t\t- path extensions: " + str(path_extensions))
+
+            print("\t\t\t\t- getting path types:")
+            all_types = [
+                "chapter"
+                if (
+                    not contains_volume_keywords(file)
+                    and contains_chapter_keywords(file)
+                )
+                else "volume"
+                for file in files
+            ]
+
+            chapter_count = all_types.count("chapter")
+            volume_count = all_types.count("volume")
+            total_files = len(all_types)
+
+            print("\t\t\t\t\t- chapter count: " + str(chapter_count))
+            print("\t\t\t\t\t- volume count: " + str(volume_count))
+            print("\t\t\t\t\t- total files: " + str(total_files))
+            print(
+                "\t\t\t\t\t- chapter percentage: "
+                + str(int(chapter_count / total_files * 100))
+                + "%"
+            )
+            print(
+                "\t\t\t\t\t\t- required chapter percentage: "
+                + str(int(CHAPTER_THRESHOLD * 100))
+                + "%"
+            )
+            print(
+                "\t\t\t\t\t- volume percentage: "
+                + str(int(volume_count / total_files * 100))
+                + "%"
+            )
+            print(
+                "\t\t\t\t\t\t- required volume percentage: "
+                + str(int(VOLUME_THRESHOLD * 100))
+                + "%"
+            )
+
+            path_types = [
+                "chapter"
+                if chapter_count / total_files >= CHAPTER_THRESHOLD
+                else "volume"
+                if volume_count / total_files >= VOLUME_THRESHOLD
+                else file_formats
+            ]
+
+            print("\t\t\t\t\t- path types: " + str(path_types))
+
+    def process_single_type_path():
+        nonlocal path_types, path_extensions
+        if path[1].split(",")[0].strip() in file_formats:
+            path_types = [path_type.strip() for path_type in path[1].split(",")]
+        elif re.search(r"\.[a-zA-Z0-9]{1,4}", path[1]):
+            path_extensions = [
+                ext.strip()
+                for ext in path[1].split(",")
+                if ext.strip() in file_extensions
+            ]
+
+    def process_multi_type_path():
+        nonlocal path_types, path_extensions
+        if path[1].split(",")[0].strip() in file_extensions:
+            extensions = [ext.strip() for ext in path[1].split(",")]
+            path_types = [path_type.strip() for path_type in path[2].split(",")]
+        elif path[2].split(",")[0].strip():
+            extensions = [ext.strip() for ext in path[2].split(",")]
+            path_types = [path_type.strip() for path_type in path[1].split(",")]
+
+        if any(ext in file_extensions for ext in extensions):
+            path_extensions = extensions
+
+    def get_common_extensions(all_extensions):
+        nonlocal COMMON_EXTENSION_THRESHOLD
+        common_extensions = [
+            ext
+            for ext in set(all_extensions)
+            if all_extensions.count(ext) / len(all_extensions)
+            >= COMMON_EXTENSION_THRESHOLD
+        ]
+        return common_extensions if common_extensions else []
+
+    path_types = []
+    path_extensions = []
+
+    path_str = path[0]
+    print("\t\t" + path_str)
+
+    if len(path) == 1:
+        process_auto_classification()
+    elif len(path) == 2:
+        process_single_type_path()
+    elif len(path) == 3:
+        process_multi_type_path()
+
+    if path_types and path_extensions:
+        paths_with_types.append(
+            Path(path_str, path_types=path_types, path_extensions=path_extensions)
+        )
+    elif path_types and not path_extensions:
+        paths_with_types.append(Path(path_str, path_types=path_types))
+    elif not path_types and path_extensions:
+        paths_with_types.append(Path(path_str, path_extensions=path_extensions))
+
+    paths.append(path_str)
+
+
 # Parses the passed command-line arguments
 def parse_my_args():
     global paths
@@ -911,6 +1089,7 @@ def parse_my_args():
     global discord_webhook_url
     global paths_with_types
     global komga_libraries
+    global watchdog_toggle
 
     parser = argparse.ArgumentParser(
         description="Scans for and extracts covers from "
@@ -998,114 +1177,9 @@ def parse_my_args():
 
     parser = parser.parse_args()
 
-    if not parser.paths and not parser.download_folders:
-        print("No paths or download folders were passed to the script.")
-        print("Exiting...")
-        exit()
-
     print(f"\nScript Version: {script_version_text}")
 
     print("\nRun Settings:")
-    if parser.paths is not None:
-        new_paths = []
-        for path in parser.paths:
-            if path:
-                if r"\1" in path[0]:
-                    split_paths = path[0].split(r"\1")
-                    for split_path in split_paths:
-                        new_paths.append([split_path])
-                else:
-                    new_paths.append(path)
-        parser.paths = new_paths
-
-        for path in parser.paths:
-            if path:
-                if r"\0" in path[0]:
-                    path = path[0].split(r"\0")
-                if len(path) == 1:
-                    paths.append(path[0])
-                elif len(path) == 2 and (
-                    str(path[1]).lower() == "chapter"
-                    or str(path[1]).lower() == "volume"
-                ):
-                    paths_with_types.append(Path(path[0], path_types=[path[1]]))
-                    paths.append(path[0])
-                # otherwise if there are 2 arguments, and they passed a single extension or list of extensions separated by commas
-                elif len(path) == 2 and re.search(r"\.[a-zA-Z0-9]{1,4}", path[1]):
-                    extensions = path[1].split(",")
-                    # get rid of any whitespace
-                    extensions = [extension.strip() for extension in extensions]
-                    found_in_file_extensions = False
-                    for extension in extensions:
-                        if extension in file_extensions:
-                            found_in_file_extensions = True
-                            break
-                    if found_in_file_extensions:
-                        paths_with_types.append(
-                            Path(path[0], path_extensions=extensions)
-                        )
-                        paths.append(path[0])
-                    else:
-                        paths.append(path[0])
-                elif len(path) == 3:
-                    if (
-                        str(path[1]).lower() == "chapter"
-                        or str(path[1]).lower() == "volume"
-                    ):
-                        extensions = path[2].split(",")
-                        # get rid of any whitespace
-                        extensions = [extension.strip() for extension in extensions]
-                        found_in_file_extensions = False
-                        for extension in extensions:
-                            if extension in file_extensions:
-                                found_in_file_extensions = True
-                                break
-                        if found_in_file_extensions:
-                            paths_with_types.append(
-                                Path(
-                                    path[0],
-                                    path_types=[path[1]],
-                                    path_extensions=extensions,
-                                )
-                            )
-                            paths.append(path[0])
-                        else:
-                            paths.append(path[0])
-                    elif (
-                        str(path[2]).lower() == "chapter"
-                        or str(path[2]).lower() == "volume"
-                    ):
-                        extensions = path[1].split(",")
-                        # get rid of any whitespace
-                        extensions = [extension.strip() for extension in extensions]
-                        found_in_file_extensions = False
-                        for extension in extensions:
-                            if extension in file_extensions:
-                                found_in_file_extensions = True
-                                break
-                        if found_in_file_extensions:
-                            paths_with_types.append(
-                                Path(
-                                    path[0],
-                                    path_types=[path[2]],
-                                    path_extensions=extensions,
-                                )
-                            )
-                            paths.append(path[0])
-                        else:
-                            paths.append(path[0])
-                    else:
-                        paths.append(path[0])
-                else:
-                    paths.append(path[0])
-        print("\tpaths: " + str(paths))
-
-        if paths_with_types:
-            print("\tpaths_with_types:")
-            for item in paths_with_types:
-                print("\t\tpath: " + str(item.path))
-                print("\t\t\ttypes: " + str(item.path_types))
-                print("\t\t\textensions: " + str(item.path_extensions))
 
     if parser.download_folders is not None:
         new_download_folders = []
@@ -1132,7 +1206,72 @@ def parse_my_args():
                         for item in folder:
                             if item not in download_folders:
                                 download_folders.append(item)
-        print("\tdownload_folders: " + str(download_folders))
+    print("\tdownload_folders: " + str(download_folders))
+
+    if parser.watchdog:
+        if parser.watchdog.lower() == "true":
+            if download_folders:
+                watchdog_toggle = True
+            else:
+                send_message(
+                    "Watchdog was toggled, but no download folders were passed to the script.",
+                    error=True,
+                )
+    print("\twatchdog: " + str(watchdog_toggle))
+
+    if watchdog_toggle:
+        if parser.watchdog_discover_new_files_check_interval:
+            if parser.watchdog_discover_new_files_check_interval.isdigit():
+                global watchdog_discover_new_files_check_interval
+                watchdog_discover_new_files_check_interval = int(
+                    parser.watchdog_discover_new_files_check_interval
+                )
+
+        if parser.watchdog_file_transferred_check_interval:
+            if parser.watchdog_file_transferred_check_interval.isdigit():
+                global watchdog_file_transferred_check_interval
+                watchdog_file_transferred_check_interval = int(
+                    parser.watchdog_file_transferred_check_interval
+                )
+        print(
+            "\t\twatchdog_discover_new_files_check_interval: "
+            + str(watchdog_discover_new_files_check_interval)
+        )
+        print(
+            "\t\twatchdog_file_transferred_check_interval: "
+            + str(watchdog_file_transferred_check_interval)
+        )
+
+    if parser.paths is not None:
+        new_paths = []
+        for path in parser.paths:
+            if path:
+                if r"\1" in path[0]:
+                    split_paths = path[0].split(r"\1")
+                    for split_path in split_paths:
+                        new_paths.append([split_path])
+                else:
+                    new_paths.append(path)
+
+        parser.paths = new_paths
+        print("\tpaths:")
+        for path in parser.paths:
+            if path:
+                if r"\0" in path[0]:
+                    path = path[0].split(r"\0")
+                process_path(path, paths_with_types, paths)
+
+        if paths_with_types:
+            print("\n\tpaths_with_types:")
+            for item in paths_with_types:
+                print("\t\tpath: " + str(item.path))
+                print("\t\t\ttypes: " + str(item.path_types))
+                print("\t\t\textensions: " + str(item.path_extensions))
+
+    if not parser.paths and not parser.download_folders:
+        print("No paths or download folders were passed to the script.")
+        print("Exiting...")
+        exit()
 
     if parser.webhook is not None:
         for item in parser.webhook:
@@ -1186,41 +1325,6 @@ def parse_my_args():
                                 ):
                                     bookwalker_webhook_urls.append(url_in_hook)
         print("\tbookwalker_webhook_urls: " + str(bookwalker_webhook_urls))
-
-    if parser.watchdog:
-        if parser.watchdog.lower() == "true":
-            if download_folders:
-                global watchdog_toggle
-                watchdog_toggle = True
-            else:
-                send_message(
-                    "Watchdog was toggled, but no download folders were passed to the script.",
-                    error=True,
-                )
-    print("\twatchdog: " + str(watchdog_toggle))
-
-    if watchdog_toggle:
-        if parser.watchdog_discover_new_files_check_interval:
-            if parser.watchdog_discover_new_files_check_interval.isdigit():
-                global watchdog_discover_new_files_check_interval
-                watchdog_discover_new_files_check_interval = int(
-                    parser.watchdog_discover_new_files_check_interval
-                )
-
-        if parser.watchdog_file_transferred_check_interval:
-            if parser.watchdog_file_transferred_check_interval.isdigit():
-                global watchdog_file_transferred_check_interval
-                watchdog_file_transferred_check_interval = int(
-                    parser.watchdog_file_transferred_check_interval
-                )
-        print(
-            "\t\twatchdog_discover_new_files_check_interval: "
-            + str(watchdog_discover_new_files_check_interval)
-        )
-        print(
-            "\t\twatchdog_file_transferred_check_interval: "
-            + str(watchdog_file_transferred_check_interval)
-        )
 
     if parser.new_volume_webhook:
         global new_volume_webhook
@@ -1312,10 +1416,12 @@ def set_num_as_float_or_int(volume_number, silent=False):
         if not silent:
             send_message(
                 "Failed to convert volume number to float or int: "
-                + str(volume_number),
+                + str(volume_number)
+                + "\nERROR: "
+                + str(e),
                 error=True,
             )
-            send_message(e, error=True)
+            send_message(str(e), error=True)
         return ""
     return volume_number
 
@@ -1480,9 +1586,8 @@ def send_discord_message(
             # Reset the webhook object
             webhook_obj = DiscordWebhook(url=None)
     except Exception as e:
-        send_message(e, error=True, discord=False)
+        send_message(str(e), error=True, discord=False)
         webhook_obj = DiscordWebhook(url=None)
-        # print(e)
 
 
 # Removes hidden files
@@ -1656,7 +1761,7 @@ def clean_and_sort(
             for transferred_dir in just_these_dirs:
                 for dir in dirs:
                     if transferred_dir.folder_name == dir:
-                        current_files = get_all_files_recursively_in_dir(
+                        current_files = get_all_files_recursively_in_dir_watchdog(
                             os.path.join(root, dir)
                         )
                         if len(transferred_dir.files) == len(current_files) or len(
@@ -1836,7 +1941,7 @@ def get_novel_cover(novel_path):
                     "\t\t\tNo rootfile_path found in META-INF/container.xml in get_novel_cover()"
                 )
     except Exception as e:
-        send_message(e, error=True)
+        send_message(str(e), error=True)
     return None
 
 
@@ -1895,7 +2000,11 @@ def set_modification_date(file_path, date):
         os.utime(file_path, (get_modification_date(file_path), date))
     except Exception as e:
         send_message(
-            "ERROR: Could not set modification date of " + file_path, error=True
+            "ERROR: Could not set modification date of "
+            + file_path
+            + "\nERROR: "
+            + str(e),
+            error=True,
         )
 
 
@@ -2303,7 +2412,7 @@ def create_folders_for_items_in_download_folder(group=False):
                                     if file.path in transferred_files:
                                         transferred_files.remove(file.path)
             except Exception as e:
-                send_message(e, error=True)
+                send_message(str(e), error=True)
         else:
             if download_folder == "":
                 send_message("\nERROR: Path cannot be empty.", error=True)
@@ -2675,8 +2784,16 @@ def get_file_part(file, chapter=False, series_name=None, subtitle=None):
             result = re.sub(r"Part([-_. ]|)+", " ", result, flags=re.IGNORECASE).strip()
             try:
                 return float(result)
-            except ValueError:
-                print("Not a float: " + file)
+            except ValueError as ve:
+                send_message(
+                    "Not a float: "
+                    + str(result)
+                    + " for "
+                    + file
+                    + "\nERROR: "
+                    + str(ve),
+                    error=True,
+                )
                 result = ""
     else:
         search = rx_search_chapters.search(file)
@@ -2984,7 +3101,7 @@ def remove_file(full_file_path, silent=False, group=False):
         os.remove(full_file_path)
     except OSError as e:
         # Send an error message if removing the file failed
-        send_message(f"Failed to remove {full_file_path}: {e}", error=True)
+        send_message(f"Failed to remove {full_file_path}: {str(e)}", error=True)
         return False
 
     # Check if the file was successfully removed
@@ -3088,7 +3205,7 @@ def move_file(
                 )
                 return False
     except OSError as e:
-        send_message(e, error=True)
+        send_message(str(e), error=True)
         return False
 
 
@@ -3159,8 +3276,7 @@ def replace_file(old_file, new_file, group=False, highest_num=None, highest_part
                 error=True,
             )
     except Exception as e:
-        send_message(e, error=True)
-        send_message("Failed file replacement.", error=True)
+        send_message("Failed file replacement." + "\nERROR: " + str(e), error=True)
     return result
 
 
@@ -3177,7 +3293,7 @@ def execute_command(command):
                 sys.stdout.buffer.write(output)
                 sys.stdout.flush()
     except Exception as e:
-        send_message(e, error=True)
+        send_message(str(e), error=True)
     return process
 
 
@@ -3230,39 +3346,9 @@ def remove_duplicate_releases_from_download(
                         download.volume_number != ""
                         and original.volume_number != ""
                         and download.volume_part == original.volume_part
-                        and (
-                            download.volume_number == original.volume_number
-                            or (
-                                (
-                                    (
-                                        (
-                                            download.multi_volume
-                                            and download.volume_number
-                                            and not original.multi_volume
-                                            and download.volume_number[0]
-                                            == original.volume_number
-                                        )
-                                    )
-                                    or (
-                                        original.multi_volume
-                                        and original.volume_number
-                                        and not download.multi_volume
-                                        and original.volume_number[0]
-                                        == download.volume_number
-                                    )
-                                )
-                                and allow_matching_single_volumes_with_multi_volumes
-                            )
-                        )
+                        and download.volume_number == original.volume_number
                         and download.file_type == original.file_type
                     ):
-                        if allow_matching_single_volumes_with_multi_volumes and (
-                            (download.multi_volume and not original.multi_volume)
-                            or (original.multi_volume and not download.multi_volume)
-                        ):
-                            send_message(
-                                "\n\t\tallow_matching_single_volumes_with_multi_volumes=True"
-                            )
                         upgrade_status = is_upgradeable(download, original)
                         original_file_tags = (
                             upgrade_status.current_ranked_result.keywords
@@ -3468,9 +3554,9 @@ def check_and_delete_empty_folder(folder):
                     else:
                         print("\t\t\t\tFailed to remove folder: " + folder)
                 except OSError as e:
-                    send_message(e, error=True)
+                    send_message(str(e), error=True)
         except Exception as e:
-            send_message(e, error=True)
+            send_message(str(e), error=True)
     else:
         print("\t\tFolder does not exist when checking for empty folder: " + folder)
 
@@ -3492,7 +3578,7 @@ def write_to_file(
         try:
             os.makedirs(logs_dir_loc)
         except OSError as e:
-            send_message(e, error=True)
+            send_message(str(e), error=True)
             return
 
     if log_to_file and logs_dir_loc:
@@ -3529,9 +3615,9 @@ def write_to_file(
                         write_status = True
                         file.close()
                 except Exception as e:
-                    send_message(e, error=True, log=False)
+                    send_message(str(e), error=True, log=False)
             except Exception as e:
-                send_message(e, error=True, log=False)
+                send_message(str(e), error=True, log=False)
     return write_status
 
 
@@ -3636,7 +3722,7 @@ def rename_file(src, dest, silent=False):
         try:
             os.rename(src, dest)
         except Exception as e:
-            send_message(e, error=True)
+            send_message(str(e), error=True)
         if os.path.isfile(dest):
             result = True
             if not silent:
@@ -3657,7 +3743,7 @@ def rename_file(src, dest, silent=False):
                         try:
                             rename_file(image_file, image_file_rename, silent=True)
                         except Exception as e:
-                            send_message(e, error=True)
+                            send_message(str(e), error=True)
         else:
             send_message(
                 "Failed to rename " + src + " to " + dest + "\n\tERROR: " + str(e),
@@ -3676,7 +3762,7 @@ def rename_folder(src, dest):
             try:
                 os.rename(src, dest)
             except Exception as e:
-                send_message(e, error=True)
+                send_message(str(e), error=True)
             if os.path.isdir(dest):
                 send_message(
                     "\t\t"
@@ -4003,20 +4089,26 @@ def reorganize_and_rename(files, dir, group=False):
                             rename += " (" + file.release_group + ")"
                         elif file.extension in novel_extensions:
                             rename += " [" + file.release_group + "]"
+
                 # remove * from the replacement
                 rename = re.sub(r"\*", "", rename)
                 rename += file.extension
                 rename = rename.strip()
+
                 # Replace unicode using unidecode, if enabled
                 if replace_unicode_when_restructuring:
                     rename = unidecode(rename)
+
+                # Replace any quotes with '
+                rename = re.sub(r"\"", "'", rename)
+
                 processed_files.append(rename)
                 if file.name != rename:
                     if watchdog_toggle:
                         transferred_files.append(os.path.join(file.root, rename))
                     try:
-                        print("\n\t\tBEFORE: " + file.name)
-                        print("\t\tAFTER:  " + rename)
+                        send_message("\n\t\tBEFORE: " + file.name, discord=False)
+                        send_message("\t\tAFTER:  " + rename, discord=False)
                         user_input = None
                         if not manual_rename:
                             user_input = "y"
@@ -4084,7 +4176,7 @@ def reorganize_and_rename(files, dir, group=False):
                         else:
                             print("\t\t\tSkipping...\n")
                     except OSError as ose:
-                        send_message(ose, error=True)
+                        send_message(str(ose), error=True)
         except Exception as e:
             send_message(
                 "Failed to Reorganized & Renamed File: "
@@ -4229,7 +4321,7 @@ def detect_language(s):
         try:
             language = detect(s)
         except Exception as e:
-            send_message(e, error=True)
+            send_message(str(e), error=True)
             return language
     return language
 
@@ -4291,7 +4383,7 @@ def get_toc_or_copyright(file):
                         bonus_content_found = search.group(0)
                         break
     except Exception as e:
-        send_message(e, error=True)
+        send_message(str(e), error=True)
     return bonus_content_found
 
 
@@ -6295,7 +6387,7 @@ def check_for_existing_series(group=False):
                                                         else:
                                                             print("\t\t\t\t[]")
                                         except Exception as e:
-                                            send_message(e, error=True)
+                                            send_message(str(e), error=True)
                                 if (
                                     not done
                                     and match_through_identifiers
@@ -6376,7 +6468,7 @@ def check_for_existing_series(group=False):
                                     )
                                     print("No match found.")
                         except Exception as e:
-                            send_message(e, error=True)
+                            send_message(str(e), error=True)
     if grouped_notifications:
         send_discord_message(
             None,
@@ -6666,8 +6758,10 @@ def rename_dirs_in_download_folder(group=False):
                                 )
                             )
                         ):
-                            print("\n\tBEFORE: " + folderDir)
-                            print("\tAFTER:  " + volume_one.series_name)
+                            send_message("\n\tBEFORE: " + folderDir, discord=False)
+                            send_message(
+                                "\tAFTER:  " + volume_one.series_name, discord=False
+                            )
                             if volumes:
                                 print("\t\tFILES:")
                                 for v in volumes:
@@ -6740,20 +6834,20 @@ def rename_dirs_in_download_folder(group=False):
                                                         os.path.basename(
                                                             new_folder_path
                                                         ),
-                                                        get_all_files_recursively_in_dir(
+                                                        get_all_files_recursively_in_dir_watchdog(
                                                             new_folder_path
                                                         ),
                                                     )
                                                 )
                                             done = True
                                         except Exception as e:
-                                            print(
+                                            send_message(
                                                 "\t\tCould not rename "
                                                 + folderDir
                                                 + " to "
-                                                + volume_one.series_name
+                                                + volume_one.series_name,
+                                                error=True,
                                             )
-                                            print(e)
                                     else:
                                         # move the files to the already existing directory if they don't already exist, otherwise delete them
                                         for v in volumes:
@@ -6800,8 +6894,9 @@ def rename_dirs_in_download_folder(group=False):
                                 else:
                                     print("\t\tSkipping...\n")
                             except Exception as e:
-                                print(e)
-                                print("Skipping...")
+                                send_message(
+                                    "Skipping..." + "\nERROR: " + str(e), error=True
+                                )
                     if not done and (
                         not volume_one_series_name
                         or volume_one_series_name != folderDir
@@ -6837,8 +6932,12 @@ def rename_dirs_in_download_folder(group=False):
                                     if not os.path.isdir(
                                         os.path.join(folder_accessor.root, dir_clean)
                                     ):
-                                        print("\n\tBEFORE: " + folderDir)
-                                        print("\tAFTER:  " + dir_clean)
+                                        send_message(
+                                            "\n\tBEFORE: " + folderDir, discord=False
+                                        )
+                                        send_message(
+                                            "\tAFTER:  " + dir_clean, discord=False
+                                        )
                                         user_input = ""
                                         if manual_rename:
                                             user_input = get_input_from_user(
@@ -6903,7 +7002,7 @@ def rename_dirs_in_download_folder(group=False):
                                                                 os.path.basename(
                                                                     new_folder_path_two
                                                                 ),
-                                                                get_all_files_recursively_in_dir(
+                                                                get_all_files_recursively_in_dir_watchdog(
                                                                     new_folder_path_two
                                                                 ),
                                                             )
@@ -6915,10 +7014,12 @@ def rename_dirs_in_download_folder(group=False):
                                                         error=True,
                                                     )
                                             else:
-                                                print("\t\tSkipping...\n")
+                                                send_message(
+                                                    "\t\tSkipping...\n", discord=False
+                                                )
                                                 continue
                                         except OSError as e:
-                                            send_message(e, error=True)
+                                            send_message(str(e), error=True)
                                     elif (
                                         os.path.isdir(
                                             os.path.join(
@@ -6991,7 +7092,7 @@ def rename_dirs_in_download_folder(group=False):
                                                 )
                                     break
             except Exception as e:
-                send_message(e, error=True)
+                send_message(str(e), error=True)
         else:
             if download_folder == "":
                 send_message("\nERROR: Path cannot be empty.", error=True)
@@ -7159,8 +7260,9 @@ def get_file_from_zip(zip_file, file_name, allow_base=True, re_search=False):
                             result = z.read(info)
                             break
     except (zipfile.BadZipFile, FileNotFoundError) as e:
-        send_message(e, error=True)
-        send_message("Attempted to read file: " + file_name, error=True)
+        send_message(
+            "Attempted to read file: " + file_name + "\nERROR: " + str(e), error=True
+        )
     return result
 
 
@@ -7173,8 +7275,13 @@ def parse_comicinfo_xml(xml_file):
             for child in tree:
                 tags[child.tag] = child.text
         except Exception as e:
-            send_message(e, error=True)
-            send_message("Attempted to parse comicinfo.xml", error=True)
+            send_message(
+                "Attempted to parse comicinfo.xml: "
+                + str(xml_file)
+                + "\nERROR: "
+                + str(e),
+                error=True,
+            )
             return tags
     return tags
 
@@ -7457,7 +7564,7 @@ def rename_files_in_download_folders(
                                                     r = float(r)
                                                     modified.append(r)
                                             except ValueError as ve:
-                                                print(ve)
+                                                send_message(str(ve), error=True)
                                     if r and isinstance(r, str):
                                         if re.search(
                                             r"(%s)" % keywords,
@@ -7702,8 +7809,14 @@ def rename_files_in_download_folders(
                                             )
                                         ):
                                             user_input = ""
-                                            print("\n\t\tBEFORE: " + file.name)
-                                            print("\t\tAFTER:  " + replacement)
+                                            send_message(
+                                                "\n\t\tBEFORE: " + file.name,
+                                                discord=False,
+                                            )
+                                            send_message(
+                                                "\t\tAFTER:  " + replacement,
+                                                discord=False,
+                                            )
                                             if not manual_rename:
                                                 user_input = "y"
                                             else:
@@ -7726,7 +7839,7 @@ def rename_files_in_download_folders(
                                                         )
                                                 except OSError as e:
                                                     send_message(
-                                                        e,
+                                                        str(e),
                                                         "Error renaming file: "
                                                         + file.name
                                                         + " to "
@@ -7786,21 +7899,24 @@ def rename_files_in_download_folders(
                                                         error=True,
                                                     )
                                             else:
-                                                print("\t\t\tSkipping...\n")
+                                                send_message(
+                                                    "\t\t\tSkipping...\n", discord=False
+                                                )
                                         else:
                                             # if it already exists, then delete file.name
-                                            print(
+                                            send_message(
                                                 "\n\tFile already exists: "
                                                 + os.path.join(root, replacement)
                                                 + "\n\t\twhen renaming: "
                                                 + file.name
                                                 + "\n\tDeleting: "
-                                                + file.name
+                                                + file.name,
+                                                discord=False,
                                             )
                                             remove_file(file.path, silent=True)
                                             continue
                                     except OSError as ose:
-                                        send_message(ose, error=True)
+                                        send_message(str(ose), error=True)
                                 else:
                                     if test_mode:
                                         write_to_file(
@@ -7945,7 +8061,7 @@ def delete_chapters_from_downloads(group=False):
         ):
             send_discord_message(None, grouped_notifications)
     except Exception as e:
-        send_message(e, error=True)
+        send_message(str(e), error=True)
 
 
 # remove all non-images from list of files
@@ -8384,9 +8500,13 @@ def convert_webp_to_jpg(webp_file_path):
                 )
         except Exception as e:
             send_message(
-                "ERROR: Could not convert " + webp_file_path + " to jpg", error=True
+                "Could not convert "
+                + webp_file_path
+                + " to jpg"
+                + "\nERROR: "
+                + str(e),
+                error=True,
             )
-            send_message("ERROR: " + str(e), error=True)
     return None
 
 
@@ -8431,6 +8551,7 @@ def process_cover_extraction(
             if not printed:
                 print(f"\n\tFile: {file.name}")
                 printed = True
+
             print("\t\tFile does not have a cover.")
             result = find_and_extract_cover(file)
 
@@ -8868,7 +8989,7 @@ def delete_unacceptable_files(group=False):
             ):
                 send_discord_message(None, grouped_notifications)
         except Exception as e:
-            send_message(e, error=True)
+            send_message(str(e), error=True)
 
 
 class BookwalkerBook:
@@ -9635,7 +9756,7 @@ def search_bookwalker(
                 )
                 books.append(book)
             except Exception as e:
-                send_message(e, error=True)
+                send_message(str(e), error=True)
                 errors.append(url)
                 continue
         for book in books:
@@ -10117,7 +10238,7 @@ def check_for_bonus_xhtml(zip):
                     result = True
                     break
     except Exception as e:
-        send_message(e, error=True)
+        send_message(str(e), error=True)
     return result
 
 
@@ -10144,7 +10265,7 @@ def cache_existing_library_paths():
                             if path not in paths_cached:
                                 paths_cached.append(path)
                 except Exception as e:
-                    send_message(e, error=True)
+                    send_message(str(e), error=True)
             else:
                 print(
                     "\tSkipping: "
@@ -10556,7 +10677,7 @@ def generate_rename_lists():
                                         + skipped_file_name
                                     )
                 except Exception as e:
-                    send_message(e, error=True)
+                    send_message(str(e), error=True)
             else:
                 if path == "":
                     send_message("\nERROR: Path cannot be empty.", error=True)
@@ -10720,7 +10841,7 @@ def compare_images(imageA, imageB, silent=False):
         if not silent:
             print("\t\t\t\tSSIM: " + str(ssim_score))
     except Exception as e:
-        send_message(e, error=True)
+        send_message(str(e), error=True)
     return ssim_score
 
 
@@ -10737,7 +10858,7 @@ def extract(file_path, temp_dir, extension):
                 archive.extractall(temp_dir)
                 successfull = True
     except Exception as e:
-        send_message(f"Error extracting {file_path}: {e}", error=True)
+        send_message(f"Error extracting {file_path}: {str(e)}", error=True)
     return successfull
 
 
@@ -10746,7 +10867,7 @@ def compress(temp_dir, cbz_filename):
     successfull = False
     try:
         with zipfile.ZipFile(cbz_filename, "w") as zip:
-            for root, dirs, files in os.walk(temp_dir):
+            for root, dirs, files in scandir.walk(temp_dir):
                 for file in files:
                     zip.write(
                         os.path.join(root, file),
@@ -10754,7 +10875,7 @@ def compress(temp_dir, cbz_filename):
                     )
             successfull = True
     except Exception as e:
-        send_message(f"Error compressing {temp_dir}: {e}", error=True)
+        send_message(f"Error compressing {temp_dir}: {str(e)}", error=True)
     return successfull
 
 
@@ -10766,7 +10887,7 @@ def convert_to_cbz(group=False):
         for folder in download_folders:
             if os.path.isdir(folder):
                 print(f"\t{folder}")
-                for root, dirs, files in os.walk(folder):
+                for root, dirs, files in scandir.walk(folder):
                     clean = None
                     if (
                         watchdog_toggle
@@ -10870,7 +10991,7 @@ def convert_to_cbz(group=False):
 
                                 # Get hashes of all files in archive
                                 hashes = []
-                                for root2, dirs2, files2 in os.walk(temp_dir):
+                                for root2, dirs2, files2 in scandir.walk(temp_dir):
                                     for file2 in files2:
                                         path = os.path.join(root2, file2)
                                         hashes.append(get_file_hash(path))
@@ -11059,7 +11180,7 @@ def convert_to_cbz(group=False):
                                         print("\t\t\t\tSkipping...")
                         except Exception as e:
                             send_message(
-                                f"Error when correcting extension: {entry}: {e}",
+                                f"Error when correcting extension: {entry}: {str(e)}",
                                 error=True,
                             )
 
@@ -11088,7 +11209,7 @@ def correct_file_extensions(group=False):
         for folder in download_folders:
             if os.path.isdir(folder):
                 print("\t{}".format(folder))
-                for root, dirs, files in os.walk(folder):
+                for root, dirs, files in scandir.walk(folder):
                     clean = None
                     if (
                         watchdog_toggle
@@ -11359,7 +11480,7 @@ def main():
         if transferred_files:
             # remove any deleted/renamed/moved files
             transferred_files = [x for x in transferred_files if os.path.isfile(x)]
-            
+
         # remove any deleted/renamed/moved directories
         if transferred_dirs:
             transferred_dirs = [x for x in transferred_dirs if os.path.isdir(x.root)]
