@@ -43,7 +43,7 @@ from watchdog.observers import Observer
 from settings import *
 
 # Version of the script
-script_version = (2, 4, 10)
+script_version = (2, 4, 11)
 script_version_text = "v{}.{}.{}".format(*script_version)
 
 # Paths = existing library
@@ -10536,7 +10536,7 @@ def get_komga_libraries(first_run=True):
     except Exception as e:
         # if first, and error code 104, then try again after sleeping
         if first_run and "104" in str(e):
-            time.sleep(15)
+            time.sleep(30)
             results = get_komga_libraries(first_run=False)
         else:
             send_message(
@@ -11627,11 +11627,10 @@ def main():
                 if komga_libraries:
                     for library in komga_libraries:
                         if library["id"] in libraries_to_scan:
-                            break
+                            continue
 
                         if library["root"] in path:
                             libraries_to_scan.append(library["id"])
-                            break
 
         # Send scan requests to each komga library
         if libraries_to_scan:
