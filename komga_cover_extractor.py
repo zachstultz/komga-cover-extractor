@@ -43,7 +43,7 @@ from watchdog.observers import Observer
 from settings import *
 
 # Version of the script
-script_version = (2, 4, 11)
+script_version = (2, 4, 12)
 script_version_text = "v{}.{}.{}".format(*script_version)
 
 # Paths = existing library
@@ -187,16 +187,39 @@ image_extensions = {".jpg", ".jpeg", ".png", ".tbn", ".webp"}
 # Type of file formats for manga and novels
 file_formats = ["chapter", "volume"]
 
+
+class LibraryType:
+    def __init__(self, name, extensions, must_contain, must_not_contain):
+        self.name = name
+        self.extensions = extensions
+        self.must_contain = must_contain
+        self.must_not_contain = must_not_contain
+
+    # to string
+    def __str__(self):
+        return f"LibraryType(name={self.name}, extensions={self.extensions}, must_contain={self.must_contain}, must_not_contain={self.must_not_contain})"
+
+
 # The Library Entertainment types
 library_types = [
-    "manga",
-    "comic",
-    "webtoon",
-    "webcomic",
-    "manhwa",
-    "web novel",
-    "light novel",
+    LibraryType(
+        "manga",  # name
+        manga_extensions,  # extensions
+        [r"\(Digital\b"],  # must_contain
+        [
+            r"Webtoon",
+        ],  # must_not_contain
+    ),
+    LibraryType(
+        "light novel",  # name
+        novel_extensions,  # extensions
+        [
+            r"\[[^\]]*(Lucaz|Stick|Oak|Yen (Press|On)|J-Novel|Seven Seas|Vertical|One Peace Books|Cross Infinite|Sol Press|Hanashi Media|Kodansha|Tentai Books|SB Creative|Hobby Japan|Impress Corporation|KADOKAWA)[^\]]*\]|(faratnis|Officially Translated Light Novels)"
+        ],  # must_contain
+        [],  # must_not_contain
+    ),
 ]
+
 
 # The Translation Status source types for a library
 translation_source_types = ["official", "fan", "raw"]
@@ -391,8 +414,8 @@ copy_existing_volume_covers_toggle = False
 # The percentage of words in the array of words,
 # parsed from a shortened series_name to be kept
 # for both series_names being compared.
-# EX: 0.6 = 60%
-shortened_word_filter_percentage = 0.6
+# EX: 0.7= 70%
+shortened_word_filter_percentage = 0.7
 
 # The amount of time to sleep before checking again if all the files are fully transferred.
 # Slower network response times may require a higher value.
@@ -735,7 +758,7 @@ class Handler(FileSystemEventHandler):
                         ),
                         [
                             {
-                                "name": "File Found:",
+                                "name": "File Found",
                                 "value": "```" + str(event.src_path) + "```",
                                 "inline": False,
                             }
@@ -892,7 +915,7 @@ class Handler(FileSystemEventHandler):
                     ),
                     [
                         {
-                            "name": "Execution Time:",
+                            "name": "Execution Time",
                             "value": "```"
                             + str(execution_time)
                             + " "
@@ -1061,6 +1084,7 @@ def process_path(path, paths_with_types, paths, is_download_folders=False):
 
             print("\t\t\t\t\t- path types: " + str(path_formats))
 
+
     # Gets the common extensions from a list of extensions
     def get_common_extensions(all_extensions):
         nonlocal COMMON_EXTENSION_THRESHOLD
@@ -1085,7 +1109,7 @@ def process_path(path, paths_with_types, paths, is_download_folders=False):
                 for ext in path_to_process.split(",")
                 if ext.strip() in file_extensions
             ]
-        elif path_to_process.split(",")[0].strip() in library_types:
+        elif path_to_process.split(",")[0].strip() in [x.name for x in library_types]:
             path_library_types = [
                 library_type.strip() for library_type in path_to_process.split(",")
             ]
@@ -1099,6 +1123,7 @@ def process_path(path, paths_with_types, paths, is_download_folders=False):
     path_extensions = []
     path_library_types = []
     path_translation_source_types = []
+    path_source_languages = []
     path_obj = None
 
     path_str = path[0]
@@ -1114,14 +1139,13 @@ def process_path(path, paths_with_types, paths, is_download_folders=False):
             process_auto_classification()
             path_obj = Path(
                 path_str,
-                path_formats=path_formats if path_formats else file_formats,
-                path_extensions=path_extensions if path_extensions else file_extensions,
-                library_types=path_library_types
-                if path_library_types
-                else library_types,
+                path_formats=path_formats if path_formats else [],
+                path_extensions=path_extensions if path_extensions else [],
+                library_types=path_library_types if path_library_types else [],
                 translation_source_types=path_translation_source_types
                 if path_translation_source_types
-                else translation_source_types,
+                else [],
+                source_languages=path_source_languages if path_source_languages else [],
             )
     else:
         # process all paths except for the first one
@@ -1136,6 +1160,7 @@ def process_path(path, paths_with_types, paths, is_download_folders=False):
             translation_source_types=path_translation_source_types
             if path_translation_source_types
             else translation_source_types,
+            source_languages=path_source_languages if path_source_languages else [],
         )
 
     if not is_download_folders:
@@ -1587,6 +1612,7 @@ last_hook_index = None
 
 
 # Handles picking a webhook url, to evenly distribute the load
+@lru_cache(maxsize=None)
 def pick_webhook(hook, passed_webhook=None, url=None):
     global last_hook_index
     if not passed_webhook:
@@ -1809,7 +1835,6 @@ def clean_and_sort(
                     files, root, file_extensions + rar_extensions, test_mode=test_mode
                 )
         if just_these_files and files:
-            # just_these_basenames = [os.path.basename(x) for x in just_these_files]
             files = [
                 x
                 for x in files
@@ -1819,9 +1844,6 @@ def clean_and_sort(
                     and get_file_extension(x) in image_extensions
                 )
             ]
-            # for j_file in just_these_files:
-            #     if os.path.basename(j_file) not in files:
-            #         print("\tRemoved from just_these_files: " + j_file)
         if not chapters:
             files = filter_non_chapters(files)
     if dirs:
@@ -2332,6 +2354,8 @@ def get_series_name_from_file_name_chapter(name, root, chapter_number=""):
 # Creates folders for our stray volumes sitting in the root of the download folder.
 def create_folders_for_items_in_download_folder(group=False):
     global transferred_files
+    global transferred_dirs
+
     for download_folder in download_folders:
         if os.path.exists(download_folder):
             try:
@@ -2438,19 +2462,42 @@ def create_folders_for_items_in_download_folder(group=False):
                                         ) and not os.path.isfile(
                                             os.path.join(root, dir, file.name)
                                         ):
+                                            new_folder_location = os.path.join(
+                                                root, dir
+                                            )
                                             # it doesn't, we move it and the image associated with it, to that folder
                                             move_file(
                                                 file,
-                                                os.path.join(root, dir),
+                                                new_folder_location,
                                                 group=group,
                                             )
                                             if watchdog_toggle:
                                                 transferred_files.append(
                                                     os.path.join(root, dir, file.name)
                                                 )
+
                                                 # remove old item from transferred files
                                                 if file.path in transferred_files:
                                                     transferred_files.remove(file.path)
+
+                                                # add new folder object to transferred dirs
+                                                transferred_dirs.append(
+                                                    Folder(
+                                                        new_folder_location,
+                                                        None,
+                                                        os.path.basename(
+                                                            os.path.dirname(
+                                                                new_folder_location
+                                                            )
+                                                        ),
+                                                        os.path.basename(
+                                                            new_folder_location
+                                                        ),
+                                                        get_all_files_recursively_in_dir_watchdog(
+                                                            new_folder_location
+                                                        ),
+                                                    )
+                                                )
                                             done = True
                                             break
                                         else:
@@ -2484,6 +2531,22 @@ def create_folders_for_items_in_download_folder(group=False):
                                     # remove old item from transferred files
                                     if file.path in transferred_files:
                                         transferred_files.remove(file.path)
+
+                                    # add new folder object to transferred dirs
+                                    transferred_dirs.append(
+                                        Folder(
+                                            folder_location,
+                                            None,
+                                            os.path.basename(
+                                                os.path.dirname(folder_location)
+                                            ),
+                                            os.path.basename(folder_location),
+                                            get_all_files_recursively_in_dir_watchdog(
+                                                folder_location
+                                            ),
+                                        )
+                                    )
+
             except Exception as e:
                 send_message(str(e), error=True)
         else:
@@ -2569,7 +2632,7 @@ def get_min_and_max_numbers(string):
     numbers_search = [set_num_as_float_or_int(num) for num in numbers_search]
 
     # remove any empty items from the list
-    numbers_search = [num for num in numbers_search if num]
+    numbers_search = [num for num in numbers_search if num != None and num != ""]
 
     # if the resulting list is not empty, filter it further
     if numbers_search:
@@ -2579,8 +2642,12 @@ def get_min_and_max_numbers(string):
         # get highest number in list
         highest_number = max(numbers_search)
 
+        # get rid of highest_number
+        if lowest_number == highest_number:
+            highest_number = None
+
         # discard any numbers inbetween the lowest and highest number
-        if lowest_number and highest_number:
+        if lowest_number != None and highest_number != None:
             numbers = [lowest_number, highest_number]
         elif lowest_number and not highest_number:
             numbers = [lowest_number]
@@ -3214,12 +3281,12 @@ def remove_file(full_file_path, silent=False, group=False):
                 ),
                 fields=[
                     {
-                        "name": "File:",
+                        "name": "File",
                         "value": "```" + os.path.basename(full_file_path) + "```",
                         "inline": False,
                     },
                     {
-                        "name": "Location:",
+                        "name": "Location",
                         "value": "```" + os.path.dirname(full_file_path) + "```",
                         "inline": False,
                     },
@@ -3260,12 +3327,12 @@ def move_file(
                             ),
                             fields=[
                                 {
-                                    "name": "File:",
+                                    "name": "File",
                                     "value": "```" + file.name + "```",
                                     "inline": False,
                                 },
                                 {
-                                    "name": "To:",
+                                    "name": "To",
                                     "value": "```" + new_location + "```",
                                     "inline": False,
                                 },
@@ -3326,12 +3393,12 @@ def replace_file(old_file, new_file, group=False, highest_num=None, highest_part
                             ),
                             fields=[
                                 {
-                                    "name": "File:",
+                                    "name": "File",
                                     "value": "```" + new_file.name + "```",
                                     "inline": False,
                                 },
                                 {
-                                    "name": "To:",
+                                    "name": "To",
                                     "value": "```" + old_file.root + "```",
                                     "inline": False,
                                 },
@@ -3485,36 +3552,36 @@ def remove_duplicate_releases_from_download(
                                 )
                         fields = [
                             {
-                                "name": "From:",
+                                "name": "From",
                                 "value": "```" + original.name + "```",
                                 "inline": False,
                             },
                             {
-                                "name": "Score:",
+                                "name": "Score",
                                 "value": str(
                                     upgrade_status.current_ranked_result.total_score
                                 ),
                                 "inline": True,
                             },
                             {
-                                "name": "Tags:",
+                                "name": "Tags",
                                 "value": str(original_file_tags),
                                 "inline": True,
                             },
                             {
-                                "name": "To:",
+                                "name": "To",
                                 "value": "```" + download.name + "```",
                                 "inline": False,
                             },
                             {
-                                "name": "Score:",
+                                "name": "Score",
                                 "value": str(
                                     upgrade_status.downloaded_ranked_result.total_score
                                 ),
                                 "inline": True,
                             },
                             {
-                                "name": "Tags:",
+                                "name": "Tags",
                                 "value": str(downloaded_file_tags),
                                 "inline": True,
                             },
@@ -3524,7 +3591,7 @@ def remove_duplicate_releases_from_download(
                             fields.insert(
                                 3,
                                 {
-                                    "name": "Size:",
+                                    "name": "Size",
                                     "value": str(original_file_size),
                                     "inline": True,
                                 },
@@ -3532,7 +3599,7 @@ def remove_duplicate_releases_from_download(
                             # append downloaded file size at the end
                             fields.append(
                                 {
-                                    "name": "Size:",
+                                    "name": "Size",
                                     "value": str(downloaded_file_size),
                                     "inline": True,
                                 }
@@ -4232,12 +4299,12 @@ def reorganize_and_rename(files, dir, group=False):
                                             ),
                                             fields=[
                                                 {
-                                                    "name": "From:",
+                                                    "name": "From",
                                                     "value": "```" + file.name + "```",
                                                     "inline": False,
                                                 },
                                                 {
-                                                    "name": "To:",
+                                                    "name": "To",
                                                     "value": "```" + rename + "```",
                                                     "inline": False,
                                                 },
@@ -4600,27 +4667,27 @@ def check_upgrade(
             if not isbn and not image:
                 fields = [
                     {
-                        "name": "Existing Series Location:",
+                        "name": "Existing Series Location",
                         "value": "```" + existing_dir + "```",
                         "inline": False,
                     },
                     {
-                        "name": "Downloaded File Series Name:",
+                        "name": "Downloaded File Series Name",
                         "value": "```" + similarity_strings[0] + "```",
                         "inline": True,
                     },
                     {
-                        "name": "Existing Library Folder Name:",
+                        "name": "Existing Library Folder Name",
                         "value": "```" + similarity_strings[1] + "```",
                         "inline": False,
                     },
                     {
-                        "name": "Similarity Score:",
+                        "name": "Similarity Score",
                         "value": "```" + str(similarity_strings[2]) + "```",
                         "inline": True,
                     },
                     {
-                        "name": "Required Score:",
+                        "name": "Required Score",
                         "value": "```>= " + str(similarity_strings[3]) + "```",
                         "inline": True,
                     },
@@ -4629,17 +4696,17 @@ def check_upgrade(
                 if len(similarity_strings) >= 2:
                     fields = [
                         {
-                            "name": "Existing Series Location:",
+                            "name": "Existing Series Location",
                             "value": "```" + existing_dir + "```",
                             "inline": False,
                         },
                         {
-                            "name": "Downloaded File:",
+                            "name": "Downloaded File",
                             "value": "```" + "\n".join(similarity_strings[0]) + "```",
                             "inline": False,
                         },
                         {
-                            "name": "Existing Library File:",
+                            "name": "Existing Library File",
                             "value": "```" + "\n".join(similarity_strings[1]) + "```",
                             "inline": False,
                         },
@@ -4656,27 +4723,27 @@ def check_upgrade(
                 if len(similarity_strings) == 4:
                     fields = [
                         {
-                            "name": "Existing Series Location:",
+                            "name": "Existing Series Location",
                             "value": "```" + existing_dir + "```",
                             "inline": False,
                         },
                         {
-                            "name": "Existing Shortened Series Name:",
+                            "name": "Existing Shortened Series Name",
                             "value": "```" + similarity_strings[0] + "```",
                             "inline": True,
                         },
                         {
-                            "name": "Download File Shortened Series Name:",
+                            "name": "Download File Shortened Series Name",
                             "value": "```" + similarity_strings[1] + "```",
                             "inline": True,
                         },
                         {
-                            "name": "Image Similarity Score:",
+                            "name": "Image Similarity Score",
                             "value": "```" + str(similarity_strings[2]) + "```",
                             "inline": False,
                         },
                         {
-                            "name": "Required Score:",
+                            "name": "Required Score",
                             "value": "```>=" + str(similarity_strings[3]) + "```",
                             "inline": True,
                         },
@@ -5125,21 +5192,21 @@ def check_for_duplicate_volumes(paths_to_search=[], group=False):
                                                                 ),
                                                                 fields=[
                                                                     {
-                                                                        "name": "Location:",
+                                                                        "name": "Location",
                                                                         "value": "```"
                                                                         + upgrade_file.root
                                                                         + "```",
                                                                         "inline": False,
                                                                     },
                                                                     {
-                                                                        "name": "Duplicate:",
+                                                                        "name": "Duplicate",
                                                                         "value": "```"
                                                                         + duplicate_file.name
                                                                         + "```",
                                                                         "inline": False,
                                                                     },
                                                                     {
-                                                                        "name": "has a lower score than:",
+                                                                        "name": "has a lower score than",
                                                                         "value": "```"
                                                                         + upgrade_file.name
                                                                         + "```",
@@ -5193,14 +5260,14 @@ def check_for_duplicate_volumes(paths_to_search=[], group=False):
                                                                     ),
                                                                     fields=[
                                                                         {
-                                                                            "name": "Location:",
+                                                                            "name": "Location",
                                                                             "value": "```"
                                                                             + file.root
                                                                             + "```",
                                                                             "inline": False,
                                                                         },
                                                                         {
-                                                                            "name": "File Names:",
+                                                                            "name": "File Names",
                                                                             "value": "```"
                                                                             + file.name
                                                                             + "\n"
@@ -5209,7 +5276,7 @@ def check_for_duplicate_volumes(paths_to_search=[], group=False):
                                                                             "inline": False,
                                                                         },
                                                                         {
-                                                                            "name": "File Hashes:",
+                                                                            "name": "File Hashes",
                                                                             "value": "```"
                                                                             + file_hash
                                                                             + " "
@@ -5247,21 +5314,21 @@ def check_for_duplicate_volumes(paths_to_search=[], group=False):
                                                                     ),
                                                                     fields=[
                                                                         {
-                                                                            "name": "Location:",
+                                                                            "name": "Location",
                                                                             "value": "```"
                                                                             + compare_file.root
                                                                             + "```",
                                                                             "inline": False,
                                                                         },
                                                                         {
-                                                                            "name": "Duplicate:",
+                                                                            "name": "Duplicate",
                                                                             "value": "```"
                                                                             + file.name
                                                                             + "```",
                                                                             "inline": False,
                                                                         },
                                                                         {
-                                                                            "name": "has an equal score to:",
+                                                                            "name": "has an equal score to",
                                                                             "value": "```"
                                                                             + compare_file.name
                                                                             + "```",
@@ -6221,8 +6288,8 @@ def check_for_existing_series(group=False):
                                                                             ]
 
                                                                     if (
-                                                                        shortened_folder_name
-                                                                        == file_shortened_series_name.lower()
+                                                                        shortened_folder_name.lower().strip()
+                                                                        == file_shortened_series_name.lower().strip()
                                                                         or similar(
                                                                             shortened_folder_name,
                                                                             file_shortened_series_name,
@@ -7983,14 +8050,14 @@ def rename_files_in_download_folders(
                                                                 ),
                                                                 fields=[
                                                                     {
-                                                                        "name": "From:",
+                                                                        "name": "From",
                                                                         "value": "```"
                                                                         + file.name
                                                                         + "```",
                                                                         "inline": False,
                                                                     },
                                                                     {
-                                                                        "name": "To:",
+                                                                        "name": "To",
                                                                         "value": "```"
                                                                         + replacement
                                                                         + "```",
@@ -8126,17 +8193,17 @@ def delete_chapters_from_downloads(group=False):
                                         ),
                                         fields=[
                                             {
-                                                "name": "File:",
+                                                "name": "File",
                                                 "value": "```" + file + "```",
                                                 "inline": False,
                                             },
                                             {
-                                                "name": "Location:",
+                                                "name": "Location",
                                                 "value": "```" + root + "```",
                                                 "inline": False,
                                             },
                                             {
-                                                "name": "Checks:",
+                                                "name": "Checks",
                                                 "value": "```"
                                                 + "Contains chapter keywords/lone numbers ✓\n"
                                                 + "Does not contain any volume keywords ✓\n"
@@ -9053,19 +9120,19 @@ def delete_unacceptable_files(group=False):
                                                 ),
                                                 fields=[
                                                     {
-                                                        "name": "Found Regex/Keyword Match:",
+                                                        "name": "Found Regex/Keyword Match",
                                                         "value": "```"
                                                         + unacceptable_keyword_search.group()
                                                         + "```",
                                                         "inline": False,
                                                     },
                                                     {
-                                                        "name": "In:",
+                                                        "name": "In",
                                                         "value": "```" + file + "```",
                                                         "inline": False,
                                                     },
                                                     {
-                                                        "name": "Location:",
+                                                        "name": "Location",
                                                         "value": "```" + root + "```",
                                                         "inline": False,
                                                     },
@@ -10202,12 +10269,12 @@ def check_for_new_volumes_on_bookwalker():
                     ),
                     fields=[
                         {
-                            "name": "Type:",
+                            "name": "Type",
                             "value": r.book_type,
                             "inline": False,
                         },
                         {
-                            "name": "Release Date:",
+                            "name": "Release Date",
                             "value": r.date,
                             "inline": False,
                         },
@@ -10221,7 +10288,7 @@ def check_for_new_volumes_on_bookwalker():
                 #     r.description = r.description[:347] + "..."
                 embed[0].fields.append(
                     {
-                        "name": "Description:",
+                        "name": "Description",
                         "value": unidecode(r.description),
                         "inline": False,
                     }
@@ -10289,12 +10356,12 @@ def check_for_new_volumes_on_bookwalker():
                     ),
                     fields=[
                         {
-                            "name": "Type:",
+                            "name": "Type",
                             "value": p.book_type,
                             "inline": False,
                         },
                         {
-                            "name": "Release Date:",
+                            "name": "Release Date",
                             "value": p.date,
                             "inline": False,
                         },
@@ -10308,7 +10375,7 @@ def check_for_new_volumes_on_bookwalker():
                 #     p.description = p.description[:347] + "..."
                 embed[0].fields.append(
                     {
-                        "name": "Description:",
+                        "name": "Description",
                         "value": unidecode(p.description),
                         "inline": False,
                     }
@@ -11223,21 +11290,21 @@ def convert_to_cbz(group=False):
                                             ),
                                             fields=[
                                                 {
-                                                    "name": "From:",
+                                                    "name": "From",
                                                     "value": "```"
                                                     + os.path.basename(source_file)
                                                     + "```",
                                                     "inline": False,
                                                 },
                                                 {
-                                                    "name": "To:",
+                                                    "name": "To",
                                                     "value": "```"
                                                     + os.path.basename(repacked_file)
                                                     + "```",
                                                     "inline": False,
                                                 },
                                                 {
-                                                    "name": "Location:",
+                                                    "name": "Location",
                                                     "value": "```"
                                                     + os.path.dirname(repacked_file)
                                                     + "```",
@@ -11397,14 +11464,14 @@ def correct_file_extensions(group=False):
                                                     ),
                                                     fields=[
                                                         {
-                                                            "name": "From:",
+                                                            "name": "From",
                                                             "value": "```"
                                                             + volume.name
                                                             + "```",
                                                             "inline": False,
                                                         },
                                                         {
-                                                            "name": "To:",
+                                                            "name": "To",
                                                             "value": "```"
                                                             + volume.extensionless_name
                                                             + volume.header_extension
