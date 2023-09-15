@@ -43,7 +43,7 @@ from watchdog.observers import Observer
 from settings import *
 
 # Version of the script
-script_version = (2, 4, 12)
+script_version = (2, 4, 13)
 script_version_text = "v{}.{}.{}".format(*script_version)
 
 # Paths = existing library
@@ -1463,6 +1463,7 @@ def parse_my_args():
         if (
             "password" not in setting.lower()
             and "email" not in setting.lower()
+            and "_ip" not in setting.lower()
             and "token" not in setting.lower()
         ) or not value:
             print("\t" + setting + ": " + str(value))
@@ -3088,7 +3089,7 @@ def upgrade_to_volume_class(
         if file_obj.is_one_shot:
             file_obj.volume_number = 1
 
-        if file_obj.volume_number:
+        if file_obj.volume_number != "":
             if (
                 file_obj.volume_part
                 and not isinstance(file_obj.volume_number, list)
@@ -4851,7 +4852,7 @@ def check_upgrade(
                         "inline": False,
                     },
                     {
-                        "name": volume.file_type.capitalize() + " Name",
+                        "name": volume.file_type.capitalize() + " Name(s)",
                         "value": "```" + volume.name + "```",
                         "inline": False,
                     },
@@ -4866,7 +4867,7 @@ def check_upgrade(
                             "inline": False,
                         },
                     )
-                title = "New " + volume.file_type.capitalize() + " Release"
+                title = "New " + volume.file_type.capitalize() + "(s) Added"
                 is_chapter_dir = (
                     chapter_percentage_existing_folder
                 ) >= required_matching_percentage
@@ -6697,9 +6698,7 @@ def check_for_existing_series(group=False):
                     volume_numbers_mts = []
                     volume_names_mts = []
                     title = grouped_by_series_name["messages"][0].fields[0]["name"]
-                    title_2 = (
-                        grouped_by_series_name["messages"][0].fields[1]["name"] + "(s)"
-                    )
+                    title_2 = grouped_by_series_name["messages"][0].fields[1]["name"]
                     series_name = grouped_by_series_name["messages"][0].series_name
                     for message in grouped_by_series_name["messages"]:
                         if message.fields and len(message.fields) >= 2:
@@ -6731,8 +6730,7 @@ def check_for_existing_series(group=False):
                         embed = [
                             handle_fields(
                                 DiscordEmbed(
-                                    title=grouped_by_series_name["messages"][0].title
-                                    + "(s)",
+                                    title=grouped_by_series_name["messages"][0].title,
                                     color=grouped_by_series_name["messages"][0].color,
                                 ),
                                 fields=new_fields,
@@ -8438,7 +8436,7 @@ def get_highest_release(releases, is_chapter_directory=False):
             if not item.file_type == "volume":
                 continue
 
-            if not item.volume_number:
+            if item.volume_number == "":
                 continue
 
             part = None
@@ -9849,6 +9847,8 @@ def search_bookwalker(
                 if meta_property_og_image:
                     if meta_property_og_image["content"].startswith("http"):
                         preview_image_url = meta_property_og_image["content"]
+                        if "ogp-mature" in preview_image_url:
+                            preview_image_url = None
 
                 # Backup method for lower resolution preview image
                 if not preview_image_url:
