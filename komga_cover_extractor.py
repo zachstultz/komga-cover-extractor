@@ -43,7 +43,7 @@ from watchdog.observers import Observer
 from settings import *
 
 # Version of the script
-script_version = (2, 4, 13)
+script_version = (2, 4, 14)
 script_version_text = "v{}.{}.{}".format(*script_version)
 
 # Paths = existing library
@@ -3503,6 +3503,7 @@ def remove_duplicate_releases_from_download(
                             download.index_number == original.index_number
                             or (
                                 image_similarity_match
+                                and hasattr(image_similarity_match, "name")
                                 and image_similarity_match.name == original.name
                             )
                         )
