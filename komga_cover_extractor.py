@@ -11815,7 +11815,6 @@ def main():
 if __name__ == "__main__":
     parse_my_args()  # parses the user's arguments
     if watchdog_toggle and download_folders:
-        print("\nWatchdog is enabled, watching for changes...")
         while True:
             print("\nWatchdog is enabled, watching for changes...")
             watch = Watcher()
