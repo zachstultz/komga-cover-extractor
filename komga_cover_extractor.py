@@ -43,7 +43,7 @@ from watchdog.observers import Observer
 from settings import *
 
 # Version of the script
-script_version = (2, 4, 16)
+script_version = (2, 4, 17)
 script_version_text = "v{}.{}.{}".format(*script_version)
 
 # Paths = existing library
@@ -1646,6 +1646,7 @@ last_hook_index = None
 @lru_cache(maxsize=None)
 def pick_webhook(hook, passed_webhook=None, url=None):
     global last_hook_index
+    
     if not passed_webhook:
         if discord_webhook_url:
             if not last_hook_index and last_hook_index != 0:
@@ -1661,6 +1662,7 @@ def pick_webhook(hook, passed_webhook=None, url=None):
             last_hook_index = discord_webhook_url.index(hook)
     else:
         hook = passed_webhook
+
     return hook
 
 
@@ -1680,44 +1682,53 @@ def send_discord_message(
 ):
     global grouped_notifications
     global webhook_obj
+
     hook = None
     hook = pick_webhook(hook, passed_webhook, url)
-    # Reset the grouped notifications if the embeds are the same as the grouped notifications
+
+    # Reset the grouped notifications if they match the provided embeds
     if embeds == grouped_notifications:
         grouped_notifications = []
+
     try:
         if hook:
             webhook_obj.url = hook
+
             if rate_limit:
                 webhook_obj.rate_limit_retry = rate_limit
+
             if embeds:
-                if len(embeds) > 10:
-                    embeds = embeds[:10]
-                for embed in embeds:
+                # Limit the number of embeds to 10
+                for index, embed in enumerate(embeds[:10]):
                     if script_version_text:
                         embed.embed.set_footer(text=script_version_text)
+
                     if timestamp and not embed.embed.timestamp:
                         embed.embed.set_timestamp()
+
                     if image and not image_local:
                         embed.embed.set_image(url=image)
                     elif embed.file:
-                        file_name = None
-                        if len(embeds) == 1:
-                            file_name = "cover.jpg"
-                        else:
-                            index = embeds.index(embed)
-                            file_name = "cover_" + str(index + 1) + ".jpg"
+                        file_name = (
+                            "cover.jpg"
+                            if len(embeds) == 1
+                            else f"cover_{index + 1}.jpg"
+                        )
                         webhook_obj.add_file(file=embed.file, filename=file_name)
-                        embed.embed.set_image(url="attachment://" + file_name)
+                        embed.embed.set_image(url=f"attachment://{file_name}")
+
                     webhook_obj.add_embed(embed.embed)
             elif message:
                 webhook_obj.content = message
+
             webhook_obj.execute()
-            # Reset the webhook object
-            webhook_obj = DiscordWebhook(url=None)
     except Exception as e:
         send_message(str(e), error=True, discord=False)
+        # Reset the webhook object
         webhook_obj = DiscordWebhook(url=None)
+
+    # Reset the webhook object
+    webhook_obj = DiscordWebhook(url=None)
 
 
 # Removes hidden files
@@ -2230,7 +2241,7 @@ def move_images(
 # Retrieves the series name through various regexes
 # Removes the volume number and anything to the right of it, and strips it.
 @lru_cache(maxsize=None)
-def get_series_name_from_file_name(name, root, test_mode=False):
+def get_series_name_from_file_name(name, root, test_mode=False, second=False):
     name = remove_dual_space(re.sub(r"_extra", " ", name, flags=re.IGNORECASE)).strip()
 
     # name = remove_bracketed_info_from_name(name)
@@ -2266,15 +2277,26 @@ def get_series_name_from_file_name(name, root, test_mode=False):
                 name,
                 flags=re.IGNORECASE,
             ).strip()
+
+    # Default to the root folder name if we have nothing left
+    # As long as it's not in our download folders or paths
     if (
         not name
+        and not second
         and root
         and (
             os.path.basename(root) not in str(download_folders) or not download_folders
         )
         and (os.path.basename(root) not in str(paths) or not paths)
     ):
-        name = remove_bracketed_info_from_name(os.path.basename(root))
+        # Get the series namne from the root folder
+        # EX: "Kindaichi 37-sai no Jikenbo -v01-v12-"" --> "Kindaichi 37-sai no Jikenbo"
+        name = get_series_name_from_file_name(
+            os.path.basename(root), root, test_mode=test_mode, second=True
+        )
+
+        # Remove any brackets
+        name = remove_bracketed_info_from_name(name)
 
     return name
 
@@ -2343,7 +2365,7 @@ def chapter_file_name_cleaning(
     return file_name
 
 
-def get_series_name_from_file_name_chapter(name, root, chapter_number=""):
+def get_series_name_from_file_name_chapter(name, root, chapter_number="", second=False):
     name = remove_dual_space(re.sub(r"_extra", " ", name, flags=re.IGNORECASE)).strip()
 
     # remove the file extension
@@ -2368,15 +2390,31 @@ def get_series_name_from_file_name_chapter(name, root, chapter_number=""):
         result = chapter_file_name_cleaning(
             name, chapter_number, regex_matched=regex_matched
         )
+
+    # Default to the root folder name if we have nothing left
+    # As long as it's not in our download folders or paths
     if (
         not result
+        and not second
         and root
         and (
             os.path.basename(root) not in str(download_folders) or not download_folders
         )
         and (os.path.basename(root) not in str(paths) or not paths)
     ):
-        result = remove_bracketed_info_from_name(os.path.basename(root))
+        root_number = remove_everything_but_volume_num([os.path.basename(root)])
+
+        # Get series name
+        result = get_series_name_from_file_name_chapter(
+            os.path.basename(root),
+            root,
+            root_number if root_number else "",
+            second=True,
+        )
+
+        # Remove any brackets
+        result = remove_bracketed_info_from_name(result)
+
     return result
 
 
@@ -4419,79 +4457,88 @@ def normalize_string_for_matching(
     skip_japanese_particles=False,
     skip_misc_words=False,
 ):
-    if len(s) > 1:
-        words_to_remove = []
-        if not skip_common_words:
-            common_words = [
-                "the",
-                "a",
-                "à",
-                "and",
-                "&",
-                "I",
-                "of",
-            ]
-            words_to_remove.extend(common_words)
-        if not skip_editions:
-            editions = [
-                "Collection",
-                "Master Edition",
-                "(2|3|4|5)-in-1 Edition",
-                "Edition",
-                "Exclusive",
-                "Anniversary",
-                "Deluxe",
-                # "Omnibus",
-                "Digital",
-                "Official",
-                "Anthology",
-                "Limited",
-                "Complete",
-                "Collector",
-                "Ultimate",
-                "Special",
-            ]
-            words_to_remove.extend(editions)
-        if not skip_type_keywords:
-            # (?<!^) = Cannot start with this word
-            # EX: "Book Girl" is a light novel series
-            # and you wouldn't want to remove that from the series name.
-            type_keywords = [
-                "(?<!^)Novel",
-                "(?<!^)Light Novel",
-                "(?<!^)Manga",
-                "(?<!^)Comic",
-                "(?<!^)LN",
-                "(?<!^)Series",
-                "(?<!^)Volume",
-                "(?<!^)Chapter",
-                "(?<!^)Book",
-                "(?<!^)MANHUA",
-            ]
-            words_to_remove.extend(type_keywords)
-        if not skip_japanese_particles:
-            japanese_particles = [
-                "wa",
-                "o",
-                "mo",
-                "ni",
-                "e",
-                "de",
-                "ga",
-                "kara",
-                "to",
-                "ya",
-                "no(?!\.)",
-                "ne",
-                "yo",
-            ]
-            words_to_remove.extend(japanese_particles)
-        if not skip_misc_words:
-            misc_words = ["((\d+)([-_. ]+)?th)", "x", "×", "HD"]
-            words_to_remove.extend(misc_words)
-        for word in words_to_remove:
-            s = re.sub(rf"\b{word}\b", " ", s, flags=re.IGNORECASE).strip()
-            s = remove_dual_space(s)
+    if len(s) <= 1:
+        return s
+
+    words_to_remove = []
+
+    if not skip_common_words:
+        common_words = [
+            "the",
+            "a",
+            "à",
+            "and",
+            "&",
+            "I",
+            "of",
+        ]
+        words_to_remove.extend(common_words)
+
+    if not skip_editions:
+        editions = [
+            "Collection",
+            "Master Edition",
+            "(2|3|4|5)-in-1 Edition",
+            "Edition",
+            "Exclusive",
+            "Anniversary",
+            "Deluxe",
+            # "Omnibus",
+            "Digital",
+            "Official",
+            "Anthology",
+            "Limited",
+            "Complete",
+            "Collector",
+            "Ultimate",
+            "Special",
+        ]
+        words_to_remove.extend(editions)
+
+    if not skip_type_keywords:
+        # (?<!^) = Cannot start with this word
+        # EX: "Book Girl" is a light novel series
+        # and you wouldn't want to remove that from the series name.
+        type_keywords = [
+            "(?<!^)Novel",
+            "(?<!^)Light Novel",
+            "(?<!^)Manga",
+            "(?<!^)Comic",
+            "(?<!^)LN",
+            "(?<!^)Series",
+            "(?<!^)Volume",
+            "(?<!^)Chapter",
+            "(?<!^)Book",
+            "(?<!^)MANHUA",
+        ]
+        words_to_remove.extend(type_keywords)
+
+    if not skip_japanese_particles:
+        japanese_particles = [
+            "wa",
+            "o",
+            "mo",
+            "ni",
+            "e",
+            "de",
+            "ga",
+            "kara",
+            "to",
+            "ya",
+            "no(?!\.)",
+            "ne",
+            "yo",
+        ]
+        words_to_remove.extend(japanese_particles)
+
+    if not skip_misc_words:
+        misc_words = ["((\d+)([-_. ]+)?th)", "x", "×", "HD"]
+        words_to_remove.extend(misc_words)
+
+    for word in words_to_remove:
+        s = re.sub(rf"\b{word}\b", " ", s, flags=re.IGNORECASE).strip()
+        s = remove_dual_space(s)
+
     return s.strip()
 
 
@@ -4618,8 +4665,8 @@ def check_upgrade(
     group=False,
     image=False,
 ):
-    global moved_files
-    global messages_to_send
+    global moved_files, messages_to_send
+
     existing_dir = os.path.join(existing_root, dir)
     clean_existing = os.listdir(existing_dir)
     clean_existing = clean_and_sort(existing_dir, clean_existing)[0]
@@ -4633,6 +4680,7 @@ def check_upgrade(
             existing_dir,
         )
     )
+
     manga_percent_download_folder = get_percent_for_folder(
         [file.name], extensions=manga_extensions
     )
@@ -4657,6 +4705,7 @@ def check_upgrade(
     volume_percentage_existing_folder = get_percent_for_folder(
         clean_existing, file_type="volume"
     )
+
     print(
         "\tRequired Folder Matching Percent: {}%".format(required_matching_percentage)
     )
@@ -4692,29 +4741,28 @@ def check_upgrade(
             volume_percentage_existing_folder
         )
     )
-    if (
-        (
-            (manga_percent_download_folder and manga_percent_existing_folder)
-            >= required_matching_percentage
-        )
-        or (
-            (novel_percent_download_folder and novel_percent_existing_folder)
-            >= required_matching_percentage
-        )
-    ) and (
-        (
-            (chapter_percentage_download_folder and chapter_percentage_existing_folder)
-            >= required_matching_percentage
-        )
-        or (
-            (volume_percentage_download_folder and volume_percentage_existing_folder)
-            >= required_matching_percentage
-        )
-    ):
+
+    matching_manga = (
+        manga_percent_download_folder >= required_matching_percentage
+    ) and (manga_percent_existing_folder >= required_matching_percentage)
+    matching_novel = (
+        novel_percent_download_folder >= required_matching_percentage
+    ) and (novel_percent_existing_folder >= required_matching_percentage)
+    matching_chapter = (
+        chapter_percentage_download_folder >= required_matching_percentage
+    ) and (chapter_percentage_existing_folder >= required_matching_percentage)
+    matching_volume = (
+        volume_percentage_download_folder >= required_matching_percentage
+    ) and (volume_percentage_existing_folder >= required_matching_percentage)
+
+    if (matching_manga or matching_novel) and (matching_chapter or matching_volume):
         download_dir_volumes = [file]
+
         if rename_files_in_download_folders_toggle and resturcture_when_renaming:
             reorganize_and_rename(download_dir_volumes, existing_dir, group=group)
+
         fields = []
+
         if similarity_strings:
             if not isbn and not image:
                 fields = [
@@ -4808,6 +4856,7 @@ def check_upgrade(
                         + file.name,
                         error=True,
                     )
+
         if cache:
             send_message(
                 "\n\t\tFound existing series from cache: " + existing_dir, discord=False
@@ -4862,14 +4911,17 @@ def check_upgrade(
                     ),
                 ]
                 add_to_grouped_notifications(Embed(embed[0], None))
+
         remove_duplicate_releases_from_download(
             clean_existing,
             download_dir_volumes,
             group=group,
             image_similarity_match=image,
         )
+
         if len(download_dir_volumes) != 0:
             volume = download_dir_volumes[0]
+
             if isinstance(
                 volume.volume_number,
                 float,
@@ -4890,12 +4942,14 @@ def check_upgrade(
                     discord=False,
                 )
                 cover = None
+
                 if volume.file_type == "volume" or (
                     volume.file_type == "chapter"
                     and output_chapter_covers_to_discord
                     and not new_volume_webhook
                 ):
                     cover = find_and_extract_cover(volume, return_data_only=True)
+
                 fields = [
                     {
                         "name": volume.file_type.capitalize() + " Number(s)",
@@ -4908,6 +4962,7 @@ def check_upgrade(
                         "inline": False,
                     },
                 ]
+
                 if volume.volume_part and volume.file_type == "volume":
                     # insert after volume number in fields
                     fields.insert(
@@ -4918,6 +4973,7 @@ def check_upgrade(
                             "inline": False,
                         },
                     )
+
                 title = "New " + volume.file_type.capitalize() + "(s) Added"
                 is_chapter_dir = (
                     chapter_percentage_existing_folder
@@ -4950,6 +5006,7 @@ def check_upgrade(
                     highest_index_num=highest_index_num,
                     is_chapter_dir=is_chapter_dir,
                 )
+
                 if move_status:
                     check_and_delete_empty_folder(volume.root)
                     volume.extensionless_path = get_extensionless_name(
@@ -4958,6 +5015,7 @@ def check_upgrade(
                     volume.path = os.path.join(existing_dir, volume.name)
                     volume.root = existing_dir
                     moved_files.append(volume.path)
+
                 embed = [
                     handle_fields(
                         DiscordEmbed(
@@ -4967,6 +5025,7 @@ def check_upgrade(
                         fields=fields,
                     ),
                 ]
+
                 if new_volume_webhook:
                     if volume.file_type == "chapter":
                         messages_to_send.append(
@@ -4995,6 +5054,7 @@ def check_upgrade(
                         and not group_discord_notifications_until_max
                     ):
                         send_discord_message(None, grouped_notifications)
+
                 return True
         else:
             if grouped_notifications and not group_discord_notifications_until_max:
@@ -5118,29 +5178,35 @@ def check_for_duplicate_volumes(paths_to_search=[], group=False):
                         [f for f in files if os.path.isfile(os.path.join(root, f))],
                         root,
                     )
-                    file_objects = [
-                        fo
-                        for fo in file_objects
-                        for compare in file_objects
-                        if fo.name != compare.name
-                        and (fo.volume_number != "" and compare.volume_number != "")
-                        and fo.volume_number == compare.volume_number
-                        and fo.root == compare.root
-                        and fo.extension == compare.extension
-                        and fo.file_type == compare.file_type
-                    ]
+                    file_objects = list(
+                        {
+                            fo
+                            for fo in file_objects
+                            for compare in file_objects
+                            if fo.name != compare.name
+                            and (fo.volume_number != "" and compare.volume_number != "")
+                            and fo.volume_number == compare.volume_number
+                            and fo.root == compare.root
+                            and fo.extension == compare.extension
+                            and fo.file_type == compare.file_type
+                        }
+                    )
+
                     volumes = upgrade_to_volume_class(file_objects)
-                    volumes = [
-                        v
-                        for v in volumes
-                        for compare in volumes
-                        if v.name != compare.name
-                        and v.index_number == compare.index_number
-                        and v.root == compare.root
-                        and v.extension == compare.extension
-                        and v.file_type == compare.file_type
-                        and v.series_name == compare.series_name
-                    ]
+                    volumes = list(
+                        {
+                            v
+                            for v in volumes
+                            for compare in volumes
+                            if v.name != compare.name
+                            and v.index_number == compare.index_number
+                            and v.root == compare.root
+                            and v.extension == compare.extension
+                            and v.file_type == compare.file_type
+                            and v.series_name == compare.series_name
+                        }
+                    )
+
                     for file in volumes:
                         try:
                             if os.path.isfile(file.path):
@@ -5507,22 +5573,34 @@ def replace_underscore_in_name(name):
 def organize_array_list_by_first_letter(
     array_list, string, position_to_insert_at, exclude=None
 ):
-    if string:
-        first_letter_of_file_name = string[0]
-        for item in array_list[:]:
-            if item != exclude or not exclude:
-                name = os.path.basename(item)
-                first_letter_of_dir = name[0]
-                if (
-                    first_letter_of_dir.lower() == first_letter_of_file_name.lower()
-                    and item != array_list[position_to_insert_at]
-                ):
-                    array_list.remove(item)
-                    array_list.insert(position_to_insert_at, item)
-    else:
+    if not string:
         print(
             "First letter of file name was not found, skipping reorganization of array list."
         )
+        return array_list
+
+    first_letter_of_file_name = string[0].lower()
+    items_to_move = []
+
+    for item in array_list:
+        if item == exclude:
+            continue
+
+        if item == array_list[position_to_insert_at]:
+            continue
+
+        first_letter_of_dir = os.path.basename(item)[0].lower()
+
+        if first_letter_of_dir == first_letter_of_file_name:
+            items_to_move.append(item)
+
+    # Only keep items that don't need to be moved
+    array_list = [item for item in array_list if item not in items_to_move]
+
+    # Insert the items that need to be moved at the passed position
+    for item in items_to_move:
+        array_list.insert(position_to_insert_at, item)
+
     return array_list
 
 
@@ -5536,7 +5614,8 @@ class IdentifierResult:
 
 # get identifiers from the passed zip comment
 def get_identifiers_from_zip_comment(zip_comment):
-    metadata = None
+    metadata = []
+
     if re.search(
         r"Identifiers",
         zip_comment,
@@ -5570,9 +5649,11 @@ def parse_words(user_string):
     words = []
     try:
         translator = str.maketrans("", "", string.punctuation)
-        words = user_string.translate(translator)
-        words = words.lower()
-        words = unidecode(words).split()
+        words_no_punct = user_string.translate(translator)
+        words_lower = words_no_punct.lower()
+        words_no_uni = unidecode(words_lower).split()
+        if words_no_uni:
+            words = words_no_uni
     except Exception as e:
         send_message(f"parse_words(string={string}) - Error: {str(e)}", error=True)
     return words
@@ -5584,6 +5665,37 @@ def check_for_existing_series(group=False):
     global cached_paths
     global cached_identifier_results
     global messages_to_send
+
+    def group_similar_series(messages_to_send):
+        # Initialize an empty list to store grouped series
+        grouped_series = []
+
+        # Iterate through the messages in the input list
+        for message in messages_to_send:
+            series_name = message.series_name
+
+            # Try to find an existing group with the same series name
+            group = next(
+                (
+                    group
+                    for group in grouped_series
+                    if group["series_name"] == series_name
+                ),
+                None,
+            )
+
+            if group is not None:
+                # If a group exists, append the message to that group
+                group["messages"].append(message)
+            else:
+                # If no group exists, create a new group and add it to the list
+                grouped_series.append(
+                    {"series_name": series_name, "messages": [message]}
+                )
+
+        # Return the list of grouped series
+        return grouped_series
+
     cached_image_similarity_results = []
     if download_folders:
         print("\nChecking download folders for items to match to existing library...")
@@ -5632,6 +5744,14 @@ def check_for_existing_series(group=False):
                                     "\tSkipping: "
                                     + file.name
                                     + "\n\t\t - has no series_name"
+                                )
+                                continue
+
+                            if not file.volume_number:
+                                print(
+                                    "\tSkipping: "
+                                    + file.name
+                                    + "\n\t\t - has no volume_number"
                                 )
                                 continue
 
@@ -6838,37 +6958,6 @@ def check_for_existing_series(group=False):
     parse_words.cache_clear()
 
 
-# Groups messages by series name
-def group_similar_series(messages_to_send):
-    grouped_by_series_names = []
-    # go through messages_to_send and group them by series name,
-    # one group per series name and each group will contian all the messages for that series
-    for message in messages_to_send:
-        if grouped_by_series_names:
-            found = False
-            for grouped_series_name in grouped_by_series_names:
-                if message.series_name == grouped_series_name["series_name"]:
-                    grouped_series_name["messages"].append(message)
-                    found = True
-                    break
-            if not found:
-                grouped_by_series_names.append(
-                    {
-                        "series_name": message.series_name,
-                        "messages": [message],
-                    }
-                )
-        else:
-            grouped_by_series_names.append(
-                {
-                    "series_name": message.series_name,
-                    "messages": [message],
-                }
-            )
-
-    return grouped_by_series_names
-
-
 # Removes any unnecessary junk through regex in the folder name and returns the result
 # !OLD METHOD!: Only used for cleaning a folder name as a backup if no volumes were found inside the folder
 # when renaming folders in the dowload directory.
@@ -7938,7 +8027,7 @@ def rename_files_in_download_folders(
                                 ).strip()
                                 # replace : with - in dir_clean
                                 replacement = re.sub(
-                                    r"([A-Za-z])(\:)", r"\1 -", replacement
+                                    r"([A-Za-z])(\:|：)", r"\1 -", replacement
                                 )
 
                                 # remove dual spaces from dir_clean
@@ -8553,6 +8642,12 @@ def extract_covers(paths_to_process=paths):
                     True if folder_accessor.files[0].file_type == "chapter" else False
                 )
 
+                # Check if all the series_name values are the same for all volumes
+                same_series_name = all(
+                    x.series_name == folder_accessor.files[0].series_name
+                    for x in folder_accessor.files
+                )
+
                 # Used when filtering the series_folders of each paths_with_types
                 # by the first letter of a cleaned up name
                 clean_basename = None
@@ -8639,6 +8734,7 @@ def extract_covers(paths_to_process=paths):
                         series_cover_path,
                         volume_paths,
                         clean_basename,
+                        same_series_name,
                     )
                     for file in folder_accessor.files
                     if file.file_type == "volume"
@@ -8694,6 +8790,7 @@ def process_cover_extraction(
     series_cover_path,
     volume_paths,
     clean_basename,
+    same_series_name,
 ):
     global image_count
     update_stats(file)
@@ -9022,6 +9119,7 @@ def process_cover_extraction(
                     )
                 )
             )
+            and same_series_name
         ):
             if not printed:
                 print("\tFile: " + file.name)
@@ -10611,7 +10709,7 @@ def get_komga_libraries(first_run=True):
     except Exception as e:
         # if first, and error code 104, then try again after sleeping
         if first_run and "104" in str(e):
-            time.sleep(30)
+            time.sleep(60)
             results = get_komga_libraries(first_run=False)
         else:
             send_message(
@@ -11532,7 +11630,7 @@ def main():
     global transferred_files
     global transferred_dirs
     global komga_libraries
-
+    
     processed_files = []
     moved_files = []
     download_folder_in_paths = False
