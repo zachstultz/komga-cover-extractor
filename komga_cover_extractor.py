@@ -43,7 +43,7 @@ from watchdog.observers import Observer
 from settings import *
 
 # Version of the script
-script_version = (2, 4, 17)
+script_version = (2, 4, 18)
 script_version_text = "v{}.{}.{}".format(*script_version)
 
 # Paths = existing library
@@ -551,6 +551,14 @@ class Volume:
         self.is_one_shot = is_one_shot
 
 
+# Custom sorting key function, sort by index_number
+def get_sort_key(index_number):
+    if isinstance(index_number, list):
+        return min(index_number)
+    else:
+        return index_number
+
+
 # Path Class
 class Path:
     def __init__(
@@ -633,26 +641,32 @@ def send_message(message, discord=True, error=False, log=log_to_file):
 # Checks if the file is fully transferred by checking the file size
 def check_if_file_is_transferred_by_size(file_path):
     # Check if the file path exists and is a file
-    if os.path.isfile(file_path):
-        try:
-            # Get the file size before waiting for 1 second
-            before_file_size = os.path.getsize(file_path)
-            # Wait for 1 second
-            time.sleep(watchdog_file_transferred_check_interval)
-            # Get the file size after waiting for 1 second
-            after_file_size = os.path.getsize(file_path)
-            # Check if both file sizes are not None
-            if before_file_size is not None and after_file_size is not None:
-                # If both file sizes are the same, return True, indicating the file transfer is complete
-                return before_file_size == after_file_size
-            else:
-                # If either file size is None, return False, indicating an error
-                return False
-        except Exception as e:
-            send_message(f"ERROR in check_if_file_is_transferred_by_size(): {e}")
+    if not os.path.isfile(file_path):
+        return False
+
+    try:
+        # Get the file size before waiting for 1 second
+        before_file_size = os.path.getsize(file_path)
+
+        # Wait for 1 second
+        time.sleep(watchdog_file_transferred_check_interval)
+
+        # Get the file size after waiting for 1 second
+        after_file_size = os.path.getsize(file_path)
+
+        # Check if both file sizes are not None and not equal
+        if (
+            before_file_size is not None
+            and after_file_size is not None
+            and before_file_size != after_file_size
+        ):
             return False
-    else:
-        # If the file path does not exist or is not a file, return False, indicating an error
+
+        # If the file size is None or the same, return True, indicating the file transfer is complete
+        return True
+
+    except Exception as e:
+        send_message(f"ERROR in check_if_file_is_transferred_by_size(): {e}")
         return False
 
 
@@ -910,30 +924,49 @@ class Handler(FileSystemEventHandler):
 
             main()
             end_time = time.time()
-            time_keyword = ""
+            minute_keyword = ""
+            second_keyword = ""
 
             # get the execution time
             execution_time = end_time - start_time
+            minutes, seconds = divmod(execution_time, 60)
+            minutes = int(minutes)
+            seconds = int(seconds)
 
-            if execution_time > 60:
-                execution_time = int(execution_time / 60)
-                if execution_time == 1:
-                    time_keyword = "minute"
-                else:
-                    time_keyword = "minutes"
+            if minutes:
+                if minutes == 1:
+                    minute_keyword = "minute"
+                elif minutes > 1:
+                    minute_keyword = "minutes"
+            if seconds:
+                if seconds == 1:
+                    second_keyword = "second"
+                elif seconds > 1:
+                    second_keyword = "seconds"
+
+            execution_time_message = ""
+
+            if minutes and seconds:
+                execution_time_message = (
+                    str(minutes)
+                    + " "
+                    + minute_keyword
+                    + " and "
+                    + str(seconds)
+                    + " "
+                    + second_keyword
+                )
+            elif minutes:
+                execution_time_message = str(minutes) + " " + minute_keyword
+            elif seconds:
+                execution_time_message = str(seconds) + " " + second_keyword
             else:
-                execution_time = int(execution_time)
-                if execution_time == 1:
-                    time_keyword = "second"
-                else:
-                    time_keyword = "seconds"
+                execution_time_message = "less than 1 second"
 
             # Terminal Message
             send_message(
                 "\nFinished Execution (WATCHDOG)\n\tExecution Time: "
-                + str(execution_time)
-                + " "
-                + time_keyword,
+                + execution_time_message,
                 discord=False,
             )
 
@@ -947,11 +980,7 @@ class Handler(FileSystemEventHandler):
                     [
                         {
                             "name": "Execution Time",
-                            "value": "```"
-                            + str(execution_time)
-                            + " "
-                            + time_keyword
-                            + "```",
+                            "value": "```" + execution_time_message + "```",
                             "inline": False,
                         }
                     ],
@@ -1601,16 +1630,10 @@ def compress_image(image_path, quality=75, to_jpg=False, raw_data=None):
 
 # Check the text file line by line for the passed message
 def check_text_file_for_message(text_file, message):
-    # Open the file in read mode
+    # Open the file in read mode using a context manager
     with open(text_file, "r") as f:
-        # Loop through each line in the file
-        for line in f:
-            # Check if the message is the same as the current line
-            if message.strip() == line.strip():
-                # If it is, return True
-                return True
-    # If we get to here, the message was not found so return False
-    return False
+        # Check if any line in the file matches the message
+        return any(line.strip() == message.strip() for line in f)
 
 
 # Adjusts discord embeds fields to fit the discord embed field limits
@@ -1619,18 +1642,23 @@ def handle_fields(embed, fields):
         # An embed can contain a maximum of 25 fields
         if len(fields) > 25:
             fields = fields[:25]
+
         for field in fields:
-            # A field name/title is limited to 256 character and the value of the field is limited to 1024 characters
+            # A field name/title is limited to 256 characters
             if len(field["name"]) > 256:
-                if not re.search(r"```$", field["name"]):
-                    field["name"] = field["name"][:253] + "..."
-                else:
-                    field["name"] = field["name"][:-3][:250] + "...```"
+                field["name"] = (
+                    field["name"][:253] + "..."
+                    if not re.search(r"```$", field["name"])
+                    else field["name"][:-3][:250] + "...```"
+                )
+            # The value of the field is limited to 1024 characters
             if len(field["value"]) > 1024:
-                if not re.search(r"```$", field["value"]):
-                    field["value"] = field["value"][:1021] + "..."
-                else:
-                    field["value"] = field["value"][:-3][:1018] + "...```"
+                field["value"] = (
+                    field["value"][:1021] + "..."
+                    if not re.search(r"```$", field["value"])
+                    else field["value"][:-3][:1018] + "...```"
+                )
+
             embed.add_embed_field(
                 name=field["name"],
                 value=field["value"],
@@ -1646,7 +1674,7 @@ last_hook_index = None
 @lru_cache(maxsize=None)
 def pick_webhook(hook, passed_webhook=None, url=None):
     global last_hook_index
-    
+
     if not passed_webhook:
         if discord_webhook_url:
             if not last_hook_index and last_hook_index != 0:
@@ -2020,14 +2048,8 @@ def upgrade_to_file_class(
 
 # Updates our output stats
 def update_stats(file):
-    if not os.path.isfile(file.path):
-        return
-
     global file_counters
-    if file.extension in file_counters:
-        file_counters[file.extension] += 1
-    else:
-        file_counters[file.extension] = 1
+    file_counters[file.extension] += 1
 
 
 # Credit to original source: https://alamot.github.io/epub_cover/
@@ -2063,7 +2085,7 @@ def get_novel_cover(novel_path):
                     )
                     if cover_href:
                         cover_href = cover_href[0].get("href")
-                        if re.search(r"%", cover_href):
+                        if "%" in cover_href:
                             cover_href = urllib.parse.unquote(cover_href)
                         cover_path = os.path.join(
                             os.path.dirname(rootfile_path), cover_href
@@ -3893,15 +3915,20 @@ def check_for_missing_volumes():
                             if os.path.isfile(os.path.join(existing_dir, f))
                         ],
                         existing_dir,
-                    )
+                    ),
+                    skip_release_year=True,
+                    skip_fixed_volume=True,
+                    skip_release_group=True,
+                    skip_extras=True,
+                    skip_publisher=True,
+                    skip_premium_content=True,
+                    skip_subtitle=True,
                 )
-                for existing in existing_dir_volumes[:]:
-                    if (
-                        not isinstance(existing.volume_number, int)
-                        and not isinstance(existing.volume_number, float)
-                        and not isinstance(existing.volume_number, list)
-                    ):
-                        existing_dir_volumes.remove(existing)
+                existing_dir_volumes = [
+                    volume
+                    for volume in existing_dir_volumes
+                    if isinstance(volume.volume_number, (int, float, list))
+                ]
                 if len(existing_dir_volumes) >= 2:
                     volume_numbers = []
                     volume_numbers_second = []
@@ -3934,12 +3961,7 @@ def check_for_missing_volumes():
                                 volume_num_range.remove(number)
                         if len(volume_num_range) != 0:
                             for number in volume_num_range:
-                                message = (
-                                    "\t"
-                                    + os.path.basename(current_folder_path)
-                                    + ": Volume "
-                                    + str(number)
-                                )
+                                message = f"\t{os.path.basename(current_folder_path)}: Volume {number}"
                                 if volume.extension in manga_extensions:
                                     message += " [MANGA]"
                                 elif volume.extension in novel_extensions:
@@ -5735,6 +5757,11 @@ def check_for_existing_series(group=False):
                         )
                     )
 
+                    # sort them by the index number
+                    volumes = sorted(
+                        volumes, key=lambda x: get_sort_key(x.index_number)
+                    )
+
                     exclude = None
                     similar.cache_clear()
                     for file in volumes:
@@ -5752,6 +5779,17 @@ def check_for_existing_series(group=False):
                                     "\tSkipping: "
                                     + file.name
                                     + "\n\t\t - has no volume_number"
+                                )
+                                continue
+
+                            if (
+                                file.extension in manga_extensions
+                                and not zipfile.is_zipfile(file.path)
+                            ):
+                                print(
+                                    "\tSkipping: "
+                                    + file.name
+                                    + "\n\t\t - is not a valid zip file, possibly corrupted."
                                 )
                                 continue
 
@@ -7363,11 +7401,10 @@ def get_extras(file_name, chapter=False, series_name="", subtitle=""):
     modified = []
 
     for result in results:
-        combined = ""
-        for r in result:
-            combined += r
+        combined = "".join(result)
         if combined not in modified:
             modified.append(combined)
+
     patterns = [
         r"(\{|\(|\[)(Premium|J-Novel Club Premium)(\]|\)|\})",
         r"\((\d{4})\)",
@@ -7376,6 +7413,7 @@ def get_extras(file_name, chapter=False, series_name="", subtitle=""):
         r"(\{|\(|\[)Part([-_. ]|)([0-9]+)(\]|\)|\})",
     ]
     exclude_patterns = [patterns[4]]
+
     for item in modified[:]:
         for pattern in patterns:
             if pattern in exclude_patterns:
@@ -7385,6 +7423,7 @@ def get_extras(file_name, chapter=False, series_name="", subtitle=""):
             elif re.search(pattern, item, re.IGNORECASE):
                 modified.remove(item)
                 break
+
     modifiers = {
         ext: "[%s]"
         if ext in novel_extensions
@@ -7393,19 +7432,14 @@ def get_extras(file_name, chapter=False, series_name="", subtitle=""):
         else ""
         for ext in file_extensions
     }
-    keywords = [
-        "Premium",
-        "Complete",
-        "Fanbook",
-        "Short Stories",
-        "Short Story",
-        "Omnibus",
-    ]
+
+    keywords = ["Premium", "Complete", "Fanbook", "Short Stories?", "Omnibus"]
     for keyword in keywords:
         if re.search(rf"\b{keyword}\b", file_name, re.IGNORECASE):
             modified_keyword = modifiers[extension] % keyword.strip()
             if modified_keyword not in modified:
                 modified.append(modified_keyword)
+
     keywords_two = ["Extra", "Arc"]
     for keyword_two in keywords_two:
         match = re.search(
@@ -7419,15 +7453,21 @@ def get_extras(file_name, chapter=False, series_name="", subtitle=""):
                 modified_result = modifiers[extension] % result.strip()
                 if modified_result not in modified:
                     modified.append(modified_result)
+
     part_search = re.search(r"(\s|\b)Part([-_. ]|)([0-9]+)", file_name, re.IGNORECASE)
     if part_search:
         result = part_search.group()
         modified_result = modifiers[extension] % result.strip()
         if modified_result not in modified:
             modified.append(modified_result)
+
     # Move Premium to the beginning of the list
-    premium_items = [item for item in modified if "Premium" in item]
-    non_premium_items = [item for item in modified if "Premium" not in item]
+    premium_items, non_premium_items = [], []
+    for item in modified:
+        if "Premium" in item:
+            premium_items.append(item)
+        else:
+            non_premium_items.append(item)
     return premium_items + non_premium_items
 
 
@@ -7455,13 +7495,10 @@ def check_if_zip_file_contains_comic_info_xml(zip_file):
     result = False
     try:
         with zipfile.ZipFile(zip_file, "r") as zip_ref:
-            list = zip_ref.namelist()
-            for name in list:
-                if name.lower() == "ComicInfo.xml".lower():
-                    result = True
-                    break
+            if "comicinfo.xml" in map(str.lower, zip_ref.namelist()):
+                result = True
     except (zipfile.BadZipFile, FileNotFoundError) as e:
-        send_message("\tFile: " + zip_file + "\n\t\tERROR: " + str(e), error=True)
+        send_message(f"\tFile: {zip_file}\n\t\tERROR: {e}", error=True)
     return result
 
 
@@ -8309,26 +8346,19 @@ def delete_chapters_from_downloads(group=False):
         send_message(str(e), error=True)
 
 
-# remove all non-images from list of files
-def remove_non_images(files):
-    clean_list = []
-    for file in files:
-        extension = get_file_extension(os.path.basename(file))
-        if extension in image_extensions:
-            clean_list.append(file)
-    return clean_list
-
-
+# Returns the path of the cover image for a novel file, if it exists.
 def get_novel_cover_path(file):
-    novel_cover_path = ""
-    if file.extension in novel_extensions:
-        novel_cover_path = get_novel_cover(file.path)
-        if novel_cover_path:
-            novel_cover_path = os.path.basename(novel_cover_path)
-            novel_cover_extension = get_file_extension(novel_cover_path)
-            if novel_cover_extension not in image_extensions:
-                novel_cover_path = ""
-    return novel_cover_path
+    if file.extension not in novel_extensions:
+        return ""
+
+    novel_cover_path = get_novel_cover(file.path)
+    if not novel_cover_path:
+        return ""
+
+    if get_file_extension(novel_cover_path) not in image_extensions:
+        return ""
+
+    return os.path.basename(novel_cover_path)
 
 
 # Finds and extracts the internal cover from a manga or novel file.
@@ -9164,6 +9194,7 @@ def print_stats():
             if count > 0:
                 print("\t" + str(count) + " were " + extension + " files")
     print("\tof those we found that " + str(image_count) + " had a cover image file.")
+
     if len(errors) != 0:
         print("\nErrors (" + str(len(errors)) + "):")
         for error in errors:
@@ -10519,19 +10550,15 @@ def check_for_new_volumes_on_bookwalker():
 
 
 # Checks the novel for bonus.xhtml or bonus[0-9].xhtml
-def check_for_bonus_xhtml(zip):
-    result = False
+def check_for_bonus_xhtml(zip_file_path):
     try:
-        with zipfile.ZipFile(zip) as zip:
-            list = zip.namelist()
-            for item in list:
-                base = os.path.basename(item)
-                if re.search(r"((bonus)_?([0-9]+)?\.xhtml)", base, re.IGNORECASE):
-                    result = True
-                    break
+        with zipfile.ZipFile(zip_file_path) as zip_file:
+            for file_name in zip_file.namelist():
+                if re.search(r"((bonus)_?([0-9]+)?\.xhtml)", file_name, re.IGNORECASE):
+                    return True
     except Exception as e:
         send_message(str(e), error=True)
-    return result
+    return False
 
 
 # caches all roots encountered when walking paths
@@ -11029,9 +11056,7 @@ def has_multiple_numbers(file_name):
                     and not re.search(r"(^\.[0-9]+$)", item)
                 ):
                     new_numbers.append(set_num_as_float_or_int(item))
-    if new_numbers and len(new_numbers) > 1:
-        return True
-    return False
+    return len(new_numbers) > 1
 
 
 # Extracts all the numbers from a string
