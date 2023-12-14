@@ -43,7 +43,7 @@ from watchdog.observers import Observer
 from settings import *
 
 # Version of the script
-script_version = (2, 4, 20)
+script_version = (2, 4, 21)
 script_version_text = "v{}.{}.{}".format(*script_version)
 
 # Paths = existing library
@@ -420,7 +420,7 @@ copy_existing_volume_covers_toggle = False
 # parsed from a shortened series_name to be kept
 # for both series_names being compared.
 # EX: 0.7= 70%
-shortened_word_filter_percentage = 0.7
+short_word_filter_percentage = 0.7
 
 # The amount of time to sleep before checking again if all the files are fully transferred.
 # Slower network response times may require a higher value.
@@ -437,6 +437,7 @@ komga_libraries = []
 # Will move new series that couldn't be matched to the library to the appropriate library.
 # requires: '--watchdog "True"' and check_for_existing_series_toggle = True
 move_new_series_to_library_toggle = False
+
 
 # Folder Class
 class Folder:
@@ -700,7 +701,7 @@ def get_all_files_recursively_in_dir(dir_path):
     results = []
     for root, dirs, files in scandir.walk(dir_path):
         files = remove_hidden_files(files)
-        files = remove_unaccepted_file_types(files, file_extensions)
+        files = remove_unaccepted_file_types(files, root, file_extensions)
         results.extend(files)
     return results
 
@@ -741,6 +742,8 @@ class Handler(FileSystemEventHandler):
     def on_created(self, event):
         with self.lock:
             start_time = time.time()
+            global grouped_notifications
+
             try:
                 global transferred_files
                 global transferred_dirs
@@ -757,8 +760,8 @@ class Handler(FileSystemEventHandler):
                 if not is_valid_file or extension in image_extensions or is_hidden:
                     return None
 
-                print("\n\tEvent Type: " + event.event_type)
-                print("\tEvent Src Path: " + event.src_path)
+                print(f"\n\tEvent Type: {event.event_type}")
+                print(f"\tEvent Src Path: {event.src_path}")
 
                 # if not extension was found, return None
                 if not extension:
@@ -813,7 +816,7 @@ class Handler(FileSystemEventHandler):
                         [
                             {
                                 "name": "File Found",
-                                "value": "```" + str(event.src_path) + "```",
+                                "value": f"```{event.src_path}```",
                                 "inline": False,
                             }
                         ],
@@ -825,7 +828,7 @@ class Handler(FileSystemEventHandler):
                     [Embed(embed[0], None)],
                 )
 
-                print("\n\tfile found:  %s" % event.src_path + "\n")
+                print(f"\n\tFile Found: {event.src_path}\n")
 
                 if not os.path.isfile(event.src_path):
                     return None
@@ -840,16 +843,11 @@ class Handler(FileSystemEventHandler):
                 # Check if all files in the root directory and its subdirectories are fully transferred.
                 while True:
                     all_files_transferred = True
-                    print("\nTotal files: %s" % len(files))
+                    print(f"\nTotal files: {len(files)}")
 
                     for file in files:
                         print(
-                            "\t["
-                            + str(files.index(file) + 1)
-                            + "/"
-                            + str(len(files))
-                            + "] "
-                            + os.path.basename(file)
+                            f"\t[{files.index(file) + 1}/{len(files)}] {os.path.basename(file)}"
                         )
 
                         if file in transferred_files:
@@ -895,8 +893,7 @@ class Handler(FileSystemEventHandler):
                             all_files_transferred = False
                             if len(new_files) > len(files):
                                 print(
-                                    "\tNew transfers: +%s"
-                                    % str(len(new_files) - len(files))
+                                    f"\tNew transfers: +{len(new_files) - len(files)}"
                                 )
                                 files = new_files
                             elif len(new_files) < len(files):
@@ -916,9 +913,7 @@ class Handler(FileSystemEventHandler):
                 ]
 
             except Exception as e:
-                send_message(
-                    "Error with watchdog on_any_event(): " + str(e), error=True
-                )
+                send_message(f"Error with watchdog on_any_event(): {e}", error=True)
 
             main()
             end_time = time.time()
@@ -946,25 +941,18 @@ class Handler(FileSystemEventHandler):
 
             if minutes and seconds:
                 execution_time_message = (
-                    str(minutes)
-                    + " "
-                    + minute_keyword
-                    + " and "
-                    + str(seconds)
-                    + " "
-                    + second_keyword
+                    f"{minutes} {minute_keyword} and {seconds} {second_keyword}"
                 )
             elif minutes:
-                execution_time_message = str(minutes) + " " + minute_keyword
+                execution_time_message = f"{minutes} {minute_keyword}"
             elif seconds:
-                execution_time_message = str(seconds) + " " + second_keyword
+                execution_time_message = f"{seconds} {second_keyword}"
             else:
                 execution_time_message = "less than 1 second"
 
             # Terminal Message
             send_message(
-                "\nFinished Execution (WATCHDOG)\n\tExecution Time: "
-                + execution_time_message,
+                f"\nFinished Execution (WATCHDOG)\n\tExecution Time: {execution_time_message}",
                 discord=False,
             )
 
@@ -978,16 +966,21 @@ class Handler(FileSystemEventHandler):
                     [
                         {
                             "name": "Execution Time",
-                            "value": "```" + execution_time_message + "```",
+                            "value": f"```{execution_time_message}```",
                             "inline": False,
                         }
                     ],
                 )
             ]
-            send_discord_message(
-                None,
-                [Embed(embed[0], None)],
+
+            # Add it to the queue
+            grouped_notifications = add_to_grouped_notifications(
+                grouped_notifications, Embed(embed[0], None)
             )
+
+            # Send any remaining queued notifications to Discord
+            if grouped_notifications:
+                send_discord_message(None, grouped_notifications)
 
             send_message("\nWatching for changes... (WATCHDOG)", discord=False)
 
@@ -1022,13 +1015,13 @@ def get_lines_from_file(file_path, ignore=[], check_paths=False):
     # Handle file not found exception
     except FileNotFoundError as e:
         # Print an error message and return an empty list
-        send_message(f"File not found: {file_path}." + "\n" + str(e), error=True)
+        send_message(f"File not found: {file_path}.\n{e}", error=True)
         return []
 
     # Handle other exceptions
     except Exception as ex:
         # Print an error message and return an empty list
-        send_message(f"Error reading {file_path}." + "\n" + str(ex), error=True)
+        send_message(f"Error reading {file_path}.\n{ex}", error=True)
         return []
 
     # Return the list of lines read from the file
@@ -1052,11 +1045,11 @@ def process_path(path, paths_with_types, paths, is_download_folders=False):
 
         if files:
             print("\t\t\t- attempting auto-classification...")
-            print("\t\t\t\t- got " + str(len(files)) + " files.")
+            print(f"\t\t\t\t- got {len(files)} files.")
             if len(files) >= 100:
                 print("\t\t\t\t\t- trimming files to 75%...")
                 files = files[: int(len(files) * 0.75)]
-                print("\t\t\t\t\t- trimmed to " + str(len(files)) + " files.")
+                print(f"\t\t\t\t\t- trimmed to {len(files)} files.")
 
             print("\t\t\t\t- getting file extensions:")
             all_extensions = [get_file_extension(file) for file in files]
@@ -1068,25 +1061,24 @@ def process_path(path, paths_with_types, paths, is_download_folders=False):
             # If no common extensions, use default file extensions
             if not path_extensions:
                 print(
-                    "\t\t\t\t\t- no accepted path extensions found, defaulting to: "
-                    + str(file_extensions)
+                    f"\t\t\t\t\t- no accepted path extensions found, defaulting to: {file_extensions}"
                 )
                 path_extensions = file_extensions
             else:
                 # Extend path extensions with known extension sets
-                print("\t\t\t\t\t- path extensions found: " + str(path_extensions))
+                print(f"\t\t\t\t\t- path extensions found: {path_extensions}")
                 print(
                     "\t\t\t\t\t- extending path extensions with known extension sets:"
                 )
-                print("\t\t\t\t\t\t- manga_extensions: " + str(manga_extensions))
-                print("\t\t\t\t\t\t- novel_extensions: " + str(novel_extensions))
+                print(f"\t\t\t\t\t\t- manga_extensions: {manga_extensions}")
+                print(f"\t\t\t\t\t\t- novel_extensions: {novel_extensions}")
                 path_extension_sets = [manga_extensions, novel_extensions]
                 for ext_set in path_extension_sets:
                     if any(extension in path_extensions for extension in ext_set):
                         path_extensions.extend(
                             ext for ext in ext_set if ext not in path_extensions
                         )
-                print("\t\t\t\t\t- path extensions: " + str(path_extensions))
+                print(f"\t\t\t\t\t- path extensions: {path_extensions}")
 
             print("\t\t\t\t- getting path types:")
             all_types = [
@@ -1103,28 +1095,20 @@ def process_path(path, paths_with_types, paths, is_download_folders=False):
             volume_count = all_types.count("volume")
             total_files = len(all_types)
 
-            print("\t\t\t\t\t- chapter count: " + str(chapter_count))
-            print("\t\t\t\t\t- volume count: " + str(volume_count))
-            print("\t\t\t\t\t- total files: " + str(total_files))
+            print(f"\t\t\t\t\t- chapter count: {chapter_count}")
+            print(f"\t\t\t\t\t- volume count: {volume_count}")
+            print(f"\t\t\t\t\t- total files: {total_files}")
             print(
-                "\t\t\t\t\t- chapter percentage: "
-                + str(int(chapter_count / total_files * 100))
-                + "%"
+                f"\t\t\t\t\t- chapter percentage: {int(chapter_count / total_files * 100)}%"
             )
             print(
-                "\t\t\t\t\t\t- required chapter percentage: "
-                + str(int(CHAPTER_THRESHOLD * 100))
-                + "%"
+                f"\t\t\t\t\t\t- required chapter percentage: {int(CHAPTER_THRESHOLD * 100)}%"
             )
             print(
-                "\t\t\t\t\t- volume percentage: "
-                + str(int(volume_count / total_files * 100))
-                + "%"
+                f"\t\t\t\t\t- volume percentage: {int(volume_count / total_files * 100)}%"
             )
             print(
-                "\t\t\t\t\t\t- required volume percentage: "
-                + str(int(VOLUME_THRESHOLD * 100))
-                + "%"
+                f"\t\t\t\t\t\t- required volume percentage: {int(VOLUME_THRESHOLD * 100)}%"
             )
 
             path_formats = [
@@ -1135,7 +1119,7 @@ def process_path(path, paths_with_types, paths, is_download_folders=False):
                 else file_formats
             ]
 
-            print("\t\t\t\t\t- path types: " + str(path_formats))
+            print(f"\t\t\t\t\t- path types: {path_formats}")
 
     # Gets the common extensions from a list of extensions
     def get_common_extensions(all_extensions):
@@ -1179,7 +1163,7 @@ def process_path(path, paths_with_types, paths, is_download_folders=False):
     path_obj = None
 
     path_str = path[0]
-    print("\t\t" + path_str)
+    print(f"\t\t{path_str}")
 
     if len(path) == 1:
         if (
@@ -1234,9 +1218,7 @@ def parse_my_args():
     global watchdog_toggle
 
     parser = argparse.ArgumentParser(
-        description="Scans for and extracts covers from "
-        + ", ".join(file_extensions)
-        + " files."
+        description=f"Scans for and extracts covers from {', '.join(file_extensions)} files."
     )
     parser.add_argument(
         "-p",
@@ -1391,7 +1373,7 @@ def parse_my_args():
                 print(f"\t\t\tformats: {str(item.path_formats)}")
                 print(f"\t\t\textensions: {str(item.path_extensions)}")
 
-    print("\twatchdog: " + str(watchdog_toggle))
+    print(f"\twatchdog: {watchdog_toggle}")
 
     if watchdog_toggle:
         if parser.watchdog_discover_new_files_check_interval:
@@ -1408,12 +1390,10 @@ def parse_my_args():
                     parser.watchdog_file_transferred_check_interval
                 )
         print(
-            "\t\twatchdog_discover_new_files_check_interval: "
-            + str(watchdog_discover_new_files_check_interval)
+            f"\t\twatchdog_discover_new_files_check_interval: {watchdog_discover_new_files_check_interval}"
         )
         print(
-            "\t\twatchdog_file_transferred_check_interval: "
-            + str(watchdog_file_transferred_check_interval)
+            f"\t\twatchdog_file_transferred_check_interval: {watchdog_file_transferred_check_interval}"
         )
 
     if not parser.paths and not parser.download_folders:
@@ -1435,24 +1415,24 @@ def parse_my_args():
                             for url in hook:
                                 if url and url not in discord_webhook_url:
                                     discord_webhook_url.append(url)
-        print("\twebhooks: " + str(discord_webhook_url))
+        print(f"\twebhooks: {str(discord_webhook_url)}")
 
     if parser.bookwalker_check:
         if parser.bookwalker_check.lower() == "true":
             global bookwalker_check
             bookwalker_check = True
-    print("\tbookwalker_check: " + str(bookwalker_check))
+    print(f"\tbookwalker_check: {bookwalker_check}")
 
     if parser.compress:
         if parser.compress.lower() == "true":
             global compress_image_option
             compress_image_option = True
-    print("\tcompress: " + str(compress_image_option))
+    print(f"\tcompress: {compress_image_option}")
 
     if parser.compress_quality:
         global image_quality
         image_quality = set_num_as_float_or_int(parser.compress_quality)
-    print("\tcompress_quality: " + str(image_quality))
+    print(f"\tcompress_quality: {image_quality}")
 
     if parser.bookwalker_webhook_urls is not None:
         global bookwalker_webhook_urls
@@ -1472,12 +1452,12 @@ def parse_my_args():
                                     and url_in_hook not in bookwalker_webhook_urls
                                 ):
                                     bookwalker_webhook_urls.append(url_in_hook)
-        print("\tbookwalker_webhook_urls: " + str(bookwalker_webhook_urls))
+        print(f"\tbookwalker_webhook_urls: {bookwalker_webhook_urls}")
 
     if parser.new_volume_webhook:
         global new_volume_webhook
         new_volume_webhook = parser.new_volume_webhook
-    print("\tnew_volume_webhook: " + str(new_volume_webhook))
+    print(f"\tnew_volume_webhook: {new_volume_webhook}")
 
     if parser.log_to_file:
         global log_to_file
@@ -1485,7 +1465,7 @@ def parse_my_args():
             log_to_file = True
         elif parser.log_to_file.lower() == "false":
             log_to_file = False
-    print("\tlog_to_file: " + str(log_to_file))
+    print(f"\tlog_to_file: {log_to_file}")
 
     # Print all the settings from settings.py
     print("\nExternal Settings:")
@@ -1500,28 +1480,23 @@ def parse_my_args():
         if not callable(getattr(settings_file, var)) and not var.startswith("__")
     ]
     # print all of the variables
+    sensitive_keywords = ["password", "email", "_ip", "token"]
+    ignored_settings = ["ranked_keywords", "unacceptable_keywords"]
+
     for setting in settings:
-        if setting == "ranked_keywords" or setting == "unacceptable_keywords":
+        if setting in ignored_settings:
             continue
 
-        # the settings value
-        value = getattr(settings_file, setting)
-
-        # output the value as long as it isn't sensitive,
-        # otherwise censor it, assuming there was a value
-        if (
-            "password" not in setting.lower()
-            and "email" not in setting.lower()
-            and "_ip" not in setting.lower()
-            and "token" not in setting.lower()
-        ) or not value:
-            print("\t" + setting + ": " + str(value))
+        if any(keyword in setting.lower() for keyword in sensitive_keywords):
+            value = "********"
         else:
-            print("\t" + setting + ": " + "********")
+            value = getattr(settings_file, setting)
 
-    print("\t" + "in_docker: " + str(in_docker))
-    print("\t" + "blank_black_image_path: " + str(blank_black_image_path))
-    print("\t" + "blank_white_image_path: " + str(blank_white_image_path))
+        print(f"\t{setting}: {value}")
+
+    print(f"\tin_docker: {in_docker}")
+    print(f"\tblank_black_image_path: {blank_black_image_path}")
+    print(f"\tblank_white_image_path: {blank_white_image_path}")
 
     if (
         send_scan_request_to_komga_libraries_toggle
@@ -1532,7 +1507,7 @@ def parse_my_args():
         komga_library_paths = (
             [x["root"] for x in komga_libraries] if komga_libraries else []
         )
-        print("\tkomga_libraries: " + str(komga_library_paths))
+        print(f"\tkomga_libraries: {komga_library_paths}")
 
 
 # Converts the passed volume_number into a float or an int.
@@ -1544,14 +1519,14 @@ def set_num_as_float_or_int(volume_number, silent=False):
                 for num in volume_number:
                     if float(num) == int(num):
                         if num == volume_number[-1]:
-                            result += str(int(num))
+                            result += f"{int(num)}"
                         else:
-                            result += str(int(num)) + "-"
+                            result += f"{int(num)}-"
                     else:
                         if num == volume_number[-1]:
-                            result += str(float(num))
+                            result += f"{float(num)}"
                         else:
-                            result += str(float(num)) + "-"
+                            result += f"{float(num)}-"
                 return result
             elif isinstance(volume_number, str) and re.search(r"\.", volume_number):
                 volume_number = float(volume_number)
@@ -1563,13 +1538,10 @@ def set_num_as_float_or_int(volume_number, silent=False):
     except Exception as e:
         if not silent:
             send_message(
-                "Failed to convert volume number to float or int: "
-                + str(volume_number)
-                + "\nERROR: "
-                + str(e),
+                f"Failed to convert volume number to float or int: {volume_number}\nERROR: {e}",
                 error=True,
             )
-            send_message(str(e), error=True)
+            send_message(f"{e}", error=True)
         return ""
     return volume_number
 
@@ -1608,7 +1580,7 @@ def compress_image(image_path, quality=75, to_jpg=False, raw_data=None):
             return buffer.getvalue()
     except Exception as e:
         # Log the error and continue
-        send_message(f"Failed to compress image {image_path}: {str(e)}", error=True)
+        send_message(f"Failed to compress image {image_path}: {e}", error=True)
 
     # Remove the original file if it's a PNG that was converted to JPG
     if to_jpg and ext.lower() == ".jpg" and os.path.isfile(image_path):
@@ -1701,12 +1673,9 @@ def send_discord_message(
     global grouped_notifications
     global webhook_obj
 
+    sent_status = False
     hook = None
     hook = pick_webhook(hook, passed_webhook, url)
-
-    # Reset the grouped notifications if they match the provided embeds
-    if embeds == grouped_notifications:
-        grouped_notifications = []
 
     try:
         if hook:
@@ -1740,13 +1709,17 @@ def send_discord_message(
                 webhook_obj.content = message
 
             webhook_obj.execute()
+            sent_status = True
     except Exception as e:
-        send_message(str(e), error=True, discord=False)
+        send_message(f"{e}", error=True, discord=False)
         # Reset the webhook object
         webhook_obj = DiscordWebhook(url=None)
+        return sent_status
 
     # Reset the webhook object
     webhook_obj = DiscordWebhook(url=None)
+
+    return sent_status
 
 
 # Removes hidden files
@@ -1755,8 +1728,13 @@ def remove_hidden_files(files):
 
 
 # Removes any unaccepted file types
-def remove_unaccepted_file_types(files, accepted_extensions):
-    return [file for file in files if get_file_extension(file) in accepted_extensions]
+def remove_unaccepted_file_types(files, root, accepted_extensions, test_mode=False):
+    return [
+        file
+        for file in files
+        if get_file_extension(file) in accepted_extensions
+        and (os.path.isfile(os.path.join(root, file)) or test_mode)
+    ]
 
 
 # Removes any folder names in the ignored_folder_names
@@ -1898,10 +1876,12 @@ def clean_and_sort(
             files = remove_hidden_files(files)
         if not skip_remove_unaccepted_file_types:
             if not is_correct_extensions_feature:
-                files = remove_unaccepted_file_types(files, file_extensions)
+                files = remove_unaccepted_file_types(
+                    files, root, file_extensions, test_mode=test_mode
+                )
             else:
                 files = remove_unaccepted_file_types(
-                    files, file_extensions + rar_extensions
+                    files, root, file_extensions + rar_extensions, test_mode=test_mode
                 )
         if just_these_files and files:
             files = [
@@ -1952,12 +1932,12 @@ def get_file_extension_from_header(file):
             kind = filetype.guess(file)
             if kind is None:
                 return None
-            elif "." + kind.extension in manga_extensions:
+            elif f".{kind.extension}" in manga_extensions:
                 return ".cbz"
-            elif "." + kind.extension in rar_extensions:
+            elif f".{kind.extension}" in rar_extensions:
                 return ".cbr"
             else:
-                return "." + kind.extension
+                return f".{kind.extension}"
         except Exception as e:
             send_message(str(e), error=True)
             return None
@@ -2079,7 +2059,7 @@ def get_novel_cover(novel_path):
                 if cover_id:
                     cover_id = cover_id[0].get("content")
                     cover_href = t.xpath(
-                        "//opf:manifest/opf:item[@id='" + cover_id + "']",
+                        f"//opf:manifest/opf:item[@id='{cover_id}']",
                         namespaces=namespaces,
                     )
                     if cover_href:
@@ -2158,10 +2138,7 @@ def set_modification_date(file_path, date):
         os.utime(file_path, (get_modification_date(file_path), date))
     except Exception as e:
         send_message(
-            "ERROR: Could not set modification date of "
-            + file_path
-            + "\nERROR: "
-            + str(e),
+            f"ERROR: Could not set modification date of {file_path}\nERROR: {e}",
             error=True,
         )
 
@@ -2299,6 +2276,9 @@ def get_series_name_from_file_name(name, root, test_mode=False, second=False):
                 flags=re.IGNORECASE,
             ).strip()
 
+    # Remove a trailing comma at the end of the name
+    name = re.sub(r"(,)$", "", name).strip()
+
     # Default to the root folder name if we have nothing left
     # As long as it's not in our download folders or paths
     if (
@@ -2400,7 +2380,7 @@ def get_series_name_from_file_name_chapter(name, root, chapter_number="", second
         search = re.search(regex, name, re.IGNORECASE)
         if search:
             regex_matched = True
-            name = re.sub(regex + "(.*)", "", name, flags=re.IGNORECASE).strip()
+            name = re.sub(rf"{regex}(.*)", "", name, flags=re.IGNORECASE).strip()
             break
 
     if isinstance(chapter_number, list):
@@ -2411,6 +2391,9 @@ def get_series_name_from_file_name_chapter(name, root, chapter_number="", second
         result = chapter_file_name_cleaning(
             name, chapter_number, regex_matched=regex_matched
         )
+
+    # Remove a trailing comma at the end of the name
+    result = re.sub(r"(,)$", "", result).strip()
 
     # Default to the root folder name if we have nothing left
     # As long as it's not in our download folders or paths
@@ -2443,6 +2426,7 @@ def get_series_name_from_file_name_chapter(name, root, chapter_number="", second
 def create_folders_for_items_in_download_folder(group=False):
     global transferred_files
     global transferred_dirs
+    global grouped_notifications
 
     for download_folder in download_folders:
         if os.path.exists(download_folder):
@@ -2538,6 +2522,7 @@ def create_folders_for_items_in_download_folder(group=False):
                                             else:
                                                 # if it does exist, delete the file
                                                 remove_file(file.path, silent=True)
+
                                         # check that the file doesn't already exist in the folder
                                         if os.path.isfile(
                                             file.path
@@ -2582,12 +2567,7 @@ def create_folders_for_items_in_download_folder(group=False):
                                 similarity_result = similar(file.name, file.basename)
                                 write_to_file(
                                     "changes.txt",
-                                    "Similarity Result between: "
-                                    + file.name
-                                    + " and "
-                                    + file.basename
-                                    + " was "
-                                    + str(similarity_result),
+                                    f"Similarity Result between: {file.name} and {file.basename} was {similarity_result}",
                                 )
                                 folder_location = os.path.join(file.root, file.basename)
                                 does_folder_exist = os.path.exists(folder_location)
@@ -2612,14 +2592,17 @@ def create_folders_for_items_in_download_folder(group=False):
             except Exception as e:
                 send_message(str(e), error=True)
         else:
-            if download_folder == "":
+            if not download_folder:
                 send_message("\nERROR: Path cannot be empty.", error=True)
             else:
                 send_message(
-                    "\nERROR: " + download_folder + " is an invalid path.\n", error=True
+                    f"\nERROR: {download_folder} is an invalid path.\n", error=True
                 )
+
     if group and grouped_notifications and not group_discord_notifications_until_max:
-        send_discord_message(None, grouped_notifications)
+        sent_status = send_discord_message(None, grouped_notifications)
+        if sent_status:
+            grouped_notifications = []
 
 
 def get_percent_for_folder(files, extensions=None, file_type=None):
@@ -2861,7 +2844,7 @@ def remove_everything_but_volume_num(files, chapter=False):
                     else:
                         results.append(float(file))
                 except ValueError:
-                    message = "Not a float: " + files[0]
+                    message = f"Not a float: {files[0]}"
                     print(message)
                     write_to_file("errors.txt", message)
             except AttributeError:
@@ -2994,12 +2977,7 @@ def get_file_part(file, chapter=False, series_name=None, subtitle=None):
                 return float(result)
             except ValueError as ve:
                 send_message(
-                    "Not a float: "
-                    + str(result)
-                    + " for "
-                    + file
-                    + "\nERROR: "
-                    + str(ve),
+                    f"Not a float: {result} for {file}\nERROR: {ve}",
                     error=True,
                 )
                 result = ""
@@ -3121,7 +3099,7 @@ def upgrade_to_volume_class(
             if file_obj.subtitle:
                 write_to_file(
                     "extracted_subtitles.txt",
-                    file_obj.name + " - " + file_obj.subtitle,
+                    f"{file_obj.name} - {file_obj.subtitle}",
                     without_timestamp=True,
                     check_for_dup=True,
                 )
@@ -3283,16 +3261,30 @@ def remove_images(path):
 # Handles adding our embed to the list of grouped notifications
 # If the list is at the limit, it will send the list and clear it
 # Also handles setting the timestamp on the embed of when it was added
-def add_to_grouped_notifications(embed, passed_webhook=None):
-    global grouped_notifications
-    if len(grouped_notifications) >= discord_embed_limit:
-        send_discord_message(None, grouped_notifications, passed_webhook=passed_webhook)
+def add_to_grouped_notifications(notifications, embed, passed_webhook=None):
+    failed_attempts = 0
 
-    # set timestamp on embed
+    if len(notifications) >= discord_embed_limit:
+        while notifications:
+            message_status = send_discord_message(
+                None, notifications, passed_webhook=passed_webhook
+            )
+            if (
+                message_status
+                or (failed_attempts >= len(discord_webhook_url) and not passed_webhook)
+                or (passed_webhook and failed_attempts >= 1)
+            ):
+                notifications = []
+            else:
+                failed_attempts += 1
+
+    # Set timestamp on embed
     embed.embed.set_timestamp()
 
-    # add embed to list
-    grouped_notifications.append(embed)
+    # Add embed to list
+    notifications.append(embed)
+
+    return notifications
 
 
 # Removes the specified folder and all of its contents.
@@ -3312,6 +3304,8 @@ def remove_folder(folder):
 
 # Removes a file and its associated image files.
 def remove_file(full_file_path, silent=False, group=False):
+    global grouped_notifications
+
     # Check if the file exists
     if not os.path.isfile(full_file_path):
         # Send an error message if the file doesn't exist
@@ -3323,7 +3317,7 @@ def remove_file(full_file_path, silent=False, group=False):
         os.remove(full_file_path)
     except OSError as e:
         # Send an error message if removing the file failed
-        send_message(f"Failed to remove {full_file_path}: {str(e)}", error=True)
+        send_message(f"Failed to remove {full_file_path}: {e}", error=True)
         return False
 
     # Check if the file was successfully removed
@@ -3346,12 +3340,12 @@ def remove_file(full_file_path, silent=False, group=False):
                 fields=[
                     {
                         "name": "File",
-                        "value": "```" + os.path.basename(full_file_path) + "```",
+                        "value": f"```{os.path.basename(full_file_path)}```",
                         "inline": False,
                     },
                     {
                         "name": "Location",
-                        "value": "```" + os.path.dirname(full_file_path) + "```",
+                        "value": f"```{os.path.dirname(full_file_path)}```",
                         "inline": False,
                     },
                 ],
@@ -3359,7 +3353,9 @@ def remove_file(full_file_path, silent=False, group=False):
         ]
 
         # Add it to the group of notifications
-        add_to_grouped_notifications(Embed(embed[0], None))
+        grouped_notifications = add_to_grouped_notifications(
+            grouped_notifications, Embed(embed[0], None)
+        )
 
     # If the file is not an image, remove associated images
     if get_file_extension(full_file_path) not in image_extensions:
@@ -3377,13 +3373,15 @@ def move_file(
     highest_index_num="",
     is_chapter_dir=False,
 ):
+    global grouped_notifications
+
     try:
         if os.path.isfile(file.path):
             shutil.move(file.path, new_location)
             if os.path.isfile(os.path.join(new_location, file.name)):
                 if not silent:
                     send_message(
-                        "\t\tMoved File: " + file.name + " to " + new_location,
+                        f"\t\tMoved File: {file.name} to {new_location}",
                         discord=False,
                     )
                     embed = [
@@ -3395,18 +3393,20 @@ def move_file(
                             fields=[
                                 {
                                     "name": "File",
-                                    "value": "```" + file.name + "```",
+                                    "value": f"```{file.name}```",
                                     "inline": False,
                                 },
                                 {
                                     "name": "To",
-                                    "value": "```" + new_location + "```",
+                                    "value": f"```{new_location}```",
                                     "inline": False,
                                 },
                             ],
                         )
                     ]
-                    add_to_grouped_notifications(Embed(embed[0], None))
+                    grouped_notifications = add_to_grouped_notifications(
+                        grouped_notifications, Embed(embed[0], None)
+                    )
                 move_images(
                     file,
                     new_location,
@@ -3417,10 +3417,7 @@ def move_file(
                 return True
             else:
                 send_message(
-                    "\t\tFailed to move: "
-                    + os.path.join(file.root, file.name)
-                    + " to: "
-                    + new_location,
+                    f"\t\tFailed to move: {os.path.join(file.root, file.name)} to: {new_location}",
                     error=True,
                 )
                 return False
@@ -3431,7 +3428,9 @@ def move_file(
 
 # Replaces an old file.
 def replace_file(old_file, new_file, group=False, highest_index_num=""):
+    global grouped_notifications
     result = False
+
     try:
         if os.path.isfile(old_file.path) and os.path.isfile(new_file.path):
             file_removal_status = remove_file(old_file.path, group=group)
@@ -3445,10 +3444,7 @@ def replace_file(old_file, new_file, group=False, highest_index_num=""):
                 if os.path.isfile(os.path.join(old_file.root, new_file.name)):
                     result = True
                     send_message(
-                        "\t\tFile: "
-                        + new_file.name
-                        + " was moved to: "
-                        + old_file.root,
+                        f"\t\tFile: {new_file.name} was moved to: {old_file.root}",
                         discord=False,
                     )
                     embed = [
@@ -3460,42 +3456,37 @@ def replace_file(old_file, new_file, group=False, highest_index_num=""):
                             fields=[
                                 {
                                     "name": "File",
-                                    "value": "```" + new_file.name + "```",
+                                    "value": f"```{new_file.name}```",
                                     "inline": False,
                                 },
                                 {
                                     "name": "To",
-                                    "value": "```" + old_file.root + "```",
+                                    "value": f"```{old_file.root}```",
                                     "inline": False,
                                 },
                             ],
                         )
                     ]
-                    add_to_grouped_notifications(Embed(embed[0], None))
+                    grouped_notifications = add_to_grouped_notifications(
+                        grouped_notifications, Embed(embed[0], None)
+                    )
                 else:
                     send_message(
-                        "\tFailed to replace: "
-                        + old_file.name
-                        + " with: "
-                        + new_file.name,
+                        f"\tFailed to replace: {old_file.name} with: {new_file.name}",
                         error=True,
                     )
             else:
                 send_message(
-                    "\tFailed to remove old file: "
-                    + old_file.name
-                    + "\nUpgrade aborted.",
+                    f"\tFailed to remove old file: {old_file.name}\nUpgrade aborted.",
                     error=True,
                 )
         else:
             send_message(
-                "\tOne of the files is missing, failed to replace.\n"
-                + old_file.path
-                + new_file.path,
+                f"\tOne of the files is missing, failed to replace.\n{old_file.path}{new_file.path}",
                 error=True,
             )
     except Exception as e:
-        send_message("Failed file replacement." + "\nERROR: " + str(e), error=True)
+        send_message(f"Failed file replacement.\nERROR: {e}", error=True)
     return result
 
 
@@ -3521,6 +3512,8 @@ def remove_duplicate_releases_from_download(
     original_releases, downloaded_releases, group=False, image_similarity_match=False
 ):
     global moved_files
+    global grouped_notifications
+
     for download in downloaded_releases[:]:
         if (
             not isinstance(download.volume_number, int)
@@ -3528,20 +3521,15 @@ def remove_duplicate_releases_from_download(
             and not download.multi_volume
         ):
             send_message(
-                "\n\t\t"
-                + download.file_type.capitalize()
-                + " number empty/missing in: "
-                + download.name,
+                f"\n\t\t{download.file_type.capitalize()} number empty/missing in: {download.name}",
                 error=True,
             )
             downloaded_releases.remove(download)
         if downloaded_releases:
-            chapter_percentage_download_folder = get_percent_for_folder(
+            chap_dl_percent = get_percent_for_folder(
                 downloaded_releases, file_type="chapter"
             )
-            is_chapter_dir = (
-                chapter_percentage_download_folder >= required_matching_percentage
-            )
+            is_chapter_dir = chap_dl_percent >= required_matching_percentage
             highest_index_num = (
                 get_highest_release(
                     tuple(
@@ -3598,8 +3586,8 @@ def remove_duplicate_releases_from_download(
                         if original_file_tags:
                             original_file_tags = ", ".join(
                                 [
-                                    tag.name + " (" + str(tag.score) + ")"
-                                    for tag in upgrade_status.current_ranked_result.keywords
+                                    f"{tag.name} ({tag.score})"
+                                    for tag in original_file_tags
                                 ]
                             )
                         else:
@@ -3610,8 +3598,8 @@ def remove_duplicate_releases_from_download(
                         if downloaded_file_tags:
                             downloaded_file_tags = ", ".join(
                                 [
-                                    tag.name + " (" + str(tag.score) + ")"
-                                    for tag in upgrade_status.downloaded_ranked_result.keywords
+                                    f"{tag.name} ({tag.score})"
+                                    for tag in downloaded_file_tags
                                 ]
                             )
                         else:
@@ -3623,7 +3611,7 @@ def remove_duplicate_releases_from_download(
                             if original_file_size:
                                 original_file_size = original_file_size / 1000000
                                 original_file_size = (
-                                    str(round(original_file_size, 1)) + " MB"
+                                    f"{round(original_file_size, 1)} MB"
                                 )
                         downloaded_file_size = None
                         if os.path.isfile(download.path):
@@ -3632,12 +3620,12 @@ def remove_duplicate_releases_from_download(
                             if downloaded_file_size:
                                 downloaded_file_size = downloaded_file_size / 1000000
                                 downloaded_file_size = (
-                                    str(round(downloaded_file_size, 1)) + " MB"
+                                    f"{round(downloaded_file_size, 1)} MB"
                                 )
                         fields = [
                             {
                                 "name": "From",
-                                "value": "```" + original.name + "```",
+                                "value": f"```{original.name}```",
                                 "inline": False,
                             },
                             {
@@ -3654,7 +3642,7 @@ def remove_duplicate_releases_from_download(
                             },
                             {
                                 "name": "To",
-                                "value": "```" + download.name + "```",
+                                "value": f"```{download.name}```",
                                 "inline": False,
                             },
                             {
@@ -3690,13 +3678,7 @@ def remove_duplicate_releases_from_download(
                             )
                         if not upgrade_status.is_upgrade:
                             send_message(
-                                "\t\tNOT UPGRADEABLE: "
-                                + download.name
-                                + " is not an upgrade to: "
-                                + original.name
-                                + "\n\t\tDeleting: "
-                                + download.name
-                                + " from download folder.",
+                                f"\t\tNOT UPGRADEABLE: {download.name} is not an upgrade to: {original.name}\n\t\tDeleting: {download.name} from download folder.",
                                 discord=False,
                             )
                             embed = [
@@ -3708,18 +3690,15 @@ def remove_duplicate_releases_from_download(
                                     fields=fields,
                                 )
                             ]
-                            add_to_grouped_notifications(Embed(embed[0], None))
+                            grouped_notifications = add_to_grouped_notifications(
+                                grouped_notifications, Embed(embed[0], None)
+                            )
                             if download in downloaded_releases:
                                 downloaded_releases.remove(download)
                             remove_file(download.path, group=group)
                         else:
                             send_message(
-                                "\t\tUPGRADE: "
-                                + download.name
-                                + " is an upgrade to: "
-                                + original.name
-                                + "\n\tUpgrading "
-                                + original.name,
+                                f"\t\tUPGRADE: {download.name} is an upgrade to: {original.name}\n\tUpgrading {original.name}",
                                 discord=False,
                             )
                             embed = [
@@ -3731,7 +3710,9 @@ def remove_duplicate_releases_from_download(
                                     fields=fields,
                                 )
                             ]
-                            add_to_grouped_notifications(Embed(embed[0], None))
+                            grouped_notifications = add_to_grouped_notifications(
+                                grouped_notifications, Embed(embed[0], None)
+                            )
                             if download.multi_volume and not original.multi_volume:
                                 for original_volume in original_releases[:]:
                                     for volume_number in download.volume_number:
@@ -3765,10 +3746,12 @@ def remove_duplicate_releases_from_download(
                                 grouped_notifications
                                 and not group_discord_notifications_until_max
                             ):
-                                send_discord_message(
+                                sent_status = send_discord_message(
                                     None,
                                     grouped_notifications,
                                 )
+                                if sent_status:
+                                    grouped_notifications = []
 
 
 def check_and_delete_empty_folder(folder):
@@ -3876,9 +3859,9 @@ def write_to_file(
                         dt_string = now.strftime("%d/%m/%Y %H:%M:%S")
                         file = open(file_path, append_write)
                         if without_timestamp:
-                            file.write("\n " + message)
+                            file.write(f"\n {message}")
                         else:
-                            file.write("\n" + dt_string + " " + message)
+                            file.write(f"\n{dt_string} {message}")
                         write_status = True
                         file.close()
                 except Exception as e:
@@ -3989,12 +3972,12 @@ def rename_file(src, dest, silent=False):
     if os.path.isfile(src):
         root = os.path.dirname(src)
         if not silent:
-            print("\n\t\tRenaming " + src)
+            print(f"\n\t\tRenaming {src}")
         try:
             os.rename(src, dest)
         except Exception as e:
             send_message(
-                f"Failed to rename {os.path.basename(src)} to {os.path.basename(dest)}\n\tERROR: {str(e)}",
+                f"Failed to rename {os.path.basename(src)} to {os.path.basename(dest)}\n\tERROR: {e}",
                 error=True,
             )
             return result
@@ -4002,10 +3985,7 @@ def rename_file(src, dest, silent=False):
             result = True
             if not silent:
                 send_message(
-                    "\n\t\t"
-                    + os.path.basename(src)
-                    + " was renamed to "
-                    + os.path.basename(dest),
+                    f"\n\t\t{os.path.basename(src)} was renamed to {os.path.basename(dest)}",
                     discord=False,
                 )
             if get_file_extension(src) not in image_extensions:
@@ -4021,11 +4001,11 @@ def rename_file(src, dest, silent=False):
                             send_message(str(e), error=True)
         else:
             send_message(
-                "Failed to rename " + src + " to " + dest + "\n\tERROR: " + str(e),
+                f"Failed to rename {src} to {dest}\n\tERROR: {e}",
                 error=True,
             )
     else:
-        send_message("File " + src + " does not exist. Skipping rename.", discord=False)
+        send_message(f"File {src} does not exist. Skipping rename.", discord=False)
     return result
 
 
@@ -4040,27 +4020,21 @@ def rename_folder(src, dest):
                 send_message(str(e), error=True)
             if os.path.isdir(dest):
                 send_message(
-                    "\n\t\t"
-                    + os.path.basename(src)
-                    + " was renamed to "
-                    + os.path.basename(dest)
-                    + "\n",
+                    f"\n\t\t{os.path.basename(src)} was renamed to {os.path.basename(dest)}\n",
                     discord=False,
                 )
                 result = dest
             else:
                 send_message(
-                    "Failed to rename " + src + " to " + dest + "\n\tERROR: " + str(e),
+                    f"Failed to rename {src} to {dest}\n\tERROR: {e}",
                     error=True,
                 )
         else:
             send_message(
-                "Folder " + dest + " already exists. Skipping rename.", discord=False
+                f"Folder {dest} already exists. Skipping rename.", discord=False
             )
     else:
-        send_message(
-            "Folder " + src + " does not exist. Skipping rename.", discord=False
-        )
+        send_message(f"Folder {src} does not exist. Skipping rename.", discord=False)
     return result
 
 
@@ -4081,15 +4055,15 @@ def get_input_from_user(
     # Format the prompt with example values if provided
     if example:
         if isinstance(example, list):
-            example = " or ".join(
-                [str(example_item) for example_item in example[:-1]]
-                + [str(example[-1])]
+            example = f" or ".join(
+                [f"{example_item}" for example_item in example[:-1]]
+                + [f"{example[-1]}"]
             )
         else:
             example = str(example)
-        prompt = prompt + " (" + str(example) + "): "
+        prompt = f"{prompt} ({example}): "
     else:
-        prompt = prompt + ": "
+        prompt = f"{prompt}: "
 
     # Create a shared variable to store the user input between threads
     shared_variable = {"input": None, "done": False}
@@ -4158,14 +4132,12 @@ def get_internal_metadata(file_path, extension):
                     break
             if not metadata:
                 send_message(
-                    "\t\tNo opf file found in "
-                    + file_path
-                    + ".\n\t\t\tSkipping metadata retrieval.",
+                    f"\t\tNo opf file found in {file_path}.\n\t\t\tSkipping metadata retrieval.",
                     discord=False,
                 )
     except Exception as e:
         send_message(
-            "Failed to retrieve metadata from " + file_path + "\n\tERROR: " + str(e),
+            f"Failed to retrieve metadata from {file_path}\n\tERROR: {e}",
             error=True,
         )
     return metadata
@@ -4185,6 +4157,8 @@ def check_for_premium_content(file_path, extension):
 # Rebuilds the file name by cleaning up, adding, and moving some parts around.
 def reorganize_and_rename(files, dir, group=False):
     global transferred_files
+    global grouped_notifications
+
     base_dir = os.path.basename(dir)
     for file in files[:]:
         preferred_naming_format = preferred_volume_renaming_format
@@ -4201,7 +4175,7 @@ def reorganize_and_rename(files, dir, group=False):
             ):
                 rename = ""
                 rename += base_dir
-                rename += " " + preferred_naming_format
+                rename += f" {preferred_naming_format}"
                 number = None
                 numbers = []
                 if file.multi_volume:
@@ -4234,6 +4208,7 @@ def reorganize_and_rename(files, dir, group=False):
                             number_string += volume_number
                     elif isinstance(number, str) and number == "-":
                         number_string += "-"
+
                 if number_string:
                     rename += number_string
                 if (
@@ -4242,14 +4217,14 @@ def reorganize_and_rename(files, dir, group=False):
                     and file.extension in manga_extensions
                     and number_string
                 ):
-                    rename += " #" + number_string
+                    rename += f" #{number_string}"
                 if file.subtitle:
-                    rename += " - " + file.subtitle
+                    rename += f" - {file.subtitle}"
                 if file.volume_year:
                     if file.extension in manga_extensions:
-                        rename += " (" + str(file.volume_year) + ")"
+                        rename += f" ({file.volume_year})"
                     elif file.extension in novel_extensions:
-                        rename += " [" + str(file.volume_year) + "]"
+                        rename += f" [{file.volume_year}]"
                     for item in file.extras[:]:
                         score = similar(
                             item,
@@ -4299,14 +4274,15 @@ def reorganize_and_rename(files, dir, group=False):
                                 break
                     if file.extension in manga_extensions:
                         if file.publisher.from_meta:
-                            rename += " (" + file.publisher.from_meta + ")"
+                            rename += f" ({file.publisher.from_meta})"
                         elif file.publisher.from_name:
-                            rename += " (" + file.publisher.from_name + ")"
+                            rename += f" ({file.publisher.from_name})"
                     elif file.extension in novel_extensions:
                         if file.publisher.from_meta:
-                            rename += " [" + file.publisher.from_meta + "]"
+                            rename += f" [{file.publisher.from_meta}]"
                         elif file.publisher.from_name:
-                            rename += " [" + file.publisher.from_name + "]"
+                            rename += f" [{file.publisher.from_name}]"
+
                 if file.is_premium and search_and_add_premium_to_file_name:
                     if file.extension in manga_extensions:
                         rename += " (Premium)"
@@ -4352,7 +4328,7 @@ def reorganize_and_rename(files, dir, group=False):
                 if file.extras:
                     for extra in file.extras:
                         if not re.search(re.escape(extra), rename, re.IGNORECASE):
-                            rename += " " + extra
+                            rename += f" {extra}"
                 if move_release_group_to_end_of_file_name:
                     release_group_escaped = None
                     if file.release_group:
@@ -4361,9 +4337,9 @@ def reorganize_and_rename(files, dir, group=False):
                         rf"\b{release_group_escaped}\b", rename, re.IGNORECASE
                     ):
                         if file.extension in manga_extensions:
-                            rename += " (" + file.release_group + ")"
+                            rename += f" ({file.release_group})"
                         elif file.extension in novel_extensions:
-                            rename += " [" + file.release_group + "]"
+                            rename += f" [{file.release_group}]"
 
                 # remove * from the replacement
                 rename = re.sub(r"\*", "", rename)
@@ -4385,8 +4361,8 @@ def reorganize_and_rename(files, dir, group=False):
                     if watchdog_toggle:
                         transferred_files.append(os.path.join(file.root, rename))
                     try:
-                        send_message("\n\t\tBEFORE: " + file.name, discord=False)
-                        send_message("\t\tAFTER:  " + rename, discord=False)
+                        send_message(f"\n\t\tBEFORE: {file.name}", discord=False)
+                        send_message(f"\t\tAFTER:  {rename}", discord=False)
 
                         user_input = (
                             get_input_from_user(
@@ -4425,26 +4401,25 @@ def reorganize_and_rename(files, dir, group=False):
                                             fields=[
                                                 {
                                                     "name": "From",
-                                                    "value": "```" + file.name + "```",
+                                                    "value": f"```{file.name}```",
                                                     "inline": False,
                                                 },
                                                 {
                                                     "name": "To",
-                                                    "value": "```" + rename + "```",
+                                                    "value": f"```{rename}```",
                                                     "inline": False,
                                                 },
                                             ],
                                         )
                                     ]
-                                    add_to_grouped_notifications(Embed(embed[0], None))
+                                    grouped_notifications = (
+                                        add_to_grouped_notifications(
+                                            grouped_notifications, Embed(embed[0], None)
+                                        )
+                                    )
                             else:
                                 print(
-                                    "\t\tFile already exists, skipping rename of "
-                                    + file.name
-                                    + " to "
-                                    + rename
-                                    + " and deleting "
-                                    + file.name
+                                    f"\t\tFile already exists, skipping rename of {file.name} to {rename} and deleting {file.name}"
                                 )
                                 remove_file(file.path, silent=True)
                             # replace volume obj
@@ -4462,15 +4437,15 @@ def reorganize_and_rename(files, dir, group=False):
                         send_message(str(ose), error=True)
         except Exception as e:
             send_message(
-                "Failed to Reorganized & Renamed File: "
-                + file.name
-                + ": "
-                + str(e)
-                + " with reoganize_and_rename",
+                f"Failed to Reorganized & Renamed File: {file.name}: {e} with reoganize_and_rename",
                 error=True,
             )
+
     if group and grouped_notifications and not group_discord_notifications_until_max:
-        send_discord_message(None, grouped_notifications)
+        sent_status = send_discord_message(None, grouped_notifications)
+        if sent_status:
+            grouped_notifications = []
+
     return files
 
 
@@ -4710,11 +4685,11 @@ def check_upgrade(
     group=False,
     image=False,
 ):
-    global moved_files, messages_to_send
+    global moved_files, messages_to_send, grouped_notifications
 
     existing_dir = os.path.join(existing_root, dir)
-    clean_existing = os.listdir(existing_dir)
-    clean_existing = clean_and_sort(existing_dir, clean_existing)[0]
+
+    clean_existing = clean_and_sort(existing_dir, os.listdir(existing_dir))[0]
     clean_existing = upgrade_to_volume_class(
         upgrade_to_file_class(
             [
@@ -4726,79 +4701,71 @@ def check_upgrade(
         )
     )
 
-    manga_percent_download_folder = get_percent_for_folder(
-        [file.name], extensions=manga_extensions
+    def get_percent_and_print(existing_files, file, file_type=None):
+        percent_dl = 0
+        percent_existing = 0
+
+        if file_type in ["manga", "novel"]:
+            percent_dl = get_percent_for_folder(
+                [file.name],
+                extensions=manga_extensions
+                if file_type == "manga"
+                else novel_extensions,
+            )
+            percent_existing = get_percent_for_folder(
+                [f.name for f in existing_files],
+                extensions=manga_extensions
+                if file_type == "manga"
+                else novel_extensions,
+            )
+        elif file_type in ["chapter", "volume"]:
+            percent_dl = get_percent_for_folder(
+                [file],
+                file_type=file_type,
+            )
+            percent_existing = get_percent_for_folder(
+                existing_files,
+                file_type=file_type,
+            )
+
+        print(f"\n\t\tDownload Folder {file_type.capitalize()} Percent: {percent_dl}%")
+        print(
+            f"\t\tExisting Folder {file_type.capitalize()} Percent: {percent_existing}%"
+        )
+        return percent_dl, percent_existing
+
+    print(f"\tRequired Folder Matching Percent: {required_matching_percentage}%")
+
+    manga_percent_dl, manga_percent_exst = get_percent_and_print(
+        clean_existing, file, "manga"
     )
-    manga_percent_existing_folder = get_percent_for_folder(
-        [f.name for f in clean_existing], extensions=manga_extensions
-    )
-    novel_percent_download_folder = get_percent_for_folder(
-        [file.name], extensions=novel_extensions
-    )
-    novel_percent_existing_folder = get_percent_for_folder(
-        [f.name for f in clean_existing], extensions=novel_extensions
-    )
-    chapter_percentage_download_folder = get_percent_for_folder(
-        [file], file_type="chapter"
-    )
-    chapter_percentage_existing_folder = get_percent_for_folder(
-        clean_existing, file_type="chapter"
-    )
-    volume_percentage_download_folder = get_percent_for_folder(
-        [file], file_type="volume"
-    )
-    volume_percentage_existing_folder = get_percent_for_folder(
-        clean_existing, file_type="volume"
+    novel_percent_dl, novel_percent_exst = get_percent_and_print(
+        clean_existing, file, "novel"
     )
 
-    print(
-        "\tRequired Folder Matching Percent: {}%".format(required_matching_percentage)
+    chapter_percentage_dl, chapter_percentage_exst = get_percent_and_print(
+        clean_existing, file, "chapter"
     )
-    print(
-        "\t\tDownload Folder Manga Percent: {}%".format(manga_percent_download_folder)
-    )
-    print(
-        "\t\tExisting Folder Manga Percent: {}%".format(manga_percent_existing_folder)
-    )
-    print(
-        "\n\t\tDownload Folder Novel Percent: {}%".format(novel_percent_download_folder)
-    )
-    print(
-        "\t\tExisting Folder Novel Percent: {}%".format(novel_percent_existing_folder)
-    )
-    print(
-        "\n\t\tDownload Folder Chapter Percent: {}%".format(
-            chapter_percentage_download_folder
-        )
-    )
-    print(
-        "\t\tExisting Folder Chapter Percent: {}%".format(
-            chapter_percentage_existing_folder
-        )
-    )
-    print(
-        "\n\t\tDownload Folder Volume Percent: {}%".format(
-            volume_percentage_download_folder
-        )
-    )
-    print(
-        "\t\tExisting Folder Volume Percent: {}%".format(
-            volume_percentage_existing_folder
-        )
+    volume_percentage_dl, volume_percentage_exst = get_percent_and_print(
+        clean_existing, file, "volume"
     )
 
     matching_manga = (
-        manga_percent_download_folder >= required_matching_percentage
-    ) and (manga_percent_existing_folder >= required_matching_percentage)
+        manga_percent_dl >= required_matching_percentage
+        and manga_percent_exst >= required_matching_percentage
+    )
     matching_novel = (
-        novel_percent_download_folder >= required_matching_percentage
-    ) and (novel_percent_existing_folder >= required_matching_percentage)
+        novel_percent_dl >= required_matching_percentage
+        and novel_percent_exst >= required_matching_percentage
+    )
     matching_chapter = (
-        chapter_percentage_download_folder >= required_matching_percentage
-    ) and (chapter_percentage_existing_folder >= required_matching_percentage)
+        chapter_percentage_dl >= required_matching_percentage
+        and chapter_percentage_exst >= required_matching_percentage
+    )
     matching_volume = (
-        volume_percentage_download_folder >= required_matching_percentage
-    ) and (volume_percentage_existing_folder >= required_matching_percentage)
+        volume_percentage_dl >= required_matching_percentage
+        and volume_percentage_exst >= required_matching_percentage
+    )
 
     if (matching_manga or matching_novel) and (matching_chapter or matching_volume):
         download_dir_volumes = [file]
@@ -4806,45 +4773,43 @@ def check_upgrade(
         if rename_files_in_download_folders_toggle and resturcture_when_renaming:
             reorganize_and_rename(download_dir_volumes, existing_dir, group=group)
 
-        fields = []
+        fields = [
+            {
+                "name": "Existing Series Location",
+                "value": f"```{existing_dir}```",
+                "inline": False,
+            }
+        ]
 
         if similarity_strings:
             if not isbn and not image:
-                fields = [
-                    {
-                        "name": "Existing Series Location",
-                        "value": "```" + existing_dir + "```",
-                        "inline": False,
-                    },
-                    {
-                        "name": "Downloaded File Series Name",
-                        "value": "```" + similarity_strings[0] + "```",
-                        "inline": True,
-                    },
-                    {
-                        "name": "Existing Library Folder Name",
-                        "value": "```" + similarity_strings[1] + "```",
-                        "inline": False,
-                    },
-                    {
-                        "name": "Similarity Score",
-                        "value": "```" + str(similarity_strings[2]) + "```",
-                        "inline": True,
-                    },
-                    {
-                        "name": "Required Score",
-                        "value": "```>= " + str(similarity_strings[3]) + "```",
-                        "inline": True,
-                    },
-                ]
-            elif isbn:
-                if len(similarity_strings) >= 2:
-                    fields = [
+                fields.extend(
+                    [
                         {
-                            "name": "Existing Series Location",
-                            "value": "```" + existing_dir + "```",
+                            "name": "Downloaded File Series Name",
+                            "value": f"```{similarity_strings[0]}```",
+                            "inline": True,
+                        },
+                        {
+                            "name": "Existing Library Folder Name",
+                            "value": f"```{similarity_strings[1]}```",
                             "inline": False,
                         },
+                        {
+                            "name": "Similarity Score",
+                            "value": f"```{similarity_strings[2]}```",
+                            "inline": True,
+                        },
+                        {
+                            "name": "Required Score",
+                            "value": f"```>= {similarity_strings[3]}```",
+                            "inline": True,
+                        },
+                    ]
+                )
+            elif isbn and len(similarity_strings) >= 2:
+                fields.extend(
+                    [
                         {
                             "name": "Downloaded File",
                             "value": "```" + "\n".join(similarity_strings[0]) + "```",
@@ -4856,106 +4821,66 @@ def check_upgrade(
                             "inline": False,
                         },
                     ]
-                else:
-                    send_message(
-                        "Error: similarity_strings is not long enough to be valid."
-                        + str(similarity_strings)
-                        + " File: "
-                        + file.name,
-                        error=True,
-                    )
-            elif image:
-                if len(similarity_strings) == 4:
-                    fields = [
+                )
+            elif image and len(similarity_strings) == 4:
+                fields.extend(
+                    [
                         {
-                            "name": "Existing Series Location",
-                            "value": "```" + existing_dir + "```",
-                            "inline": False,
-                        },
-                        {
-                            "name": "Existing Shortened Series Name",
-                            "value": "```" + similarity_strings[0] + "```",
+                            "name": "Existing Folder Name",
+                            "value": f"```{similarity_strings[0]}```",
                             "inline": True,
                         },
                         {
-                            "name": "Download File Shortened Series Name",
-                            "value": "```" + similarity_strings[1] + "```",
+                            "name": "File Series Name",
+                            "value": f"```{similarity_strings[1]}```",
                             "inline": True,
                         },
                         {
                             "name": "Image Similarity Score",
-                            "value": "```" + str(similarity_strings[2]) + "```",
+                            "value": f"```{similarity_strings[2]}```",
                             "inline": False,
                         },
                         {
                             "name": "Required Score",
-                            "value": "```>=" + str(similarity_strings[3]) + "```",
+                            "value": f"```>={similarity_strings[3]}```",
                             "inline": True,
                         },
                     ]
-                else:
-                    send_message(
-                        "Error: similarity_strings is not long enough to be valid."
-                        + str(similarity_strings)
-                        + " File: "
-                        + file.name,
-                        error=True,
-                    )
+                )
+            else:
+                send_message(
+                    f"Error: similarity_strings is not long enough to be valid. {similarity_strings} File: {file.name}",
+                    error=True,
+                )
 
-        if cache:
-            send_message(
-                "\n\t\tFound existing series from cache: " + existing_dir, discord=False
+            if cache:
+                message = f"Found existing series from cache: {existing_dir}"
+                title = "Found Series Match (CACHE)"
+            elif isbn:
+                message = f"Found existing series: {existing_dir}"
+                title = "Found Series Match (Matching Identifier)"
+            elif image:
+                message = f"Found existing series: {existing_dir}"
+                title = "Found Series Match (Cover Match)"
+            else:
+                message = f"Found existing series: {existing_dir}"
+                title = "Found Series Match"
+
+        send_message(f"\n\t\t{message}", discord=False)
+
+        if len(fields) > 1:
+            embed = [
+                handle_fields(
+                    DiscordEmbed(
+                        title=title,
+                        color=grey_color,
+                    ),
+                    fields=fields,
+                ),
+            ]
+            grouped_notifications = add_to_grouped_notifications(
+                grouped_notifications, Embed(embed[0], None)
             )
-            if fields:
-                embed = [
-                    handle_fields(
-                        DiscordEmbed(
-                            title="Found Series Match (CACHE)",
-                            color=grey_color,
-                        ),
-                        fields=fields,
-                    )
-                ]
-                add_to_grouped_notifications(Embed(embed[0], None))
-        elif isbn:
-            send_message("\n\t\tFound existing series: " + existing_dir, discord=False)
-            if fields:
-                embed = [
-                    handle_fields(
-                        DiscordEmbed(
-                            title="Found Series Match (Matching Identifier)",
-                            color=grey_color,
-                        ),
-                        fields=fields,
-                    ),
-                ]
-                add_to_grouped_notifications(Embed(embed[0], None))
-        elif image:
-            send_message("\n\t\tFound existing series: " + existing_dir, discord=False)
-            if fields:
-                embed = [
-                    handle_fields(
-                        DiscordEmbed(
-                            title="Found Series Match (Cover Match)",
-                            color=grey_color,
-                        ),
-                        fields=fields,
-                    ),
-                ]
-                add_to_grouped_notifications(Embed(embed[0], None))
-        else:
-            send_message("\n\t\tFound existing series: " + existing_dir, discord=False)
-            if fields:
-                embed = [
-                    handle_fields(
-                        DiscordEmbed(
-                            title="Found Series Match",
-                            color=grey_color,
-                        ),
-                        fields=fields,
-                    ),
-                ]
-                add_to_grouped_notifications(Embed(embed[0], None))
 
         remove_duplicate_releases_from_download(
             clean_existing,
@@ -4964,46 +4889,35 @@ def check_upgrade(
             image_similarity_match=image,
         )
 
-        if len(download_dir_volumes) != 0:
+        if download_dir_volumes:
             volume = download_dir_volumes[0]
 
-            if isinstance(
-                volume.volume_number,
-                float,
-            ) or isinstance(volume.volume_number, list):
+            if isinstance(volume.volume_number, (float, list)):
                 send_message(
-                    "\t\t\t"
-                    + volume.file_type.capitalize()
-                    + " "
-                    + array_to_string(volume.volume_number)
-                    + ": "
-                    + volume.name
-                    + " does not exist in: "
-                    + existing_dir
-                    + "\n\t\t\tMoving: "
-                    + volume.name
-                    + " to "
-                    + existing_dir,
+                    f"\t\t\t{volume.file_type.capitalize()} {array_to_string(volume.volume_number)}: {volume.name} does not exist in: {existing_dir}\n\t\t\tMoving: {volume.name} to {existing_dir}",
                     discord=False,
                 )
-                cover = None
 
-                if volume.file_type == "volume" or (
-                    volume.file_type == "chapter"
-                    and output_chapter_covers_to_discord
-                    and not new_volume_webhook
-                ):
-                    cover = find_and_extract_cover(volume, return_data_only=True)
+                cover = (
+                    find_and_extract_cover(volume, return_data_only=True)
+                    if volume.file_type == "volume"
+                    or (
+                        volume.file_type == "chapter"
+                        and output_chapter_covers_to_discord
+                        and not new_volume_webhook
+                    )
+                    else None
+                )
 
                 fields = [
                     {
-                        "name": volume.file_type.capitalize() + " Number(s)",
-                        "value": "```" + array_to_string(volume.volume_number) + "```",
+                        "name": f"{volume.file_type.capitalize()} Number(s)",
+                        "value": f"```{array_to_string(volume.volume_number)}```",
                         "inline": False,
                     },
                     {
-                        "name": volume.file_type.capitalize() + " Name(s)",
-                        "value": "```" + volume.name + "```",
+                        "name": f"{volume.file_type.capitalize()} Name(s)",
+                        "value": f"```{volume.name}```",
                         "inline": False,
                     },
                 ]
@@ -5013,16 +4927,14 @@ def check_upgrade(
                     fields.insert(
                         1,
                         {
-                            "name": volume.file_type.capitalize() + " Part",
-                            "value": "```" + str(volume.volume_part) + "```",
+                            "name": f"{volume.file_type.capitalize()} Part",
+                            "value": f"```{volume.volume_part}```",
                             "inline": False,
                         },
                     )
 
-                title = "New " + volume.file_type.capitalize() + "(s) Added"
-                is_chapter_dir = (
-                    chapter_percentage_existing_folder
-                ) >= required_matching_percentage
+                title = f"New {volume.file_type.capitalize()}(s) Added"
+                is_chapter_dir = chapter_percentage_dl >= required_matching_percentage
                 highest_index_num = (
                     get_highest_release(
                         tuple(
@@ -5044,6 +4956,7 @@ def check_upgrade(
                     if not is_chapter_dir
                     else ""
                 )
+
                 move_status = move_file(
                     volume,
                     existing_dir,
@@ -5085,28 +4998,41 @@ def check_upgrade(
                             )
                         )
                     elif volume.file_type == "volume":
-                        if grouped_notifications:
-                            send_discord_message(None, grouped_notifications)
+                        if (
+                            grouped_notifications
+                            and not group_discord_notifications_until_max
+                        ):
+                            sent_status = send_discord_message(
+                                None, grouped_notifications
+                            )
+                            if sent_status:
+                                grouped_notifications = []
                         send_discord_message(
                             None,
                             [Embed(embed[0], cover)],
                             passed_webhook=new_volume_webhook,
                         )
                 else:
-                    add_to_grouped_notifications(Embed(embed[0], cover))
+                    grouped_notifications = add_to_grouped_notifications(
+                        grouped_notifications, Embed(embed[0], cover)
+                    )
                     if (
                         grouped_notifications
                         and not group_discord_notifications_until_max
                     ):
-                        send_discord_message(None, grouped_notifications)
+                        sent_status = send_discord_message(None, grouped_notifications)
+                        if sent_status:
+                            grouped_notifications = []
 
                 return True
         else:
             if grouped_notifications and not group_discord_notifications_until_max:
-                send_discord_message(
+                sent_status = send_discord_message(
                     None,
                     grouped_notifications,
                 )
+                if sent_status:
+                    grouped_notifications = []
             check_and_delete_empty_folder(file.root)
             return True
     else:
@@ -5129,7 +5055,7 @@ def get_zip_comment_cache(zip_file):
                 comment = zip_ref.comment.decode("utf-8")
     except Exception as e:
         send_message(str(e), error=True)
-        send_message("\tFailed to get zip comment for: " + zip_file, error=True)
+        send_message(f"\tFailed to get zip comment for: {zip_file}", error=True)
         write_to_file("errors.txt", str(e))
         exc_type, exc_obj, exc_tb = sys.exc_info()
         fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
@@ -5145,7 +5071,7 @@ def get_zip_comment(zip_file):
                 comment = zip_ref.comment.decode("utf-8")
     except Exception as e:
         send_message(str(e), error=True)
-        send_message("\tFailed to get zip comment for: " + zip_file, error=True)
+        send_message(f"\tFailed to get zip comment for: {zip_file}", error=True)
         write_to_file("errors.txt", str(e))
         exc_type, exc_obj, exc_tb = sys.exc_info()
         fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
@@ -5195,12 +5121,14 @@ def remove_bracketed_info_from_name(string):
 
 # Checks for any duplicate releases and deletes the lower ranking one.
 def check_for_duplicate_volumes(paths_to_search=[], group=False):
+    global grouped_notifications
+
     try:
         for p in paths_to_search:
             if os.path.exists(p):
-                print("\nSearching " + p + " for duplicate releases...")
+                print(f"\nSearching {p} for duplicate releases...")
                 for root, dirs, files in scandir.walk(p):
-                    print("\t" + root)
+                    print(f"\t{root}")
                     clean = None
                     if (
                         watchdog_toggle
@@ -5277,13 +5205,12 @@ def check_for_duplicate_volumes(paths_to_search=[], group=False):
                                     and x.series_name == file.series_name
                                 ]
                                 if compare_volumes:
-                                    print("\t\tChecking: " + file.name)
+                                    print(f"\t\tChecking: {file.name}")
                                     for compare_file in compare_volumes:
                                         try:
                                             if os.path.isfile(compare_file.path):
                                                 print(
-                                                    "\t\t\tAgainst:  "
-                                                    + compare_file.name
+                                                    f"\t\t\tAgainst: {compare_file.name}"
                                                 )
                                                 compare_volume_series_name = (
                                                     (
@@ -5350,17 +5277,9 @@ def check_for_duplicate_volumes(paths_to_search=[], group=False):
                                                             duplicate_file = file
                                                             upgrade_file = compare_file
                                                         send_message(
-                                                            "\n\t\t\tDuplicate release found in: "
-                                                            + upgrade_file.root
-                                                            + "\n\t\t\tDuplicate: "
-                                                            + duplicate_file.name
-                                                            + " has a lower score than "
-                                                            + upgrade_file.name
-                                                            + "\n\n\t\t\tDeleting: "
-                                                            + duplicate_file.name
-                                                            + " inside of "
-                                                            + duplicate_file.root
-                                                            + "\n",
+                                                            f"\n\t\t\tDuplicate release found in: {upgrade_file.root}"
+                                                            f"\n\t\t\tDuplicate: {duplicate_file.name} has a lower score than {upgrade_file.name}"
+                                                            f"\n\n\t\t\tDeleting: {duplicate_file.name} inside of {duplicate_file.root}\n",
                                                             discord=False,
                                                         )
                                                         embed = [
@@ -5372,36 +5291,29 @@ def check_for_duplicate_volumes(paths_to_search=[], group=False):
                                                                 fields=[
                                                                     {
                                                                         "name": "Location",
-                                                                        "value": "```"
-                                                                        + upgrade_file.root
-                                                                        + "```",
+                                                                        "value": f"```{upgrade_file.root}```",
                                                                         "inline": False,
                                                                     },
                                                                     {
                                                                         "name": "Duplicate",
-                                                                        "value": "```"
-                                                                        + duplicate_file.name
-                                                                        + "```",
+                                                                        "value": f"```{duplicate_file.name}```",
                                                                         "inline": False,
                                                                     },
                                                                     {
                                                                         "name": "has a lower score than",
-                                                                        "value": "```"
-                                                                        + upgrade_file.name
-                                                                        + "```",
+                                                                        "value": f"```{upgrade_file.name}```",
                                                                         "inline": False,
                                                                     },
                                                                 ],
                                                             )
                                                         ]
-                                                        add_to_grouped_notifications(
-                                                            Embed(embed[0], None)
+                                                        grouped_notifications = add_to_grouped_notifications(
+                                                            grouped_notifications,
+                                                            Embed(embed[0], None),
                                                         )
                                                         user_input = (
                                                             get_input_from_user(
-                                                                '\t\t\tDelete "'
-                                                                + duplicate_file.name
-                                                                + '"',
+                                                                f'\t\t\tDelete "{duplicate_file.name}"',
                                                                 ["y", "n"],
                                                                 ["y", "n"],
                                                             )
@@ -5441,34 +5353,25 @@ def check_for_duplicate_volumes(paths_to_search=[], group=False):
                                                                     fields=[
                                                                         {
                                                                             "name": "Location",
-                                                                            "value": "```"
-                                                                            + file.root
-                                                                            + "```",
+                                                                            "value": f"```{file.root}```",
                                                                             "inline": False,
                                                                         },
                                                                         {
                                                                             "name": "File Names",
-                                                                            "value": "```"
-                                                                            + file.name
-                                                                            + "\n"
-                                                                            + compare_file.name
-                                                                            + "```",
+                                                                            "value": f"```{file.name}\n{compare_file.name}```",
                                                                             "inline": False,
                                                                         },
                                                                         {
                                                                             "name": "File Hashes",
-                                                                            "value": "```"
-                                                                            + file_hash
-                                                                            + " "
-                                                                            + compare_hash
-                                                                            + "```",
+                                                                            "value": f"```{file_hash} {compare_hash}```",
                                                                             "inline": False,
                                                                         },
                                                                     ],
                                                                 )
                                                             ]
-                                                            add_to_grouped_notifications(
-                                                                Embed(embed[0], None)
+                                                            grouped_notifications = add_to_grouped_notifications(
+                                                                grouped_notifications,
+                                                                Embed(embed[0], None),
                                                             )
                                                             # Delete the compare file
                                                             remove_file(
@@ -5477,13 +5380,10 @@ def check_for_duplicate_volumes(paths_to_search=[], group=False):
                                                             )
                                                         else:
                                                             send_message(
-                                                                "\n\t\t\tDuplicate found in: "
-                                                                + compare_file.root
-                                                                + "\n\t\t\t\t"
-                                                                + file.name
-                                                                + "\n\t\t\t\t"
-                                                                + compare_file.name
-                                                                + "\n\t\t\t\t\tRanking scores are equal, REQUIRES MANUAL DECISION.",
+                                                                f"\n\t\t\tDuplicate found in: {compare_file.root}"
+                                                                f"\n\t\t\t\t{file.name}"
+                                                                f"\n\t\t\t\t{compare_file.name}"
+                                                                f"\n\t\t\t\t\tRanking scores are equal, REQUIRES MANUAL DECISION.",
                                                                 discord=False,
                                                             )
                                                             embed = [
@@ -5495,62 +5395,53 @@ def check_for_duplicate_volumes(paths_to_search=[], group=False):
                                                                     fields=[
                                                                         {
                                                                             "name": "Location",
-                                                                            "value": "```"
-                                                                            + compare_file.root
-                                                                            + "```",
+                                                                            "value": f"```{compare_file.root}```",
                                                                             "inline": False,
                                                                         },
                                                                         {
                                                                             "name": "Duplicate",
-                                                                            "value": "```"
-                                                                            + file.name
-                                                                            + "```",
+                                                                            "value": f"```{file.name}```",
                                                                             "inline": False,
                                                                         },
                                                                         {
                                                                             "name": "has an equal score to",
-                                                                            "value": "```"
-                                                                            + compare_file.name
-                                                                            + "```",
+                                                                            "value": f"```{compare_file.name}```",
                                                                             "inline": False,
                                                                         },
                                                                     ],
                                                                 )
                                                             ]
-                                                            add_to_grouped_notifications(
-                                                                Embed(embed[0], None)
+                                                            grouped_notifications = add_to_grouped_notifications(
+                                                                grouped_notifications,
+                                                                Embed(embed[0], None),
                                                             )
                                                             print(
                                                                 "\t\t\t\t\tSkipping..."
                                                             )
                                         except Exception as e:
                                             send_message(
-                                                "\n\t\t\tError: "
-                                                + str(e)
-                                                + "\n\t\t\tSkipping: "
-                                                + compare_file.name,
+                                                f"\n\t\t\tError: {e}\n\t\t\tSkipping: {compare_file.name}",
                                                 error=True,
                                             )
                                             continue
                         except Exception as e:
                             send_message(
-                                "\n\t\tError: "
-                                + str(e)
-                                + "\n\t\tSkipping: "
-                                + file.name,
+                                f"\n\t\tError: {e}\n\t\tSkipping: {file.name}",
                                 error=True,
                             )
                             continue
             else:
-                print("\n\t\tPath does not exist: " + p)
+                print(f"\n\t\tPath does not exist: {p}")
         if (
             group
             and grouped_notifications
             and not group_discord_notifications_until_max
         ):
-            send_discord_message(None, grouped_notifications)
+            sent_status = send_discord_message(None, grouped_notifications)
+            if sent_status:
+                grouped_notifications = []
     except Exception as e:
-        send_message("\n\t\tError: " + str(e), error=True)
+        send_message(f"\n\t\tError: {e}", error=True)
 
 
 # Gets the hash of the passed file and returns it as a string
@@ -5569,11 +5460,11 @@ def get_file_hash(file):
         return hash_obj.hexdigest()
     except FileNotFoundError as e:
         # Handle file not found error
-        send_message("\n\t\t\tError: File not found - " + str(e), error=True)
+        send_message(f"\n\t\t\tError: File not found - {e}", error=True)
         return None
     except Exception as e:
         # Handle other exceptions
-        send_message("\n\t\t\tError: " + str(e), error=True)
+        send_message(f"\n\t\t\tError: {e}", error=True)
         return None
 
 
@@ -5594,11 +5485,11 @@ def get_internal_file_hash(zip_file, file_name):
         return hash_obj.hexdigest()
     except KeyError as e:
         # Handle file not found in the zip error
-        send_message("\n\t\t\tError: File not found in the zip - " + str(e), error=True)
+        send_message(f"\n\t\t\tError: File not found in the zip - {e}", error=True)
         return None
     except Exception as e:
         # Handle other exceptions
-        send_message("\n\t\t\tError: " + str(e), error=True)
+        send_message(f"\n\t\t\tError: {e}", error=True)
         return None
 
 
@@ -5700,8 +5591,35 @@ def parse_words(user_string):
         if words_no_uni:
             words = words_no_uni
     except Exception as e:
-        send_message(f"parse_words(string={string}) - Error: {str(e)}", error=True)
+        send_message(f"parse_words(string={user_string}) - Error: {e}", error=True)
     return words
+
+
+# Finds a number of consecutive items in both arrays, or returns False if none are found.
+@lru_cache(maxsize=None)
+def find_consecutive_items(arr1, arr2, count=3):
+    if len(arr1) < count or len(arr2) < count:
+        return False
+
+    for i in range(len(arr1) - count + 1):
+        for j in range(len(arr2) - count + 1):
+            if arr1[i : i + count] == arr2[j : j + count]:
+                return True
+    return False
+
+
+def count_words(strings_list):
+    word_count = {}
+
+    for string in strings_list:
+        # Remove punctuation and convert to lowercase
+        words = parse_words(string)
+
+        # Count the occurrence of each word
+        for word in words:
+            word_count[word] = word_count.get(word, 0) + 1
+
+    return word_count
 
 
 # Checks for an existing series by pulling the series name from each elidable file in the downloads_folder
@@ -5710,6 +5628,7 @@ def check_for_existing_series(group=False):
     global cached_paths
     global cached_identifier_results
     global messages_to_send
+    global grouped_notifications
 
     def group_similar_series(messages_to_send):
         # Initialize an empty list to store grouped series
@@ -5756,12 +5675,13 @@ def check_for_existing_series(group=False):
                 # an array of unmatched items, used for skipping subsequent series
                 # items that won't match
                 unmatched_series = []
+
                 for folder in folders:
                     root = folder["root"]
                     dirs = folder["dirs"]
                     files = folder["files"]
 
-                    print("\n" + root)
+                    print(f"\n{root}")
                     clean = None
                     if (
                         watchdog_toggle
@@ -5807,17 +5727,13 @@ def check_for_existing_series(group=False):
                         try:
                             if not file.series_name:
                                 print(
-                                    "\tSkipping: "
-                                    + file.name
-                                    + "\n\t\t - has no series_name"
+                                    f"\tSkipping: {file.name}\n\t\t - has no series_name"
                                 )
                                 continue
 
                             if file.volume_number == "":
                                 print(
-                                    "\tSkipping: "
-                                    + file.name
-                                    + "\n\t\t - has no volume_number"
+                                    f"\tSkipping: {file.name}\n\t\t - has no volume_number"
                                 )
                                 continue
 
@@ -5826,9 +5742,7 @@ def check_for_existing_series(group=False):
                                 and not zipfile.is_zipfile(file.path)
                             ):
                                 print(
-                                    "\tSkipping: "
-                                    + file.name
-                                    + "\n\t\t - is not a valid zip file, possibly corrupted."
+                                    f"\tSkipping: {file.name}\n\t\t - is not a valid zip file, possibly corrupted."
                                 )
                                 continue
 
@@ -5852,13 +5766,7 @@ def check_for_existing_series(group=False):
                                             continue
 
                                         if (
-                                            file.series_name
-                                            + " - "
-                                            + file.file_type
-                                            + " - "
-                                            + file.root
-                                            + " - "
-                                            + file.extension
+                                            f"{file.series_name} - {file.file_type} - {file.root} - {file.extension}"
                                             in cached_result
                                         ):
                                             print(
@@ -5889,14 +5797,10 @@ def check_for_existing_series(group=False):
                                     )
                                 ):
                                     if (
-                                        file.series_name
-                                        + " - "
-                                        + file.file_type
-                                        + " - "
-                                        + file.extension
+                                        f"{file.series_name} - {file.file_type} - {file.extension}"
                                         in unmatched_series
                                     ):
-                                        # print("\t\tSkipping: " + file.name + "...")
+                                        # print(f"\t\tSkipping: {file.name}...")
                                         continue
                                 if (
                                     cached_identifier_results
@@ -5997,12 +5901,7 @@ def check_for_existing_series(group=False):
                                                         not in item.path_formats
                                                     ):
                                                         print(
-                                                            "\t\tSkipping: "
-                                                            + p
-                                                            + " - Path: "
-                                                            + str(item.path_formats)
-                                                            + " File: "
-                                                            + file.file_type
+                                                            f"\t\tSkipping: {p} - Path: {item.path_formats} File: {file.file_type}"
                                                         )
                                                         skip_cached_path = True
                                                     elif (
@@ -6010,12 +5909,7 @@ def check_for_existing_series(group=False):
                                                         not in item.path_extensions
                                                     ):
                                                         print(
-                                                            "\t\tSkipping: "
-                                                            + p
-                                                            + " - Path: "
-                                                            + str(item.path_extensions)
-                                                            + " File: "
-                                                            + file.extension
+                                                            f"\t\tSkipping: {p} - Path: {item.path_extensions} File: {file.extension}"
                                                         )
                                                         skip_cached_path = True
                                                     break
@@ -6054,20 +5948,8 @@ def check_for_existing_series(group=False):
                                                 )
                                             # print(similar.cache_info()) # only for testing
                                             print(
-                                                "\n\t\t-(CACHE)- "
-                                                + str(position)
-                                                + " of "
-                                                + str(len(cached_paths))
-                                                + " - "
-                                                + '"'
-                                                + file.name
-                                                + '"'
-                                                + "\n\t\tCHECKING: "
-                                                + downloaded_file_series_name
-                                                + "\n\t\tAGAINST:  "
-                                                + successful_file_series_name
-                                                + "\n\t\tSCORE:    "
-                                                + str(successful_similarity_score)
+                                                f"\n\t\t-(CACHE)- {position} of {len(cached_paths)} - "
+                                                f'"{file.name}"\n\t\tCHECKING: {downloaded_file_series_name}\n\t\tAGAINST:  {successful_file_series_name}\n\t\tSCORE:    {successful_similarity_score}'
                                             )
                                             if (
                                                 successful_similarity_score
@@ -6075,32 +5957,15 @@ def check_for_existing_series(group=False):
                                             ):
                                                 write_to_file(
                                                     "changes.txt",
-                                                    (
-                                                        '\t\tSimilarity between: "'
-                                                        + successful_file_series_name
-                                                        + '" and "'
-                                                        + downloaded_file_series_name
-                                                        + '"'
-                                                    ),
+                                                    f'\t\tSimilarity between: "{successful_file_series_name}" and "{downloaded_file_series_name}"',
                                                 )
                                                 write_to_file(
                                                     "changes.txt",
-                                                    (
-                                                        "\tSimilarity Score: "
-                                                        + str(
-                                                            successful_similarity_score
-                                                        )
-                                                        + " out of 1.0"
-                                                    ),
+                                                    f"\tSimilarity Score: {successful_similarity_score} out of 1.0",
                                                 )
+
                                                 print(
-                                                    '\n\t\tSimilarity between: "'
-                                                    + successful_file_series_name
-                                                    + '" and "'
-                                                    + downloaded_file_series_name
-                                                    + '" Score: '
-                                                    + str(successful_similarity_score)
-                                                    + " out of 1.0\n"
+                                                    f'\n\t\tSimilarity between: "{successful_file_series_name}" and "{downloaded_file_series_name}" Score: {successful_similarity_score} out of 1.0\n'
                                                 )
                                                 done = check_upgrade(
                                                     os.path.dirname(p),
@@ -6121,9 +5986,14 @@ def check_for_existing_series(group=False):
                                                         and grouped_notifications
                                                         and not group_discord_notifications_until_max
                                                     ):
-                                                        send_discord_message(
-                                                            None, grouped_notifications
+                                                        sent_status = (
+                                                            send_discord_message(
+                                                                None,
+                                                                grouped_notifications,
+                                                            )
                                                         )
+                                                        if sent_status:
+                                                            grouped_notifications = []
                                                     if p not in cached_paths:
                                                         cached_paths.append(p)
                                                         write_to_file(
@@ -6147,9 +6017,11 @@ def check_for_existing_series(group=False):
                                         and grouped_notifications
                                         and not group_discord_notifications_until_max
                                     ):
-                                        send_discord_message(
+                                        sent_status = send_discord_message(
                                             None, grouped_notifications
                                         )
+                                        if sent_status:
+                                            grouped_notifications = []
                                     continue
                                 download_file_zip_comment = get_zip_comment(file.path)
                                 download_file_meta = (
@@ -6161,6 +6033,7 @@ def check_for_existing_series(group=False):
                                 )
                                 directories_found = []
                                 matched_ids = []
+
                                 for path in paths:
                                     path_position = paths.index(path) + 1
                                     if (
@@ -6177,14 +6050,7 @@ def check_for_existing_series(group=False):
                                                         not in item.path_formats
                                                     ):
                                                         print(
-                                                            "\nSkipping path: "
-                                                            + path
-                                                            + " - Path: "
-                                                            + array_to_string(
-                                                                item.path_formats
-                                                            )
-                                                            + " File: "
-                                                            + str(file.file_type)
+                                                            f"\nSkipping path: {path} - Path: {array_to_string(item.path_formats)} File: {str(file.file_type)}"
                                                         )
                                                         skip_path = True
                                                         break
@@ -6193,14 +6059,7 @@ def check_for_existing_series(group=False):
                                                         not in item.path_extensions
                                                     ):
                                                         print(
-                                                            "\nSkipping path: "
-                                                            + path
-                                                            + " - Path: "
-                                                            + array_to_string(
-                                                                item.path_extensions
-                                                            )
-                                                            + " File: "
-                                                            + str(file.extension)
+                                                            f"\nSkipping path: {path} - Path: {array_to_string(item.path_extensions)} File: {str(file.extension)}"
                                                         )
                                                         skip_path = True
                                                         break
@@ -6212,6 +6071,11 @@ def check_for_existing_series(group=False):
                                             for root, dirs, files in scandir.walk(path):
                                                 if done:
                                                     break
+
+                                                counted_words = count_words(
+                                                    [os.path.basename(x) for x in dirs]
+                                                )
+
                                                 if not reorganized:
                                                     dirs = organize_array_list_by_first_letter(
                                                         dirs,
@@ -6242,9 +6106,9 @@ def check_for_existing_series(group=False):
                                                 folder_accessor = create_folder_object(
                                                     root, dirs, file_objects
                                                 )
+
                                                 print(
-                                                    "Looking inside: "
-                                                    + folder_accessor.root
+                                                    f"Looking inside: {folder_accessor.root}"
                                                 )
                                                 if folder_accessor.dirs:
                                                     if (
@@ -6253,9 +6117,9 @@ def check_for_existing_series(group=False):
                                                     ):
                                                         if done:
                                                             break
+
                                                         print(
-                                                            "\nLooking for: "
-                                                            + file.series_name
+                                                            f"\nLooking for: {file.series_name}"
                                                         )
                                                         for dir in folder_accessor.dirs:
                                                             if done:
@@ -6291,28 +6155,7 @@ def check_for_existing_series(group=False):
                                                                     downloaded_file_series_name,
                                                                 )
                                                             print(
-                                                                "\n\t\t-(NOT CACHE)- "
-                                                                + str(dir_position)
-                                                                + " of "
-                                                                + str(
-                                                                    len(
-                                                                        folder_accessor.dirs
-                                                                    )
-                                                                )
-                                                                + " - path "
-                                                                + str(path_position)
-                                                                + " of "
-                                                                + str(len(paths))
-                                                                + " - "
-                                                                + '"'
-                                                                + file.name
-                                                                + '"'
-                                                                + "\n\t\tCHECKING: "
-                                                                + downloaded_file_series_name
-                                                                + "\n\t\tAGAINST:  "
-                                                                + existing_series_folder_from_library
-                                                                + "\n\t\tSCORE:    "
-                                                                + str(similarity_score)
+                                                                f'\n\t\t-(NOT CACHE)- {dir_position} of {len(folder_accessor.dirs)} - path {path_position} of {len(paths)} - "{file.name}"\n\t\tCHECKING: {downloaded_file_series_name}\n\t\tAGAINST:  {existing_series_folder_from_library}\n\t\tSCORE:    {similarity_score}'
                                                             )
                                                             if (
                                                                 similarity_score
@@ -6320,34 +6163,15 @@ def check_for_existing_series(group=False):
                                                             ):
                                                                 write_to_file(
                                                                     "changes.txt",
-                                                                    (
-                                                                        '\t\tSimilarity between: "'
-                                                                        + existing_series_folder_from_library
-                                                                        + '" and "'
-                                                                        + downloaded_file_series_name
-                                                                        + '"'
-                                                                    ),
+                                                                    f'\t\tSimilarity between: "{existing_series_folder_from_library}" and "{downloaded_file_series_name}"',
                                                                 )
+
                                                                 write_to_file(
                                                                     "changes.txt",
-                                                                    (
-                                                                        "\tSimilarity Score: "
-                                                                        + str(
-                                                                            similarity_score
-                                                                        )
-                                                                        + " out of 1.0"
-                                                                    ),
+                                                                    f"\tSimilarity Score: {similarity_score} out of 1.0",
                                                                 )
                                                                 print(
-                                                                    '\n\t\tSimilarity between: "'
-                                                                    + existing_series_folder_from_library
-                                                                    + '" and "'
-                                                                    + downloaded_file_series_name
-                                                                    + '" Score: '
-                                                                    + str(
-                                                                        similarity_score
-                                                                    )
-                                                                    + " out of 1.0\n"
+                                                                    f'\n\t\tSimilarity between: "{existing_series_folder_from_library}" and "{downloaded_file_series_name}" Score: {similarity_score} out of 1.0\n'
                                                                 )
                                                                 done = check_upgrade(
                                                                     folder_accessor.root,
@@ -6367,10 +6191,14 @@ def check_for_existing_series(group=False):
                                                                         and grouped_notifications
                                                                         and not group_discord_notifications_until_max
                                                                     ):
-                                                                        send_discord_message(
+                                                                        sent_status = send_discord_message(
                                                                             None,
                                                                             grouped_notifications,
                                                                         )
+                                                                        if sent_status:
+                                                                            grouped_notifications = (
+                                                                                []
+                                                                            )
                                                                     if (
                                                                         os.path.join(
                                                                             folder_accessor.root,
@@ -6429,21 +6257,21 @@ def check_for_existing_series(group=False):
                                                                 and file.file_type
                                                                 == "volume"
                                                             ):
-                                                                shortened_folder_name = get_shortened_title(
-                                                                    dir
-                                                                )
-                                                                if (
-                                                                    not shortened_folder_name
-                                                                ):
-                                                                    shortened_folder_name = (
+                                                                short_fldr_name = (
+                                                                    get_shortened_title(
                                                                         dir
                                                                     )
-                                                                shortened_folder_name = (
+                                                                )
+                                                                if not short_fldr_name:
+                                                                    short_fldr_name = (
+                                                                        dir
+                                                                    )
+                                                                short_fldr_name = (
                                                                     (
                                                                         replace_underscore_in_name(
                                                                             remove_punctuation(
                                                                                 remove_bracketed_info_from_name(
-                                                                                    shortened_folder_name
+                                                                                    short_fldr_name
                                                                                 )
                                                                             )
                                                                         )
@@ -6451,25 +6279,25 @@ def check_for_existing_series(group=False):
                                                                     .strip()
                                                                     .lower()
                                                                 )
-                                                                file_shortened_series_name = (
+                                                                short_file_series_name = (
                                                                     ""
                                                                 )
                                                                 if (
                                                                     file.shortened_series_name
                                                                 ):
-                                                                    file_shortened_series_name = (
+                                                                    short_file_series_name = (
                                                                         file.shortened_series_name
                                                                     )
                                                                 else:
-                                                                    file_shortened_series_name = (
+                                                                    short_file_series_name = (
                                                                         file.series_name
                                                                     )
-                                                                file_shortened_series_name = (
+                                                                short_file_series_name = (
                                                                     (
                                                                         replace_underscore_in_name(
                                                                             remove_punctuation(
                                                                                 remove_bracketed_info_from_name(
-                                                                                    file_shortened_series_name
+                                                                                    short_file_series_name
                                                                                 )
                                                                             )
                                                                         )
@@ -6478,117 +6306,109 @@ def check_for_existing_series(group=False):
                                                                     .lower()
                                                                 )
                                                                 if (
-                                                                    shortened_folder_name
-                                                                    and file_shortened_series_name
+                                                                    short_fldr_name
+                                                                    and short_file_series_name
                                                                 ):
+                                                                    long_folder_words = parse_words(
+                                                                        dir
+                                                                    )
+                                                                    long_file_words = parse_words(
+                                                                        file.series_name
+                                                                    )
+
                                                                     # use parse_words() to get the words from both strings
-                                                                    file_shortened_series_name_words = (
+                                                                    short_file_series_words = (
                                                                         []
                                                                     )
-                                                                    shortened_folder_name_words = parse_words(
-                                                                        shortened_folder_name
+                                                                    short_fldr_name_words = parse_words(
+                                                                        short_fldr_name
                                                                     )
 
-                                                                    if shortened_folder_name_words:
-                                                                        file_shortened_series_name_words = parse_words(
-                                                                            file_shortened_series_name
+                                                                    if short_fldr_name_words:
+                                                                        short_file_series_words = parse_words(
+                                                                            short_file_series_name
                                                                         )
 
-                                                                    file_words_mod = file_shortened_series_name_words
-                                                                    folder_words_mod = shortened_folder_name_words
+                                                                    file_wrds_mod = short_file_series_words
+                                                                    fldr_wrds_mod = short_fldr_name_words
 
                                                                     if (
-                                                                        file_words_mod
-                                                                        and folder_words_mod
+                                                                        file_wrds_mod
+                                                                        and fldr_wrds_mod
                                                                     ):
-                                                                        if len(
-                                                                            file_words_mod
-                                                                        ) != len(
-                                                                            folder_words_mod
-                                                                        ):
-                                                                            # determine which array is smaller, then get 40% of that length
-                                                                            shortened_length = (
-                                                                                1
-                                                                            )
-                                                                            if len(
-                                                                                file_words_mod
-                                                                            ) < len(
-                                                                                folder_words_mod
-                                                                            ):
-                                                                                shortened_length = int(
-                                                                                    len(
-                                                                                        file_words_mod
-                                                                                    )
-                                                                                    * shortened_word_filter_percentage
-                                                                                )
-                                                                            else:
-                                                                                shortened_length = int(
-                                                                                    len(
-                                                                                        folder_words_mod
-                                                                                    )
-                                                                                    * shortened_word_filter_percentage
-                                                                                )
+                                                                        # Determine the minimum length between file_wrds_mod and fldr_wrds_mod
+                                                                        min_length = min(
+                                                                            len(
+                                                                                file_wrds_mod
+                                                                            ),
+                                                                            len(
+                                                                                fldr_wrds_mod
+                                                                            ),
+                                                                        )
 
-                                                                            # print(
-                                                                            #     str(
-                                                                            #         shortened_length
-                                                                            #     )
-                                                                            # )
+                                                                        # Calculate short_word_filter_percentage(70%) of the minimum length, ensuring it's at least 1
+                                                                        shortened_length = max(
+                                                                            1,
+                                                                            int(
+                                                                                min_length
+                                                                                * short_word_filter_percentage
+                                                                            ),
+                                                                        )
 
-                                                                            if (
-                                                                                shortened_length
-                                                                                == 0
-                                                                            ):
-                                                                                shortened_length = (
-                                                                                    1
-                                                                                )
+                                                                        # Shorten both arrays to the calculated length
+                                                                        file_wrds_mod = file_wrds_mod[
+                                                                            :shortened_length
+                                                                        ]
+                                                                        fldr_wrds_mod = fldr_wrds_mod[
+                                                                            :shortened_length
+                                                                        ]
 
-                                                                            # shorten the arrays, so if the value was 3, then get the first 3 elements for both
-                                                                            file_words_mod = file_words_mod[
-                                                                                :shortened_length
-                                                                            ]
-                                                                            folder_words_mod = folder_words_mod[
-                                                                                :shortened_length
-                                                                            ]
-
-                                                                    if shortened_folder_name.lower().strip() == file_shortened_series_name.lower().strip() or (
+                                                                    folder_name_match = (
+                                                                        short_fldr_name.lower().strip()
+                                                                        == short_file_series_name.lower().strip()
+                                                                    )
+                                                                    similar_score_match = (
                                                                         similar(
-                                                                            shortened_folder_name,
-                                                                            file_shortened_series_name,
+                                                                            short_fldr_name,
+                                                                            short_file_series_name,
                                                                         )
                                                                         >= required_similarity_score
-                                                                        or (
-                                                                            (
-                                                                                (
-                                                                                    folder_words_mod
-                                                                                    and file_words_mod
-                                                                                )
-                                                                                and (
-                                                                                    folder_words_mod
-                                                                                    == file_words_mod
-                                                                                )
-                                                                            )
-                                                                            or (
-                                                                                (
-                                                                                    len(
-                                                                                        shortened_folder_name_words
-                                                                                    )
-                                                                                    >= 3
-                                                                                    and len(
-                                                                                        file_shortened_series_name_words
-                                                                                    )
-                                                                                    >= 3
-                                                                                )
-                                                                                and (
-                                                                                    shortened_folder_name_words[
-                                                                                        :3
-                                                                                    ]
-                                                                                    == file_shortened_series_name_words[
-                                                                                        :3
-                                                                                    ]
-                                                                                )
-                                                                            )
-                                                                        )
+                                                                    )
+                                                                    consecutive_items_match = find_consecutive_items(
+                                                                        tuple(
+                                                                            short_fldr_name_words
+                                                                        ),
+                                                                        tuple(
+                                                                            short_file_series_words
+                                                                        ),
+                                                                    ) or find_consecutive_items(
+                                                                        tuple(
+                                                                            long_folder_words
+                                                                        ),
+                                                                        tuple(
+                                                                            long_file_words
+                                                                        ),
+                                                                    )
+                                                                    unique_words_match = any(
+                                                                        [
+                                                                            i
+                                                                            for i in long_folder_words
+                                                                            if i
+                                                                            in long_file_words
+                                                                            and i
+                                                                            in counted_words
+                                                                            and counted_words[
+                                                                                i
+                                                                            ]
+                                                                            <= 3
+                                                                        ]
+                                                                    )
+
+                                                                    if (
+                                                                        folder_name_match
+                                                                        or similar_score_match
+                                                                        or consecutive_items_match
+                                                                        or unique_words_match
                                                                     ):
                                                                         print(
                                                                             "\n\t\tAttempting alternative match through cover image similarity..."
@@ -6629,42 +6449,28 @@ def check_for_existing_series(group=False):
                                                                                 volume
                                                                                 for volume in img_volumes
                                                                                 if (
-                                                                                    volume.volume_number
+                                                                                    volume.index_number
                                                                                     != ""
-                                                                                    and file.volume_number
+                                                                                    and file.index_number
                                                                                     != ""
                                                                                     and (
-                                                                                        (
-                                                                                            (
-                                                                                                volume.volume_number
-                                                                                                == file.volume_number
-                                                                                                or (
-                                                                                                    isinstance(
-                                                                                                        file.volume_number,
-                                                                                                        list,
-                                                                                                    )
-                                                                                                    and volume.volume_number
-                                                                                                    in file.volume_number
-                                                                                                )
-                                                                                                or (
-                                                                                                    isinstance(
-                                                                                                        volume.volume_number,
-                                                                                                        list,
-                                                                                                    )
-                                                                                                    and file.volume_number
-                                                                                                    in volume.volume_number
-                                                                                                )
+                                                                                        volume.index_number
+                                                                                        == file.index_number
+                                                                                        or (
+                                                                                            isinstance(
+                                                                                                file.index_number,
+                                                                                                list,
                                                                                             )
-                                                                                            and volume.volume_part
-                                                                                            == file.volume_part
+                                                                                            and volume.index_number
+                                                                                            in file.index_number
                                                                                         )
                                                                                         or (
-                                                                                            volume.index_number
-                                                                                            != ""
+                                                                                            isinstance(
+                                                                                                volume.index_number,
+                                                                                                list,
+                                                                                            )
                                                                                             and file.index_number
-                                                                                            != ""
-                                                                                            and volume.index_number
-                                                                                            == file.index_number
+                                                                                            in volume.index_number
                                                                                         )
                                                                                     )
                                                                                 )
@@ -6715,10 +6521,10 @@ def check_for_existing_series(group=False):
                                                                                             silent=True,
                                                                                         )
                                                                                         print(
-                                                                                            "\t\t\tCover Image Similarity Score: "
-                                                                                            + str(
-                                                                                                score
-                                                                                            )
+                                                                                            f"\t\t\tRequired Image Similarity: {required_image_similarity_score}"
+                                                                                        )
+                                                                                        print(
+                                                                                            f"\t\t\t\tCover Image Similarity Score: {score}"
                                                                                         )
                                                                                         if (
                                                                                             score
@@ -6748,26 +6554,15 @@ def check_for_existing_series(group=False):
                                                                                                     "\t\t\tAll Download Series Names Match, Adding to Cache.\n"
                                                                                                 )
                                                                                                 cached_image_similarity_results.append(
-                                                                                                    file.series_name
-                                                                                                    + " - "
-                                                                                                    + file.file_type
-                                                                                                    + " - "
-                                                                                                    + file.root
-                                                                                                    + " - "
-                                                                                                    + file.extension
-                                                                                                    + " @@ "
-                                                                                                    + os.path.join(
-                                                                                                        folder_accessor.root,
-                                                                                                        dir,
-                                                                                                    )
+                                                                                                    f"{file.series_name} - {file.file_type} - {file.root} - {file.extension} @@ {os.path.join(folder_accessor.root, dir)}"
                                                                                                 )
                                                                                             done = check_upgrade(
                                                                                                 folder_accessor.root,
                                                                                                 dir,
                                                                                                 file,
                                                                                                 similarity_strings=[
-                                                                                                    shortened_folder_name,
-                                                                                                    file_shortened_series_name,
+                                                                                                    dir,
+                                                                                                    file.series_name,
                                                                                                     score,
                                                                                                     required_image_similarity_score,
                                                                                                 ],
@@ -6807,9 +6602,9 @@ def check_for_existing_series(group=False):
                                                 ):
                                                     if done:
                                                         break
+
                                                     print(
-                                                        "\n\t\tMatching Identifier Search: "
-                                                        + folder_accessor.root
+                                                        f"\n\t\tMatching Identifier Search: {folder_accessor.root}"
                                                     )
                                                     for f in folder_accessor.files:
                                                         if f.root in directories_found:
@@ -6819,7 +6614,8 @@ def check_for_existing_series(group=False):
                                                             != file.extension
                                                         ):
                                                             continue
-                                                        print("\t\t\t" + f.name)
+
+                                                        print(f"\t\t\t{f.name}")
                                                         existing_file_zip_comment = (
                                                             get_zip_comment_cache(
                                                                 f.path
@@ -6830,10 +6626,7 @@ def check_for_existing_series(group=False):
                                                         )
                                                         if existing_file_meta:
                                                             print(
-                                                                "\t\t\t\t"
-                                                                + str(
-                                                                    existing_file_meta
-                                                                )
+                                                                f"\t\t\t\t{existing_file_meta}"
                                                             )
                                                             if any(
                                                                 d_meta
@@ -6852,8 +6645,7 @@ def check_for_existing_series(group=False):
                                                                     ]
                                                                 )
                                                                 print(
-                                                                    "\n\t\t\t\tMatch found in: "
-                                                                    + f.root
+                                                                    f"\n\t\t\t\tMatch found in: {f.root}"
                                                                 )
                                                                 break
                                                         else:
@@ -6871,9 +6663,7 @@ def check_for_existing_series(group=False):
                                     )
                                     if len(directories_found) == 1:
                                         print(
-                                            "\n\n\t\tMach found in: "
-                                            + directories_found[0]
-                                            + "\n"
+                                            f"\n\n\t\tMatch found in: {directories_found[0]}\n"
                                         )
                                         base = os.path.basename(directories_found[0])
                                         identifier = IdentifierResult(
@@ -6898,9 +6688,11 @@ def check_for_existing_series(group=False):
                                                 and grouped_notifications
                                                 and not group_discord_notifications_until_max
                                             ):
-                                                send_discord_message(
+                                                sent_status = send_discord_message(
                                                     None, grouped_notifications
                                                 )
+                                                if sent_status:
+                                                    grouped_notifications = []
                                             if directories_found[0] not in cached_paths:
                                                 cached_paths.append(
                                                     directories_found[0]
@@ -6928,15 +6720,11 @@ def check_for_existing_series(group=False):
                                             "\t\t\tMatching ISBN or Series ID found in multiple directories."
                                         )
                                         for d in directories_found:
-                                            print("\t\t\t\t" + d)
+                                            print(f"\t\t\t\t{d}")
                                         print("\t\t\tDisregarding Matches...")
                                 if not done:
                                     unmatched_series.append(
-                                        file.series_name
-                                        + " - "
-                                        + file.file_type
-                                        + " - "
-                                        + file.extension
+                                        f"{file.series_name} - {file.file_type} - {file.extension}"
                                     )
                                     print("No match found.")
                         except Exception as e:
@@ -6947,99 +6735,131 @@ def check_for_existing_series(group=False):
                     for folder in folders:
                         check_and_delete_empty_folder(folder["root"])
 
-    if grouped_notifications:
-        send_discord_message(
+    if grouped_notifications and not group_discord_notifications_until_max:
+        sent_status = send_discord_message(
             None,
             grouped_notifications,
         )
+        if sent_status:
+            grouped_notifications = []
 
-    webhook_use = None
+    series_notifications = []
+    webhook_to_use = pick_webhook(None, new_volume_webhook)
+
     if messages_to_send:
         grouped_by_series_names = group_similar_series(messages_to_send)
         messages_to_send = []
-        if grouped_by_series_names:
-            # sort them alphabetically by series name
-            # grouped_by_series_names.sort(key=lambda x: x["series_name"])
-            for grouped_by_series_name in grouped_by_series_names:
-                # sort the group's messages lowest to highest by the number field
-                # the number can be a float or an array of floats
-                # grouped_by_series_name["messages"].sort(
-                #     key=lambda x: x.fields[0]["value"].split(",")[0]
-                # )
-                if output_chapter_covers_to_discord:
-                    for message in grouped_by_series_name["messages"][:]:
-                        cover = find_and_extract_cover(
-                            message.volume_obj, return_data_only=True
+
+        for grouped_by_series_name in grouped_by_series_names:
+            group_messages = grouped_by_series_name["messages"]
+
+            if output_chapter_covers_to_discord:
+                for message in group_messages[:]:
+                    cover = find_and_extract_cover(
+                        message.volume_obj, return_data_only=True
+                    )
+                    embed = [
+                        handle_fields(
+                            DiscordEmbed(
+                                title=message.title,
+                                color=message.color,
+                            ),
+                            fields=message.fields,
                         )
-                        embed = [
-                            handle_fields(
-                                DiscordEmbed(
-                                    title=message.title,
-                                    color=message.color,
-                                ),
-                                fields=message.fields,
-                            )
-                        ]
-                        if not webhook_use:
-                            webhook_use = message.webhook
-                        add_to_grouped_notifications(
-                            Embed(embed[0], cover), webhook_use
+                    ]
+
+                    if new_volume_webhook or not group_discord_notifications_until_max:
+                        series_notifications = add_to_grouped_notifications(
+                            series_notifications,
+                            Embed(embed[0], cover),
+                            webhook_to_use,
                         )
-                        grouped_by_series_name["messages"].remove(message)
-                else:
-                    volume_numbers_mts = []
-                    volume_names_mts = []
-                    title = grouped_by_series_name["messages"][0].fields[0]["name"]
-                    title_2 = grouped_by_series_name["messages"][0].fields[1]["name"]
-                    series_name = grouped_by_series_name["messages"][0].series_name
-                    for message in grouped_by_series_name["messages"]:
-                        if message.fields and len(message.fields) >= 2:
-                            # remove ``` from the start and end of the value
-                            volume_numbers_mts.append(
-                                re.sub(r"```", "", message.fields[0]["value"])
-                            )
-                            volume_names_mts.append(
-                                re.sub(r"```", "", message.fields[1]["value"])
-                            )
-                    if volume_numbers_mts and volume_names_mts and series_name:
-                        new_fields = [
-                            {
-                                "name": "Series Name",
-                                "value": "```" + series_name + "```",
-                                "inline": False,
-                            },
-                            {
-                                "name": title,
-                                "value": "```" + ", ".join(volume_numbers_mts) + "```",
-                                "inline": False,
-                            },
-                            {
-                                "name": title_2,
-                                "value": "```" + "\n".join(volume_names_mts) + "```",
-                                "inline": False,
-                            },
-                        ]
-                        embed = [
-                            handle_fields(
-                                DiscordEmbed(
-                                    title=grouped_by_series_name["messages"][0].title,
-                                    color=grouped_by_series_name["messages"][0].color,
-                                ),
-                                fields=new_fields,
-                            )
-                        ]
-                        if not webhook_use:
-                            webhook_use = grouped_by_series_name["messages"][0].webhook
-                        add_to_grouped_notifications(Embed(embed[0], None), webhook_use)
-    if grouped_notifications:
+                    else:
+                        grouped_notifications = add_to_grouped_notifications(
+                            grouped_notifications,
+                            Embed(embed[0], cover),
+                            webhook_to_use,
+                        )
+                    group_messages.remove(message)
+            else:
+                volume_numbers_mts = []
+                volume_names_mts = []
+                first_item = group_messages[0]
+                title = first_item.fields[0]["name"]
+                title_2 = first_item.fields[1]["name"]
+                series_name = first_item.series_name
+
+                for message in group_messages:
+                    if message.fields and len(message.fields) >= 2:
+                        # remove ``` from the start and end of the value
+                        volume_numbers_mts.append(
+                            re.sub(r"```", "", message.fields[0]["value"])
+                        )
+                        volume_names_mts.append(
+                            re.sub(r"```", "", message.fields[1]["value"])
+                        )
+
+                if volume_numbers_mts and volume_names_mts and series_name:
+                    new_fields = [
+                        {
+                            "name": "Series Name",
+                            "value": "```" + series_name + "```",
+                            "inline": False,
+                        },
+                        {
+                            "name": title,
+                            "value": "```" + ", ".join(volume_numbers_mts) + "```",
+                            "inline": False,
+                        },
+                        {
+                            "name": title_2,
+                            "value": "```" + "\n".join(volume_names_mts) + "```",
+                            "inline": False,
+                        },
+                    ]
+                    embed = [
+                        handle_fields(
+                            DiscordEmbed(
+                                title=first_item.title,
+                                color=first_item.color,
+                            ),
+                            fields=new_fields,
+                        )
+                    ]
+
+                    if new_volume_webhook or not group_discord_notifications_until_max:
+                        series_notifications = add_to_grouped_notifications(
+                            series_notifications,
+                            Embed(embed[0], None),
+                            webhook_to_use,
+                        )
+                    else:
+                        grouped_notifications = add_to_grouped_notifications(
+                            grouped_notifications,
+                            Embed(embed[0], None),
+                            webhook_to_use,
+                        )
+
+    if series_notifications:
         send_discord_message(
             None,
-            grouped_notifications,
-            passed_webhook=webhook_use,
+            series_notifications,
+            passed_webhook=webhook_to_use,
         )
+    elif grouped_notifications and not group_discord_notifications_until_max:
+        sent_status = send_discord_message(
+            None,
+            grouped_notifications,
+            passed_webhook=webhook_to_use,
+        )
+        if sent_status:
+            grouped_notifications = []
 
     # clear lru_cache for parse_words
     parse_words.cache_clear()
+
+    # clear lru_ache for find_consecutive_items()
+    find_consecutive_items.cache_clear()
 
 
 # Removes any unnecessary junk through regex in the folder name and returns the result
@@ -7065,6 +6885,8 @@ def get_series_name(dir):
 # If volume releases are available, it will rename based on those.
 # Otherwise it will fallback to just cleaning the name of any brackets.
 def rename_dirs_in_download_folder(paths_to_process=download_folders, group=False):
+    global grouped_notifications
+
     def process_folder(download_folder):
         def rename_based_on_volumes(root):
             global transferred_dirs, transferred_files
@@ -7141,7 +6963,7 @@ def rename_dirs_in_download_folder(paths_to_process=download_folders, group=Fals
 
             print("\t\tFILES:")
             for v in volumes:
-                print("\t\t\t" + v.name)
+                print(f"\t\t\t{v.name}")
 
             user_input = (
                 get_input_from_user("\tRename", ["y", "n"], ["y", "n"])
@@ -7263,10 +7085,10 @@ def rename_dirs_in_download_folder(paths_to_process=download_folders, group=Fals
             # New folder doesn't exist, rename to it
             if not os.path.isdir(new_folder_path):
                 send_message(
-                    "\n\tBEFORE: " + basename,
+                    f"\n\tBEFORE: {basename}",
                     discord=False,
                 )
-                send_message("\tAFTER:  " + dir_clean, discord=False)
+                send_message(f"\tAFTER:  {dir_clean}", discord=False)
 
                 user_input = (
                     get_input_from_user("\tRename", ["y", "n"], ["y", "n"])
@@ -7400,7 +7222,7 @@ def rename_dirs_in_download_folder(paths_to_process=download_folders, group=Fals
                     done = rename_based_on_brackets(root)
             except Exception as e:
                 send_message(
-                    "Error renaming folder: " + str(e),
+                    f"Error renaming folder: {e}",
                     error=True,
                 )
             check_and_delete_empty_folder(root)
@@ -7410,7 +7232,7 @@ def rename_dirs_in_download_folder(paths_to_process=download_folders, group=Fals
     for path in paths_to_process:
         print(f"\t\t{path}")
         if not os.path.exists(path):
-            if path == "":
+            if not path:
                 send_message(
                     "No download folders specified, skipping renaming folders...",
                     error=True,
@@ -7424,7 +7246,9 @@ def rename_dirs_in_download_folder(paths_to_process=download_folders, group=Fals
         process_folder(path)
 
     if group and grouped_notifications and not group_discord_notifications_until_max:
-        send_discord_message(None, grouped_notifications)
+        sent_status = send_discord_message(None, grouped_notifications)
+        if sent_status:
+            grouped_notifications = []
 
 
 # Retrieves any bracketed information in the name that isn't the release year.
@@ -7582,9 +7406,7 @@ def get_file_from_zip(zip_file, file_name, allow_base=True, re_search=False):
                             result = z.read(info)
                             break
     except (zipfile.BadZipFile, FileNotFoundError) as e:
-        send_message(
-            "Attempted to read file: " + file_name + "\nERROR: " + str(e), error=True
-        )
+        send_message(f"Attempted to read file: {file_name}\nERROR: {e}", error=True)
     return result
 
 
@@ -7598,10 +7420,7 @@ def parse_comicinfo_xml(xml_file):
                 tags[child.tag] = child.text
         except Exception as e:
             send_message(
-                "Attempted to parse comicinfo.xml: "
-                + str(xml_file)
-                + "\nERROR: "
-                + str(e),
+                f"Attempted to parse comicinfo.xml: {xml_file}\nERROR: {e}",
                 error=True,
             )
             return tags
@@ -7622,6 +7441,8 @@ def rename_files_in_download_folders(
     only_these_files=[], group=False, download_folders=download_folders, test_mode=False
 ):
     global transferred_files
+    global grouped_notifications
+
     print("\nSearching for files to rename...")
     for path in download_folders:
         if os.path.exists(path):
@@ -7660,16 +7481,11 @@ def rename_files_in_download_folders(
                     ),
                     test_mode=test_mode,
                 )
-                print("\t" + root)
+                print(f"\t{root}")
                 for file in volumes:
                     if test_mode:
                         print(
-                            "\t\t["
-                            + str(volumes.index(file) + 1)
-                            + "/"
-                            + str(len(volumes))
-                            + "] "
-                            + file.name
+                            f"\t\t[{volumes.index(file) + 1}/{len(volumes)}] {file.name}"
                         )
                     if (
                         file.file_type == "chapter"
@@ -7778,7 +7594,7 @@ def rename_files_in_download_folders(
                                                 split = converted_num.split("-")
                                                 new_split = []
                                                 for s in split[:]:
-                                                    new_split.append("(0+)?" + s)
+                                                    new_split.append(f"(0+)?{s}")
                                                 if new_split:
                                                     converted_num = "-".join(new_split)
                                                     search = re.search(
@@ -7817,9 +7633,9 @@ def rename_files_in_download_folders(
                             and add_volume_one_number_to_one_shots == True
                         ):
                             if file.is_one_shot and file.file_type == "volume":
-                                result = preferred_naming_format + "01"
+                                result = f"{preferred_naming_format}01"
                             elif file.is_one_shot and file.file_type == "chapter":
-                                result = preferred_naming_format + "001"
+                                result = f"{preferred_naming_format}001"
                             elif not isinstance(result, str):
                                 result = result.group().strip()
                             # EX: "- c009" --> "c009"
@@ -7946,7 +7762,7 @@ def rename_files_in_download_folders(
                                     and add_issue_number_to_manga_file_name
                                     and file.file_type == "volume"
                                 ):
-                                    combined += " " + "#" + without_keyword
+                                    combined += f" #{without_keyword}"
                                 if not file.is_one_shot:
                                     converted_value = re.sub(
                                         keywords, "", combined, flags=re.IGNORECASE
@@ -8025,9 +7841,7 @@ def rename_files_in_download_folders(
 
                                         without_brackets_replacement = re.sub(
                                             optional_following_zero,
-                                            " "
-                                            + preferred_naming_format
-                                            + str(converted_and_filled),
+                                            f" {preferred_naming_format}{converted_and_filled}",
                                             remove_dual_space(
                                                 re.sub(
                                                     r"_extra",
@@ -8064,7 +7878,7 @@ def rename_files_in_download_folders(
                                         replacement = re.sub(
                                             r"((?<![A-Za-z]+)|)(\[|\(|\{)?(?<![A-Za-z])(%s)(\.|)([-_. ]|)(([0-9]+)((([-_.]|)([0-9]+))+|))(\s#(([0-9]+)((([-_.]|)([0-9]+))+|)))?(\]|\)|\})?"
                                             % "",
-                                            " " + preferred_naming_format + combined,
+                                            f" {preferred_naming_format}{combined}",
                                             file.name,
                                             flags=re.IGNORECASE,
                                             count=1,
@@ -8077,11 +7891,9 @@ def rename_files_in_download_folders(
                                         file.basename,
                                         flags=re.IGNORECASE,
                                     ).strip()
-                                    replacement = base + " " + combined
+                                    replacement = f"{base} {combined}"
                                     if file.volume_year:
-                                        replacement += (
-                                            " (" + str(file.volume_year) + ")"
-                                        )
+                                        replacement += f" ({file.volume_year})"
                                     extras = (
                                         get_extras(
                                             file.name,
@@ -8097,7 +7909,7 @@ def rename_files_in_download_folders(
                                         )
                                     )
                                     for extra in extras:
-                                        replacement += " " + extra
+                                        replacement += f" {extra}"
                                     replacement += file.extension
                                 replacement = re.sub(r"([?])", "", replacement).strip()
                                 replacement = remove_dual_space(
@@ -8115,7 +7927,7 @@ def rename_files_in_download_folders(
                                     if test_mode:
                                         write_to_file(
                                             "test_renamed_files.txt",
-                                            file.name + " -> " + replacement,
+                                            f"{file.name} -> {replacement}",
                                             without_timestamp=True,
                                             check_for_dup=True,
                                         )
@@ -8132,11 +7944,11 @@ def rename_files_in_download_folders(
                                             )
                                         ):
                                             send_message(
-                                                "\n\t\tBEFORE: " + file.name,
+                                                f"\n\t\tBEFORE: {file.name}",
                                                 discord=False,
                                             )
                                             send_message(
-                                                "\t\tAFTER:  " + replacement,
+                                                f"\t\tAFTER:  {replacement}",
                                                 discord=False,
                                             )
 
@@ -8162,11 +7974,7 @@ def rename_files_in_download_folders(
                                                         )
                                                 except OSError as e:
                                                     send_message(
-                                                        str(e),
-                                                        "Error renaming file: "
-                                                        + file.name
-                                                        + " to "
-                                                        + replacement,
+                                                        f"{e}\nError renaming file: {file.name} to {replacement}",
                                                         error=True,
                                                     )
                                                 if os.path.isfile(
@@ -8188,23 +7996,20 @@ def rename_files_in_download_folders(
                                                                 fields=[
                                                                     {
                                                                         "name": "From",
-                                                                        "value": "```"
-                                                                        + file.name
-                                                                        + "```",
+                                                                        "value": f"```{file.name}```",
                                                                         "inline": False,
                                                                     },
                                                                     {
                                                                         "name": "To",
-                                                                        "value": "```"
-                                                                        + replacement
-                                                                        + "```",
+                                                                        "value": f"```{replacement}```",
                                                                         "inline": False,
                                                                     },
                                                                 ],
                                                             )
                                                         ]
-                                                        add_to_grouped_notifications(
-                                                            Embed(embed[0], None)
+                                                        grouped_notifications = add_to_grouped_notifications(
+                                                            grouped_notifications,
+                                                            Embed(embed[0], None),
                                                         )
                                                     # Replaces the file object with an updated one with the replacement values
                                                     volume_index = volumes.index(file)
@@ -8217,8 +8022,7 @@ def rename_files_in_download_folders(
                                                     volumes[volume_index] = file
                                                 else:
                                                     send_message(
-                                                        "\n\tRename failed on: "
-                                                        + file.name,
+                                                        f"\n\tRename failed on: {file.name}",
                                                         error=True,
                                                     )
                                             else:
@@ -8228,12 +8032,9 @@ def rename_files_in_download_folders(
                                         else:
                                             # if it already exists, then delete file.name
                                             send_message(
-                                                "\n\tFile already exists: "
-                                                + os.path.join(root, replacement)
-                                                + "\n\t\twhen renaming: "
-                                                + file.name
-                                                + "\n\tDeleting: "
-                                                + file.name,
+                                                f"\n\tFile already exists: {os.path.join(root, replacement)}"
+                                                f"\n\t\twhen renaming: {file.name}"
+                                                f"\n\tDeleting: {file.name}",
                                                 discord=False,
                                             )
                                             remove_file(file.path, silent=True)
@@ -8244,35 +8045,36 @@ def rename_files_in_download_folders(
                                     if test_mode:
                                         write_to_file(
                                             "test_renamed_files.txt",
-                                            file.name + " -> " + replacement,
+                                            f"{file.name} -> {replacement}",
                                             without_timestamp=True,
                                             check_for_dup=True,
                                         )
                                         continue
                             else:
                                 send_message(
-                                    "More than two for either array: " + file.name,
+                                    f"More than two for either array: {file.name}",
                                     error=True,
                                 )
                                 print("Modified Array:")
                                 for i in modified:
-                                    print("\t" + str(i))
+                                    print(f"\t{i}")
                                 print("Results Array:")
                                 for b in results:
-                                    print("\t" + str(b))
+                                    print(f"\t{b}")
                     except Exception as e:
-                        send_message(
-                            "\nERROR: " + str(e) + " (" + file.name + ")", error=True
-                        )
+                        send_message(f"\nERROR: {e} ({file.name})", error=True)
                     if resturcture_when_renaming and not test_mode:
                         reorganize_and_rename([file], file.series_name, group=group)
         else:
-            if path == "":
+            if not path:
                 print("\nERROR: Path cannot be empty.")
             else:
-                print("\nERROR: " + path + " is an invalid path.\n")
+                print(f"\nERROR: {path} is an invalid path.\n")
+
     if group and grouped_notifications and not group_discord_notifications_until_max:
-        send_discord_message(None, grouped_notifications)
+        sent_status = send_discord_message(None, grouped_notifications)
+        if sent_status:
+            grouped_notifications = []
 
 
 # Checks for any exception keywords that will prevent the chapter release from being deleted.
@@ -8283,6 +8085,9 @@ def check_for_exception_keywords(file_name, exception_keywords):
 
 # Deletes chapter files from the download folder.
 def delete_chapters_from_downloads(group=False):
+    global grouped_notifications
+
+    print("\nSearching for chapter files to delete...")
     try:
         for path in download_folders:
             if os.path.exists(path):
@@ -8314,12 +8119,10 @@ def delete_chapters_from_downloads(group=False):
                         ):
                             if get_file_extension(file) in manga_extensions:
                                 send_message(
-                                    "\n\t\tFile: "
-                                    + file
-                                    + "\n\t\tLocation: "
-                                    + root
-                                    + "\n\t\tContains chapter keywords/lone numbers and does not contain any volume/exclusion keywords"
-                                    + "\n\t\tDeleting chapter release.",
+                                    f"\n\t\tFile: {file}"
+                                    f"\n\t\tLocation: {root}"
+                                    f"\n\t\tContains chapter keywords/lone numbers and does not contain any volume/exclusion keywords"
+                                    f"\n\t\tDeleting chapter release.",
                                     discord=False,
                                 )
                                 embed = [
@@ -8331,12 +8134,12 @@ def delete_chapters_from_downloads(group=False):
                                         fields=[
                                             {
                                                 "name": "File",
-                                                "value": "```" + file + "```",
+                                                "value": f"```{file}```",
                                                 "inline": False,
                                             },
                                             {
                                                 "name": "Location",
-                                                "value": "```" + root + "```",
+                                                "value": f"```{root}```",
                                                 "inline": False,
                                             },
                                             {
@@ -8351,7 +8154,9 @@ def delete_chapters_from_downloads(group=False):
                                         ],
                                     )
                                 ]
-                                add_to_grouped_notifications(Embed(embed[0], None))
+                                grouped_notifications = add_to_grouped_notifications(
+                                    grouped_notifications, Embed(embed[0], None)
+                                )
                                 remove_file(os.path.join(root, file), group=group)
                 for root, dirs, files in scandir.walk(path):
                     clean_two = None
@@ -8373,16 +8178,18 @@ def delete_chapters_from_downloads(group=False):
                     for dir in dirs:
                         check_and_delete_empty_folder(os.path.join(root, dir))
             else:
-                if path == "":
+                if not path:
                     print("\nERROR: Path cannot be empty.")
                 else:
-                    print("\nERROR: " + path + " is an invalid path.\n")
+                    print(f"\nERROR: {path} is an invalid path.\n")
         if (
             group
             and grouped_notifications
             and not group_discord_notifications_until_max
         ):
-            send_discord_message(None, grouped_notifications)
+            sent_status = send_discord_message(None, grouped_notifications)
+            if sent_status:
+                grouped_notifications = []
     except Exception as e:
         send_message(str(e), error=True)
 
@@ -8591,13 +8398,7 @@ checked_series = []
 
 # takes a time.time, gets the current time and prints the execution time,
 def print_execution_time(start_time, function_name):
-    print(
-        "\nExecution time for: "
-        + function_name
-        + ": "
-        + str(time.time() - start_time)
-        + " seconds"
-    )
+    print(f"\nExecution time for: {function_name}: {time.time() - start_time} seconds")
 
 
 # Extracts the covers out from our manga and novel files.
@@ -8626,7 +8427,7 @@ def extract_covers(paths_to_process=paths):
         # Check if the path exists
         if not os.path.exists(path):
             # Print an error message for an invalid or empty path
-            print("\nERROR: " + path + " is an invalid path.\n")
+            print(f"\nERROR: {path} is an invalid path.\n")
             continue  # Move to the next iteration
 
         checked_series = []
@@ -8673,8 +8474,9 @@ def extract_covers(paths_to_process=paths):
             global folder_accessor
 
             files, dirs = clean[0], clean[1]
-            print("\nRoot: " + root)
-            print("Files: " + str(files))
+
+            print(f"\nRoot: {root}")
+            print(f"Files: {files}")
 
             if files:
                 # Upgrade files to file classes
@@ -8818,31 +8620,29 @@ def extract_covers(paths_to_process=paths):
 def convert_webp_to_jpg(webp_file_path):
     if webp_file_path:
         extenionless_webp_file = os.path.splitext(webp_file_path)[0]
+        jpg_file_path = f"{extenionless_webp_file}.jpg"
+
         try:
             with Image.open(webp_file_path) as im:
-                im.convert("RGB").save(extenionless_webp_file + ".jpg")
+                im.convert("RGB").save(jpg_file_path)
             # verify that the conversion worked
-            if os.path.isfile(extenionless_webp_file + ".jpg"):
+            if os.path.isfile(jpg_file_path):
                 # delete the .webp file
                 remove_file(webp_file_path, silent=True)
                 # verify that the .webp file was deleted
                 if not os.path.isfile(webp_file_path):
-                    return extenionless_webp_file + ".jpg"
+                    return jpg_file_path
                 else:
                     send_message(
-                        "ERROR: Could not delete " + webp_file_path, error=True
+                        f"ERROR: Could not delete {webp_file_path}", error=True
                     )
             else:
                 send_message(
-                    "ERROR: Could not convert " + webp_file_path + " to jpg", error=True
+                    f"ERROR: Could not convert {webp_file_path} to jpg", error=True
                 )
         except Exception as e:
             send_message(
-                "Could not convert "
-                + webp_file_path
-                + " to jpg"
-                + "\nERROR: "
-                + str(e),
+                f"Could not convert {webp_file_path} to jpg\nERROR: {e}",
                 error=True,
             )
     return None
@@ -8873,9 +8673,9 @@ def process_cover_extraction(
         # Check if a cover image is already present
         cover = next(
             (
-                file.extensionless_path + extension
+                f"{file.extensionless_path}{extension}"
                 for extension in image_extensions
-                if os.path.exists(file.extensionless_path + extension)
+                if os.path.exists(f"{file.extensionless_path}{extension}")
             ),
             "",
         )
@@ -9011,7 +8811,7 @@ def process_cover_extraction(
                         x
                         for x in filtered_series
                         if re.search(
-                            r"^" + first_letter,
+                            rf"^{first_letter}",
                             replace_underscore_in_name(
                                 remove_punctuation(
                                     remove_bracketed_info_from_name(x),
@@ -9066,10 +8866,10 @@ def process_cover_extraction(
                                 # find the image cover
                                 cover_path = next(
                                     (
-                                        volume_one.extensionless_path + extension
+                                        f"{volume_one.extensionless_path}{extension}"
                                         for extension in image_extensions
                                         if os.path.isfile(
-                                            volume_one.extensionless_path + extension
+                                            f"{volume_one.extensionless_path}{extension}"
                                         )
                                     ),
                                     None,
@@ -9139,7 +8939,7 @@ def process_cover_extraction(
                                     )
                                     # copy the file to the series cover folder
                                     series_cover_path = os.path.join(
-                                        file.root, "cover" + cover_path_extension
+                                        file.root, f"cover{cover_path_extension}"
                                     )
                                     shutil.copy(
                                         cover_path,
@@ -9193,14 +8993,14 @@ def process_cover_extraction(
             and same_series_name
         ):
             if not printed:
-                print("\tFile: " + file.name)
+                print(f"\tFile: {file.name}")
                 printed = True
             print("\t\tMissing series cover.")
             print("\t\tFound volume for series cover.")
 
             cover_extension = get_file_extension(os.path.basename(cover))
             cover_path = os.path.join(file.root, os.path.basename(cover))
-            series_cover_path = os.path.join(file.root, "cover" + cover_extension)
+            series_cover_path = os.path.join(file.root, f"cover{cover_extension}")
 
             if os.path.isfile(cover_path):
                 shutil.copy(
@@ -9214,10 +9014,10 @@ def process_cover_extraction(
                     get_modification_date(cover_path),
                 )
             else:
-                print("\t\tCover does not exist at: " + str(cover_path))
+                print(f"\t\tCover does not exist at: {cover_path}")
     except Exception as e:
         send_message(
-            "\nERROR in extract_covers(): " + str(e) + " with file: " + file.name,
+            f"\nERROR in extract_covers(): {e} with file: {file.name}",
             error=True,
         )
 
@@ -9229,21 +9029,23 @@ def print_stats():
         total_count = sum(
             [file_counters[extension] for extension in file_counters.keys()]
         )
-        print("Total Files Found: " + str(total_count))
+        print(f"Total Files Found: {total_count}")
         for extension in file_counters.keys():
             count = file_counters[extension]
             if count > 0:
-                print("\t" + str(count) + " were " + extension + " files")
-    print("\tof those we found that " + str(image_count) + " had a cover image file.")
+                print(f"\t{count} were {extension} files")
+    print(f"\tof those we found that {image_count} had a cover image file.")
 
     if len(errors) != 0:
-        print("\nErrors (" + str(len(errors)) + "):")
+        print(f"\nErrors ({len(errors)}):")
         for error in errors:
-            print("\t" + str(error))
+            print(f"\t{error}")
 
 
 # Deletes any file with an extension in unacceptable_keywords from the download_folders
 def delete_unacceptable_files(group=False):
+    global grouped_notifications
+
     if unacceptable_keywords:
         print("\nSearching for unacceptable files...")
         try:
@@ -9284,12 +9086,7 @@ def delete_unacceptable_files(group=False):
                                     )
                                     if unacceptable_keyword_search:
                                         send_message(
-                                            "\tUnacceptable: "
-                                            + unacceptable_keyword_search.group()
-                                            + " match found in "
-                                            + file
-                                            + "\n\t\tDeleting file from: "
-                                            + root,
+                                            f"\tUnacceptable: {unacceptable_keyword_search.group()} match found in {file}\n\t\tDeleting file from: {root}",
                                             discord=False,
                                         )
                                         embed = [
@@ -9301,26 +9098,27 @@ def delete_unacceptable_files(group=False):
                                                 fields=[
                                                     {
                                                         "name": "Found Regex/Keyword Match",
-                                                        "value": "```"
-                                                        + unacceptable_keyword_search.group()
-                                                        + "```",
+                                                        "value": f"```{unacceptable_keyword_search.group()}```",
                                                         "inline": False,
                                                     },
                                                     {
                                                         "name": "In",
-                                                        "value": "```" + file + "```",
+                                                        "value": f"```{file}```",
                                                         "inline": False,
                                                     },
                                                     {
                                                         "name": "Location",
-                                                        "value": "```" + root + "```",
+                                                        "value": f"```{root}```",
                                                         "inline": False,
                                                     },
                                                 ],
                                             )
                                         ]
-                                        add_to_grouped_notifications(
-                                            Embed(embed[0], None)
+                                        grouped_notifications = (
+                                            add_to_grouped_notifications(
+                                                grouped_notifications,
+                                                Embed(embed[0], None),
+                                            )
                                         )
                                         remove_file(file_path, group=group)
                                         break
@@ -9344,16 +9142,18 @@ def delete_unacceptable_files(group=False):
                         for dir in dirs:
                             check_and_delete_empty_folder(os.path.join(root, dir))
                 else:
-                    if path == "":
+                    if not path:
                         print("\nERROR: Path cannot be empty.")
                     else:
-                        print("\nERROR: " + path + " is an invalid path.\n")
+                        print(f"\nERROR: {path} is an invalid path.\n")
             if (
                 group
                 and grouped_notifications
                 and not group_discord_notifications_until_max
             ):
-                send_discord_message(None, grouped_notifications)
+                sent_status = send_discord_message(None, grouped_notifications)
+                if sent_status:
+                    grouped_notifications = []
         except Exception as e:
             send_message(str(e), error=True)
 
@@ -9446,7 +9246,7 @@ def scrape_url(url, strainer=None, headers=None, cookies=None, proxy=None):
 
         return soup
     except requests.exceptions.RequestException as e:
-        send_message("Error scraping URL: " + str(e), error=True)
+        send_message(f"Error scraping URL: {e}", error=True)
         return None
 
 
@@ -9659,12 +9459,12 @@ def search_bookwalker(
     count = 0
 
     page_count = 1
-    page_count_url = "&page=" + str(page_count)
+    page_count_url = f"&page={page_count}"
 
     search = urllib.parse.quote(query)
     base_url = "https://global.bookwalker.jp/search/?word="
     series_only = "&np=0"
-    series_url = base_url + search + series_only
+    series_url = f"{base_url}{search}{series_only}"
     original_similarity_score = required_similarity_score
 
     # Enables NSFW Search Results
@@ -9703,9 +9503,9 @@ def search_bookwalker(
         required_similarity_score = original_similarity_score - 0.03
 
     while page_count < total_pages_to_scrape + 1:
-        page_count_url = "&page=" + str(page_count)
+        page_count_url = f"&page={page_count}"
         alternate_url = ""
-        url = base_url + search + page_count_url
+        url = f"{base_url}{search}{page_count_url}"
         category = ""
 
         if search_type.lower() == "m":
@@ -10078,7 +9878,7 @@ def search_bookwalker(
 
                 # find table class="product-detail"
                 product_detail = soup_two.find("table", class_="product-detail")
-                # print(str((datetime.now() - start_time)))
+                # print(f"{datetime.now() - start_time}")
 
                 # find all <td> inside of product-detail
                 product_detail_td = product_detail.find_all("td")
@@ -10169,14 +9969,14 @@ def search_bookwalker(
     series_list = combine_series(series_list)
     required_similarity_score = original_similarity_score
 
-    # print("\t\tSleeping for " + str(sleep_timer_bk) + " to avoid being rate-limited...")
+    # print(f"\t\tSleeping for {sleep_timer_bk} to avoid being rate-limited...")
     time.sleep(sleep_timer_bk)
 
     if len(series_list) == 1 and len(series_list[0].books) > 0:
         return series_list[0].books
     elif len(series_list) > 1:
         print("\t\t\tNumber of series from bookwalker search is greater than one.")
-        print("\t\t\tNum: " + str(len(series_list)))
+        print(f"\t\t\tNum: {len(series_list)}")
         return []
     else:
         if not alternative_search:
@@ -10211,6 +10011,8 @@ def check_for_new_volumes_on_bookwalker():
         )
 
     def create_embed(item, color, webhook_index):
+        global grouped_notifications
+
         embed = [
             handle_fields(
                 DiscordEmbed(
@@ -10253,7 +10055,8 @@ def check_for_new_volumes_on_bookwalker():
             )
 
         if bookwalker_webhook_urls and len(bookwalker_webhook_urls) == 2:
-            add_to_grouped_notifications(
+            grouped_notifications = add_to_grouped_notifications(
+                grouped_notifications,
                 Embed(embed[0], None),
                 passed_webhook=bookwalker_webhook_urls[webhook_index],
             )
@@ -10359,18 +10162,18 @@ def check_for_new_volumes_on_bookwalker():
                 print("\n\t\t\t[PRE-ORDER]")
                 pre_orders.append(vol)
 
-            print("\t\t\tTitle:", vol.original_title)
+            print(f"\t\t\tTitle: {vol.original_title}")
 
-            print("\t\t\tVolume Number:", set_num_as_float_or_int(vol.volume_number))
+            print(f"\t\t\tVolume Number: {set_num_as_float_or_int(vol.volume_number)}")
 
             if vol.part:
-                print("\t\t\tPart:", vol.part)
+                print(f"\t\t\tPart: {vol.part}")
 
-            print("\t\t\tDate:", vol.date)
+            print(f"\t\t\tDate: {vol.date}")
             if vol == bookwalker_volumes[-1]:
-                print("\t\t\tURL:", vol.url, "\n")
+                print(f"\t\t\tURL: {vol.url} \n")
             else:
-                print("\t\t\tURL:", vol.url)
+                print(f"\t\t\tURL: {vol.url}")
 
     def sort_and_log_releases_and_pre_orders(released, pre_orders):
         pre_orders.sort(
@@ -10402,7 +10205,7 @@ def check_for_new_volumes_on_bookwalker():
 
     for path_index, path in enumerate(paths_clean):
         if not os.path.exists(path):
-            print("\n\tPath does not exist:", path)
+            print(f"\n\tPath does not exist: {path}")
             continue
 
         os.chdir(path)
@@ -10544,22 +10347,18 @@ def cache_existing_library_paths():
                 except Exception as e:
                     send_message(str(e), error=True)
             else:
-                print(
-                    "\tSkipping: "
-                    + path
-                    + " because it's in the download folders list."
-                )
+                print(f"\tSkipping: {path} because it's in the download folders list.")
         else:
-            if path == "":
+            if not path:
                 send_message("\nERROR: Path cannot be empty.", error=True)
             else:
-                print("\nERROR: " + path + " is an invalid path.\n")
+                print(f"\nERROR: {path} is an invalid path.\n")
     print("\tdone")
 
     if paths_cached:
         print("\nRoot paths that were recursively cached:")
         for path in paths_cached:
-            print("\t" + path)
+            print(f"\t{path}")
 
 
 # Sends scan requests to komga for all passed-in libraries
@@ -10609,26 +10408,18 @@ def scan_komga_library(library_id):
         )
         if request.status_code == 202:
             send_message(
-                "\t\tSuccessfully Initiated Scan for: " + library_id + " Library.",
+                f"\t\tSuccessfully Initiated Scan for: {library_id} Library.",
                 discord=False,
             )
         else:
             send_message(
-                "\t\tFailed to Initiate Scan for: "
-                + library_id
-                + " Library"
-                + " Status Code: "
-                + str(request.status_code)
-                + " Response: "
-                + request.text,
+                f"\t\tFailed to Initiate Scan for: {library_id} Library "
+                f"Status Code: {request.status_code} Response: {request.text}",
                 error=True,
             )
     except Exception as e:
         send_message(
-            "Failed to Initiate Scan for: "
-            + library_id
-            + " Komga Library, ERROR: "
-            + str(e),
+            f"Failed to Initiate Scan for: {library_id} Komga Library, ERROR: {e}",
             error=True,
         )
 
@@ -10684,11 +10475,9 @@ def get_komga_libraries(first_run=True):
             results = request.json()
         else:
             send_message(
-                "\t\tFailed to Get Komga Libraries"
-                + " Status Code: "
-                + str(request.status_code)
-                + " Response: "
-                + request.text,
+                f"\t\tFailed to Get Komga Libraries "
+                f"Status Code: {request.status_code} "
+                f"Response: {request.text}",
                 error=True,
             )
     except Exception as e:
@@ -10698,7 +10487,7 @@ def get_komga_libraries(first_run=True):
             results = get_komga_libraries(first_run=False)
         else:
             send_message(
-                "Failed to Get Komga Libraries, ERROR: " + str(e),
+                f"Failed to Get Komga Libraries, ERROR: {e}",
                 error=True,
             )
     return results
@@ -10713,6 +10502,7 @@ def generate_rename_lists():
     skipped_files = []
     log_file_name = None
     skipped_file_name = None
+
     print("\nGenerating rename lists, with assistance of user.")
     mode = get_input_from_user(
         "\tEnter Mode",
@@ -10720,6 +10510,7 @@ def generate_rename_lists():
         "1 = Release Group, 2 = Publisher, 3 = Exit",
         use_timeout=True,
     )
+
     text_prompt = None
     if mode == "1":
         mode = "r"
@@ -10738,6 +10529,7 @@ def generate_rename_lists():
     else:
         print("\nExiting...")
         return
+
     if paths:
         for path in paths:
             if os.path.exists(path):
@@ -10768,7 +10560,8 @@ def generate_rename_lists():
                             for file in volumes:
                                 if mode == "p" and file.file_type == "chapter":
                                     continue
-                                print("\n\tChecking: " + file.name)
+
+                                print(f"\n\tChecking: {file.name}")
                                 found = False
                                 if file.name not in skipped_files:
                                     if skipped_files and not skipped_file_volumes:
@@ -10814,14 +10607,7 @@ def generate_rename_lists():
                                                 # == skipped_file.series_name
                                             ):
                                                 print(
-                                                    "\t\tSkipping: "
-                                                    + file.name
-                                                    # + " because it has the same extras, extension, and series name as: "
-                                                    + " because it has the same extras and extension as: "
-                                                    + skipped_file.name
-                                                    + " (in "
-                                                    + skipped_file_name
-                                                    + ")"
+                                                    f"\t\tSkipping: {file.name} because it has the same extras and extension as: {skipped_file.name} (in {skipped_file_name})"
                                                 )
                                                 found = True
                                                 write_to_file(
@@ -10860,9 +10646,7 @@ def generate_rename_lists():
                                                     re.IGNORECASE,
                                                 ):
                                                     print(
-                                                        '\t\tFound: "'
-                                                        + group
-                                                        + '", skipping file.'
+                                                        f'\t\tFound: "{group}", skipping file.'
                                                     )
                                                     found = True
                                                     break
@@ -10878,9 +10662,7 @@ def generate_rename_lists():
                                                     re.IGNORECASE,
                                                 ):
                                                     print(
-                                                        '\t\tFound: "'
-                                                        + publisher
-                                                        + '", skipping file.'
+                                                        f'\t\tFound: "{publisher}", skipping file.'
                                                     )
                                                     found = True
                                                     break
@@ -10889,23 +10671,14 @@ def generate_rename_lists():
                                         # loop until the user inputs a valid response
                                         while True:
                                             print(
-                                                "\t\tCould not find a "
-                                                + text_prompt
-                                                + " for: \n\t\t\t"
-                                                + file.name
+                                                f"\t\tCould not find a {text_prompt} for: \n\t\t\t{file.name}"
                                             )
                                             group = input(
-                                                "\n\t\tPlease enter the "
-                                                + text_prompt
-                                                + ' ("none" to add to '
-                                                + skipped_file_name
-                                                + ', "skip" to skip): '
+                                                f'\n\t\tPlease enter the {text_prompt} ("none" to add to {skipped_file_name}, "skip" to skip): '
                                             )
                                             if group == "none":
                                                 print(
-                                                    "\t\t\tAdding to "
-                                                    + skipped_file_name
-                                                    + " and skipping in the future..."
+                                                    f"\t\t\tAdding to {skipped_file_name} and skipping in the future..."
                                                 )
                                                 write_to_file(
                                                     skipped_file_name,
@@ -10936,7 +10709,7 @@ def generate_rename_lists():
                                                 break
                                             elif group:
                                                 # print back what the user entered
-                                                print("\t\t\tYou entered: " + group)
+                                                print(f"\t\t\tYou entered: {group}")
                                                 write_to_file(
                                                     log_file_name,
                                                     group,
@@ -10954,18 +10727,15 @@ def generate_rename_lists():
                                                 print("\t\t\tInvalid input.")
                                 else:
                                     print(
-                                        "\t\tSkipping... File is in "
-                                        + skipped_file_name
+                                        f"\t\tSkipping... File is in {skipped_file_name}"
                                     )
                 except Exception as e:
                     send_message(str(e), error=True)
             else:
-                if path == "":
+                if not path:
                     send_message("\nERROR: Path cannot be empty.", error=True)
                 else:
-                    send_message(
-                        "\nERROR: " + path + " is an invalid path.\n", error=True
-                    )
+                    send_message(f"\nERROR: {path} is an invalid path.\n", error=True)
 
         # Reassign the global arrays if anything new new got added to the local one.
         if skipped_files:
@@ -11108,8 +10878,8 @@ def compare_images(imageA, imageB, silent=False):
     ssim_score = None
     try:
         if not silent:
-            print("\t\t\tBlank Image Size: " + str(imageA.shape))
-            print("\t\t\tInternal Cover Size: " + str(imageB.shape))
+            print(f"\t\t\tBlank Image Size: {imageA.shape}")
+            print(f"\t\t\tInternal Cover Size: {imageB.shape}")
 
         if len(imageA.shape) == 3 and len(imageB.shape) == 3:
             grayA = cv2.cvtColor(imageA, cv2.COLOR_BGR2GRAY)
@@ -11118,7 +10888,7 @@ def compare_images(imageA, imageB, silent=False):
         else:
             ssim_score = ssim(imageA, imageB)
         if not silent:
-            print("\t\t\t\tSSIM: " + str(ssim_score))
+            print(f"\t\t\t\tSSIM: {ssim_score}")
     except Exception as e:
         send_message(str(e), error=True)
     return ssim_score
@@ -11137,7 +10907,7 @@ def extract(file_path, temp_dir, extension):
                 archive.extractall(temp_dir)
                 successfull = True
     except Exception as e:
-        send_message(f"Error extracting {file_path}: {str(e)}", error=True)
+        send_message(f"Error extracting {file_path}: {e}", error=True)
     return successfull
 
 
@@ -11154,13 +10924,15 @@ def compress(temp_dir, cbz_filename):
                     )
             successfull = True
     except Exception as e:
-        send_message(f"Error compressing {temp_dir}: {str(e)}", error=True)
+        send_message(f"Error compressing {temp_dir}: {e}", error=True)
     return successfull
 
 
 # Converts supported archives to CBZ.
 def convert_to_cbz(group=False):
     global transferred_files
+    global grouped_notifications
+
     if download_folders:
         print("\nLooking for archives to convert to CBZ...")
         for folder in download_folders:
@@ -11211,19 +10983,19 @@ def convert_to_cbz(group=False):
                                     # if the file is zero bytes, delete it and continue, otherwise skip
                                     if get_file_size(repacked_file) == 0:
                                         send_message(
-                                            f"\t\t\tCBZ file is zero bytes, deleting...",
+                                            "\t\t\tCBZ file is zero bytes, deleting...",
                                             discord=False,
                                         )
                                         remove_file(repacked_file, group=group)
                                     elif not zipfile.is_zipfile(repacked_file):
                                         send_message(
-                                            f"\t\t\tCBZ file is not a valid zip file, deleting...",
+                                            "\t\t\tCBZ file is not a valid zip file, deleting...",
                                             discord=False,
                                         )
                                         remove_file(repacked_file, group=group)
                                     else:
                                         send_message(
-                                            f"\t\t\tCBZ file already exists, skipping...",
+                                            "\t\t\tCBZ file already exists, skipping...",
                                             discord=False,
                                         )
                                         continue
@@ -11380,29 +11152,27 @@ def convert_to_cbz(group=False):
                                             fields=[
                                                 {
                                                     "name": "From",
-                                                    "value": "```"
-                                                    + os.path.basename(source_file)
-                                                    + "```",
+                                                    "value": f"```{os.path.basename(source_file)}```",
                                                     "inline": False,
                                                 },
                                                 {
                                                     "name": "To",
-                                                    "value": "```"
-                                                    + os.path.basename(repacked_file)
-                                                    + "```",
+                                                    "value": f"```{os.path.basename(repacked_file)}```",
                                                     "inline": False,
                                                 },
                                                 {
                                                     "name": "Location",
-                                                    "value": "```"
-                                                    + os.path.dirname(repacked_file)
-                                                    + "```",
+                                                    "value": f"```{os.path.dirname(repacked_file)}```",
                                                     "inline": False,
                                                 },
                                             ],
                                         )
                                     ]
-                                    add_to_grouped_notifications(Embed(embed[0], None))
+                                    grouped_notifications = (
+                                        add_to_grouped_notifications(
+                                            grouped_notifications, Embed(embed[0], None)
+                                        )
+                                    )
 
                                     # remove the source file
                                     remove_file(source_file, group=group)
@@ -11414,7 +11184,7 @@ def convert_to_cbz(group=False):
                                             transferred_files.append(repacked_file)
                                 else:
                                     send_message(
-                                        f"\t\t\tHashes did not verify", error=True
+                                        "\t\t\tHashes did not verify", error=True
                                     )
                                     # remove cbz file
                                     remove_file(repacked_file, group=group)
@@ -11429,7 +11199,7 @@ def convert_to_cbz(group=False):
                                     or header_extension in manga_extensions
                                 ):
                                     rename_path = (
-                                        get_extensionless_name(file_path) + ".cbz"
+                                        f"{get_extensionless_name(file_path)}.cbz"
                                     )
 
                                     user_input = (
@@ -11461,7 +11231,7 @@ def convert_to_cbz(group=False):
                                         print("\t\t\t\tSkipping...")
                         except Exception as e:
                             send_message(
-                                f"Error when correcting extension: {entry}: {str(e)}",
+                                f"Error when correcting extension: {entry}: {e}",
                                 error=True,
                             )
 
@@ -11478,18 +11248,22 @@ def convert_to_cbz(group=False):
         print("No download folders specified.")
 
     if group and grouped_notifications and not group_discord_notifications_until_max:
-        send_discord_message(None, grouped_notifications)
+        sent_status = send_discord_message(None, grouped_notifications)
+        if sent_status:
+            grouped_notifications = []
 
 
 # Goes through each file in download_folders and checks for an incorrect file extension
 # based on the file header. If the file extension is incorrect, it will rename the file.
 def correct_file_extensions(group=False):
     global transferred_files
+    global grouped_notifications
+
     if download_folders:
         print("\nChecking for incorrect file extensions...")
         for folder in download_folders:
             if os.path.isdir(folder):
-                print("\t{}".format(folder))
+                print(f"\t{folder}")
                 for root, dirs, files in scandir.walk(folder):
                     clean = None
                     if (
@@ -11537,10 +11311,10 @@ def correct_file_extensions(group=False):
                                 )
 
                                 if user_input == "y":
+                                    new_path = f"{volume.extensionless_path}{volume.header_extension}"
                                     rename_status = rename_file(
                                         volume.path,
-                                        volume.extensionless_path
-                                        + volume.header_extension,
+                                        new_path,
                                         silent=True,
                                     )
                                     if rename_status:
@@ -11555,49 +11329,42 @@ def correct_file_extensions(group=False):
                                                     fields=[
                                                         {
                                                             "name": "From",
-                                                            "value": "```"
-                                                            + volume.name
-                                                            + "```",
+                                                            "value": f"```{volume.name}```",
                                                             "inline": False,
                                                         },
                                                         {
                                                             "name": "To",
-                                                            "value": "```"
-                                                            + volume.extensionless_name
-                                                            + volume.header_extension
-                                                            + "```",
+                                                            "value": f"```{volume.extensionless_name}{volume.header_extension}```",
                                                             "inline": False,
                                                         },
                                                     ],
                                                 )
                                             ]
-                                            add_to_grouped_notifications(
-                                                Embed(embed[0], None)
+                                            grouped_notifications = (
+                                                add_to_grouped_notifications(
+                                                    grouped_notifications,
+                                                    Embed(embed[0], None),
+                                                )
                                             )
                                             if watchdog_toggle:
                                                 if volume.path in transferred_files:
                                                     transferred_files.remove(
                                                         volume.path
                                                     )
-                                                if (
-                                                    volume.extensionless_path
-                                                    + volume.header_extension
-                                                    not in transferred_files
-                                                ):
-                                                    transferred_files.append(
-                                                        volume.extensionless_path
-                                                        + volume.header_extension
-                                                    )
+                                                if new_path not in transferred_files:
+                                                    transferred_files.append(new_path)
                                 else:
                                     print("\t\t\tSkipped")
 
             else:
-                send_message("\t{} does not exist.".format(folder), error=True)
+                send_message(f"\t{folder} does not exist.", error=True)
     else:
         print("No download folders specified.")
 
     if group and grouped_notifications and not group_discord_notifications_until_max:
-        send_discord_message(None, grouped_notifications)
+        sent_status = send_discord_message(None, grouped_notifications)
+        if sent_status:
+            grouped_notifications = []
 
 
 # Optional features below, use at your own risk.
@@ -11724,10 +11491,6 @@ def main():
     if create_folders_for_items_in_download_folder_toggle and download_folders:
         create_folders_for_items_in_download_folder(group=True)
 
-    # Rename the root directory folders in the download folder
-    if rename_dirs_in_download_folder_toggle and download_folders:
-        rename_dirs_in_download_folder(group=True)
-
     # Checks for duplicate volumes/chapters in the download folders
     if check_for_duplicate_volumes_toggle and download_folders:
         check_for_duplicate_volumes(download_folders, group=True)
@@ -11741,6 +11504,10 @@ def main():
     if check_for_existing_series_toggle and download_folders and paths:
         check_for_existing_series(group=True)
 
+    # Rename the root directory folders in the download folder
+    if rename_dirs_in_download_folder_toggle and download_folders:
+        rename_dirs_in_download_folder(group=True)
+
     if watchdog_toggle:
         if transferred_files:
             # remove any deleted/renamed/moved files
@@ -11749,6 +11516,9 @@ def main():
         # remove any deleted/renamed/moved directories
         if transferred_dirs:
             transferred_dirs = [x for x in transferred_dirs if os.path.isdir(x.root)]
+
+    if grouped_notifications and not watchdog_toggle:
+        send_discord_message(None, grouped_notifications)
 
     # Extract the covers from the files in the library
     if extract_covers_toggle and paths and not download_folder_in_paths:
@@ -11810,10 +11580,6 @@ def main():
         if libraries_to_scan:
             for library_id in libraries_to_scan:
                 scan_komga_library(library_id)
-
-    # Send any remaining queued notifications to Discord
-    if watchdog_toggle and grouped_notifications:
-        send_discord_message(None, grouped_notifications)
 
 
 if __name__ == "__main__":
