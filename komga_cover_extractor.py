@@ -43,7 +43,7 @@ from watchdog.observers import Observer
 from settings import *
 
 # Version of the script
-script_version = (2, 4, 21)
+script_version = (2, 4, 22)
 script_version_text = "v{}.{}.{}".format(*script_version)
 
 # Paths = existing library
@@ -980,7 +980,9 @@ class Handler(FileSystemEventHandler):
 
             # Send any remaining queued notifications to Discord
             if grouped_notifications:
-                send_discord_message(None, grouped_notifications)
+                sent_status = send_discord_message(None, grouped_notifications)
+                if sent_status:
+                    grouped_notifications = []
 
             send_message("\nWatching for changes... (WATCHDOG)", discord=False)
 
