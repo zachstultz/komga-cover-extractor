@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import traceback
 import time
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -43,7 +44,7 @@ from watchdog.observers import Observer
 from settings import *
 
 # Version of the script
-script_version = (2, 4, 22)
+script_version = (2, 4, 23)
 script_version_text = "v{}.{}.{}".format(*script_version)
 
 # Paths = existing library
@@ -109,7 +110,7 @@ processed_files = []
 moved_files = []
 
 # The script's root directory
-ROOT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)))
+ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # Where logs are written to.
 LOGS_DIR = os.path.join(ROOT_DIR, "logs")
@@ -129,18 +130,14 @@ if ROOT_DIR == "/app":
 
 # The path location of the blank_white.jpg in the root of the script directory.
 blank_white_image_path = (
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), "blank_white.jpg")
-    if os.path.isfile(
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), "blank_white.jpg")
-    )
+    os.path.join(ROOT_DIR, "blank_white.jpg")
+    if os.path.isfile(os.path.join(ROOT_DIR, "blank_white.jpg"))
     else None
 )
 
 blank_black_image_path = (
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), "blank_black.png")
-    if os.path.isfile(
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), "blank_black.png")
-    )
+    os.path.join(ROOT_DIR, "blank_black.png")
+    if os.path.isfile(os.path.join(ROOT_DIR, "blank_black.png"))
     else None
 )
 
@@ -367,11 +364,6 @@ preorder_blue_color = 5919485  # Bookwalker Preorder Notification
 
 # The similarity score required for a publisher to be considered a match
 publisher_similarity_score = 0.9
-
-# If True, instead of grouping discord notifications based on their context.
-# They will instead be grouped until the maximum of 10 is reached, regardless of context
-# then sent.
-group_discord_notifications_until_max = True
 
 # Used to store the files and their associated dirs that have been marked as fully transferred
 # When using watchdog, this is used to prevent the script from
@@ -725,7 +717,7 @@ def get_all_files_recursively_in_dir_watchdog(dir_path):
 
 
 # Generates a folder object for a given root
-def create_folder_object(root, dirs=None, files=None):
+def create_folder_obj(root, dirs=None, files=None):
     return Folder(
         root,
         dirs if dirs is not None else [],
@@ -908,7 +900,7 @@ class Handler(FileSystemEventHandler):
 
                 # Make sure all items are a folder object
                 transferred_dirs = [
-                    create_folder_object(x) if not isinstance(x, Folder) else x
+                    create_folder_obj(x) if not isinstance(x, Folder) else x
                     for x in transferred_dirs
                 ]
 
@@ -1520,17 +1512,13 @@ def set_num_as_float_or_int(volume_number, silent=False):
                 result = ""
                 for num in volume_number:
                     if float(num) == int(num):
-                        if num == volume_number[-1]:
-                            result += f"{int(num)}"
-                        else:
-                            result += f"{int(num)}-"
+                        result += f"{int(num)}"
                     else:
-                        if num == volume_number[-1]:
-                            result += f"{float(num)}"
-                        else:
-                            result += f"{float(num)}-"
+                        result += f"{float(num)}"
+                    if num != volume_number[-1]:
+                        result += "-"
                 return result
-            elif isinstance(volume_number, str) and re.search(r"\.", volume_number):
+            elif isinstance(volume_number, str) and "." in volume_number:
                 volume_number = float(volume_number)
             else:
                 if float(volume_number) == int(volume_number):
@@ -1834,6 +1822,21 @@ def filter_non_chapters(files):
     ]
 
 
+# Caches the given path and writes it to a file
+def cache_path(path):
+    if path in paths or path in download_folders:
+        return
+
+    global cached_paths
+    cached_paths.append(path)
+    write_to_file(
+        "cached_paths.txt",
+        path,
+        without_timestamp=True,
+        check_for_dup=True,
+    )
+
+
 # Cleans up the files array before usage
 def clean_and_sort(
     root,
@@ -1853,18 +1856,13 @@ def clean_and_sort(
 ):
     if (
         check_for_existing_series_toggle
+        and not test_mode
         and root not in cached_paths
         and root not in download_folders
         and root not in paths
         and not any(root.startswith(path) for path in download_folders)
-        and not test_mode
     ):
-        write_to_file(
-            "cached_paths.txt",
-            root,
-            without_timestamp=True,
-            check_for_dup=True,
-        )
+        cache_path(root)
     if ignored_folder_names and not skip_remove_ignored_folder_names:
         ignored_parts = [
             part for part in root.split(os.sep) if part and part in ignored_folder_names
@@ -2156,27 +2154,30 @@ def move_images(
     for extension in image_extensions:
         image = file.extensionless_path + extension
         if os.path.isfile(image):
+            already_existing_image = os.path.join(folder_name, os.path.basename(image))
             # check that the image is not already in the folder
-            if not os.path.isfile(os.path.join(folder_name, os.path.basename(image))):
+            if not os.path.isfile(already_existing_image):
                 shutil.move(image, folder_name)
             else:
-                remove_file(
-                    os.path.join(folder_name, os.path.basename(image)), silent=True
-                )
+                remove_file(already_existing_image, silent=True)
                 shutil.move(image, folder_name)
+
         for cover_file_name in series_cover_file_names:
             cover_image_file_name = cover_file_name + extension
             cover_image_file_path = os.path.join(file.root, cover_image_file_name)
+
             if os.path.isfile(cover_image_file_path):
+                already_existing_cover_image = os.path.join(
+                    folder_name, cover_image_file_name
+                )
+
                 # check that the image is not already in the folder
-                if not os.path.isfile(os.path.join(folder_name, cover_image_file_name)):
+                if not os.path.isfile(already_existing_cover_image):
                     shutil.move(cover_image_file_path, folder_name)
                 elif file.volume_number == 1 and (
                     not use_latest_volume_cover_as_series_cover or is_chapter_dir
                 ):
-                    remove_file(
-                        os.path.join(folder_name, cover_image_file_name), silent=True
-                    )
+                    remove_file(already_existing_cover_image, silent=True)
                     shutil.move(cover_image_file_path, folder_name)
                 elif (
                     use_latest_volume_cover_as_series_cover
@@ -2426,193 +2427,181 @@ def get_series_name_from_file_name_chapter(name, root, chapter_number="", second
 
 # Creates folders for our stray volumes sitting in the root of the download folder.
 def create_folders_for_items_in_download_folder(group=False):
-    global transferred_files
-    global transferred_dirs
-    global grouped_notifications
+    global transferred_files, transferred_dirs, grouped_notifications
 
+    print("\nCreating folders for lone items in download folder...")
     for download_folder in download_folders:
-        if os.path.exists(download_folder):
-            try:
-                for root, dirs, files in scandir.walk(download_folder):
-                    clean = None
-                    if (
-                        watchdog_toggle
-                        and download_folders
-                        and any(x for x in download_folders if root.startswith(x))
+        if not os.path.exists(download_folder):
+            send_message(
+                f"\nERROR: {download_folder} is an invalid path.\n", error=True
+            )
+            continue
+
+        try:
+            for root, dirs, files in scandir.walk(download_folder):
+                if (
+                    watchdog_toggle
+                    and download_folders
+                    and any(x for x in download_folders if root.startswith(x))
+                ):
+                    files, dirs = clean_and_sort(
+                        root,
+                        files,
+                        dirs,
+                        just_these_files=transferred_files,
+                        just_these_dirs=transferred_dirs,
+                    )
+                else:
+                    files, dirs = clean_and_sort(root, files, dirs)
+
+                if not files:
+                    continue
+
+                global folder_accessor
+                file_objects = upgrade_to_file_class(files, root)
+                folder_accessor = create_folder_obj(root, dirs, file_objects)
+
+                for file in folder_accessor.files:
+                    if not (
+                        file.extension in file_extensions
+                        and os.path.basename(download_folder)
+                        == os.path.basename(file.root)
                     ):
-                        clean = clean_and_sort(
-                            root,
-                            files,
-                            dirs,
-                            just_these_files=transferred_files,
-                            just_these_dirs=transferred_dirs,
-                        )
-                    else:
-                        clean = clean_and_sort(root, files, dirs)
-                    files, dirs = clean[0], clean[1]
-                    if not files:
                         continue
-                    global folder_accessor
-                    file_objects = upgrade_to_file_class(files, root)
-                    folder_accessor = create_folder_object(root, dirs, file_objects)
-                    for file in folder_accessor.files:
-                        if file.extension in file_extensions and os.path.basename(
-                            download_folder
-                        ) == os.path.basename(file.root):
-                            done = False
-                            if move_lone_files_to_similar_folder and dirs:
-                                for dir in dirs:
-                                    if (
-                                        dir.strip().lower()
-                                        == file.basename.strip().lower()
-                                    ) or (
-                                        similar(
-                                            replace_underscore_in_name(
-                                                remove_punctuation(dir)
-                                            )
-                                            .strip()
-                                            .lower(),
-                                            replace_underscore_in_name(
-                                                remove_punctuation(file.basename)
-                                            )
-                                            .strip()
-                                            .lower(),
-                                        )
-                                        >= required_similarity_score
-                                    ):
-                                        if (
-                                            replace_series_name_in_file_name_with_similar_folder_name
-                                            and file.basename != dir
-                                        ):
-                                            # replace the series name in the file name with the folder name and rename the file
-                                            new_file_name = re.sub(
-                                                file.basename,
-                                                dir,
-                                                file.name,
-                                                flags=re.IGNORECASE,
-                                            )
-                                            # create file object
-                                            new_file_obj = File(
-                                                new_file_name,
-                                                get_extensionless_name(new_file_name),
-                                                get_series_name_from_file_name(
-                                                    new_file_name, root
-                                                ),
-                                                get_file_extension(new_file_name),
-                                                root,
-                                                os.path.join(root, new_file_name),
-                                                get_extensionless_name(
-                                                    os.path.join(root, new_file_name)
-                                                ),
-                                                None,
-                                                None,
-                                                get_file_extension_from_header(
-                                                    os.path.join(root, new_file_name)
-                                                ),
-                                            )
-                                            # if it doesn't already exist
-                                            if not os.path.isfile(
-                                                os.path.join(
-                                                    file.root, new_file_obj.name
-                                                )
-                                            ):
-                                                rename_file(
-                                                    file.path,
-                                                    new_file_obj.path,
-                                                )
-                                                file = new_file_obj
-                                            else:
-                                                # if it does exist, delete the file
-                                                remove_file(file.path, silent=True)
 
-                                        # check that the file doesn't already exist in the folder
-                                        if os.path.isfile(
-                                            file.path
-                                        ) and not os.path.isfile(
-                                            os.path.join(root, dir, file.name)
-                                        ):
-                                            new_folder_location = os.path.join(
-                                                root, dir
-                                            )
-                                            # it doesn't, we move it and the image associated with it, to that folder
-                                            move_file(
-                                                file,
-                                                new_folder_location,
-                                                group=group,
-                                            )
-                                            if watchdog_toggle:
-                                                transferred_files.append(
-                                                    os.path.join(root, dir, file.name)
-                                                )
+                    done = False
 
-                                                # remove old item from transferred files
-                                                if file.path in transferred_files:
-                                                    transferred_files.remove(file.path)
+                    if move_lone_files_to_similar_folder and dirs:
+                        for folder in dirs:
+                            folder_lower = folder.strip().lower()
+                            basename_lower = file.basename.strip().lower()
 
-                                                # add new folder object to transferred dirs
-                                                transferred_dirs.append(
-                                                    create_folder_object(
-                                                        new_folder_location
-                                                    )
-                                                )
-                                            done = True
-                                            break
-                                        else:
-                                            # it does, so we remove the duplicate file
-                                            remove_file(
-                                                os.path.join(root, file.name),
-                                                silent=True,
-                                            )
-                                            done = True
-                                            break
-                            if not done:
-                                similarity_result = similar(file.name, file.basename)
-                                write_to_file(
-                                    "changes.txt",
-                                    f"Similarity Result between: {file.name} and {file.basename} was {similarity_result}",
+                            if (folder_lower == basename_lower) or (
+                                similar(
+                                    replace_underscore_in_name(
+                                        remove_punctuation(folder)
+                                    )
+                                    .strip()
+                                    .lower(),
+                                    replace_underscore_in_name(
+                                        remove_punctuation(file.basename)
+                                    )
+                                    .strip()
+                                    .lower(),
                                 )
-                                folder_location = os.path.join(file.root, file.basename)
-                                does_folder_exist = os.path.exists(folder_location)
-                                if not does_folder_exist:
-                                    os.mkdir(folder_location)
-                                move_file(file, folder_location, group=group)
-                                if watchdog_toggle:
-                                    transferred_files.append(
-                                        os.path.join(folder_location, file.name)
+                                >= required_similarity_score
+                            ):
+                                if (
+                                    replace_series_name_in_file_name_with_similar_folder_name
+                                    and file.basename != folder
+                                ):
+                                    # replace the series name in the file name with the folder name and rename the file
+                                    new_file_name = re.sub(
+                                        file.basename,
+                                        folder,
+                                        file.name,
+                                        flags=re.IGNORECASE,
                                     )
-                                    # remove old item from transferred files
-                                    if file.path in transferred_files:
-                                        transferred_files.remove(file.path)
+                                    new_file_path = os.path.join(root, new_file_name)
 
-                                    # add new folder object to transferred dirs
-                                    transferred_dirs.append(
-                                        create_folder_object(
-                                            folder_location,
+                                    # create file object
+                                    new_file_obj = File(
+                                        new_file_name,
+                                        get_extensionless_name(new_file_name),
+                                        get_series_name_from_file_name(
+                                            new_file_name, root
+                                        ),
+                                        get_file_extension(new_file_name),
+                                        root,
+                                        new_file_path,
+                                        get_extensionless_name(new_file_path),
+                                        None,
+                                        None,
+                                        get_file_extension_from_header(new_file_path),
+                                    )
+
+                                    # if it doesn't already exist
+                                    if not os.path.isfile(
+                                        os.path.join(file.root, new_file_obj.name)
+                                    ):
+                                        rename_file(
+                                            file.path,
+                                            new_file_obj.path,
                                         )
+                                        file = new_file_obj
+                                    else:
+                                        # if it does exist, delete the file
+                                        remove_file(file.path, silent=True)
+
+                                already_existing_file = os.path.join(
+                                    root, folder, file.name
+                                )
+                                # check that the file doesn't already exist in the folder
+                                if os.path.isfile(file.path) and not os.path.isfile(
+                                    already_existing_file
+                                ):
+                                    new_folder_location = os.path.join(root, folder)
+                                    # it doesn't, we move it and the image associated with it, to that folder
+                                    move_file(
+                                        file,
+                                        new_folder_location,
+                                        group=group,
                                     )
+                                    if watchdog_toggle:
+                                        transferred_files.append(already_existing_file)
 
-            except Exception as e:
-                send_message(str(e), error=True)
-        else:
-            if not download_folder:
-                send_message("\nERROR: Path cannot be empty.", error=True)
-            else:
-                send_message(
-                    f"\nERROR: {download_folder} is an invalid path.\n", error=True
-                )
+                                        # remove old item from transferred files
+                                        if file.path in transferred_files:
+                                            transferred_files.remove(file.path)
 
-    if group and grouped_notifications and not group_discord_notifications_until_max:
-        sent_status = send_discord_message(None, grouped_notifications)
-        if sent_status:
-            grouped_notifications = []
+                                        # add new folder object to transferred dirs
+                                        transferred_dirs.append(
+                                            create_folder_obj(new_folder_location)
+                                        )
+                                    done = True
+                                    break
+                                else:
+                                    # it does, so we remove the duplicate file
+                                    remove_file(
+                                        os.path.join(root, file.name),
+                                        silent=True,
+                                    )
+                                    done = True
+                                    break
+                    if not done:
+                        similarity_result = similar(file.name, file.basename)
+                        write_to_file(
+                            "changes.txt",
+                            f"Similarity Result between: {file.name} and {file.basename} was {similarity_result}",
+                        )
+                        folder_location = os.path.join(file.root, file.basename)
+                        does_folder_exist = os.path.exists(folder_location)
+                        if not does_folder_exist:
+                            os.mkdir(folder_location)
+                        move_file(file, folder_location, group=group)
+                        if watchdog_toggle:
+                            transferred_files.append(
+                                os.path.join(folder_location, file.name)
+                            )
+                            # remove old item from transferred files
+                            if file.path in transferred_files:
+                                transferred_files.remove(file.path)
+
+                            # add new folder object to transferred dirs
+                            transferred_dirs.append(
+                                create_folder_obj(
+                                    folder_location,
+                                )
+                            )
+
+        except Exception as e:
+            send_message(str(e), error=True)
 
 
 def get_percent_for_folder(files, extensions=None, file_type=None):
-    # If the list of files is empty, return 0
     if not files:
         return 0
 
-    # Initialize the count of matching files
     count = 0
 
     # If a file type is specified, count the number of files in the list that match that type
@@ -2624,7 +2613,6 @@ def get_percent_for_folder(files, extensions=None, file_type=None):
         extension_set = set(extensions)
         # Count the number of files with extensions in the extension_set
         count = sum(1 for file in files if get_file_extension(file) in extension_set)
-    # If neither a file type nor a list of extensions is specified, return 0
     else:
         return 0
 
@@ -2637,12 +2625,8 @@ def get_percent_for_folder(files, extensions=None, file_type=None):
 # EX: FALSE == series_title v01.cbz
 @lru_cache(maxsize=None)
 def check_for_multi_volume_file(file_name, chapter=False):
-    # Set the list of keywords to search for, volume keywords by default
-    keywords = volume_regex_keywords
-
-    # If the chapter flag is True, set the list of keywords to search for to the chapter keywords instead
-    if chapter:
-        keywords = chapter_regex_keywords + "|"
+    # Set the list of keywords to search for
+    keywords = volume_regex_keywords if not chapter else chapter_regex_keywords + "|"
 
     # Search for a multi-volume or multi-chapter pattern in the file name, ignoring any bracketed information in the name
     if re.search(
@@ -2709,9 +2693,8 @@ def get_min_and_max_numbers(string):
 def remove_everything_but_volume_num(files, chapter=False):
     results = []
     is_multi_volume = False
-    keywords = volume_regex_keywords
-    if chapter:
-        keywords = chapter_regex_keywords
+    keywords = volume_regex_keywords if not chapter else chapter_regex_keywords
+
     for file in files[:]:
         file = remove_dual_space(
             re.sub(r"_extra", " ", file, flags=re.IGNORECASE)
@@ -2893,7 +2876,6 @@ def get_release_year(name, metadata=None):
                     converted = int(release_year_from_file)
         if converted and converted >= 1000:
             result = converted
-
     return result
 
 
@@ -3034,6 +3016,7 @@ def upgrade_to_volume_class(
         skip_release_year = True
         skip_publisher = True
         skip_premium_content = True
+
     results = []
     for file in files:
         internal_metadata = None
@@ -3074,7 +3057,7 @@ def upgrade_to_volume_class(
             publisher,
             (
                 check_for_premium_content(file.path, file.extension)
-                if not skip_premium_content
+                if not skip_premium_content and search_and_add_premium_to_file_name
                 else False
             ),
             None,
@@ -3213,8 +3196,9 @@ def is_upgradeable(downloaded_release, current_release):
 # Deletes hidden files, used when checking if a folder is empty.
 def delete_hidden_files(files, root):
     for file in files[:]:
-        if (str(file)).startswith(".") and os.path.isfile(os.path.join(root, file)):
-            remove_file(os.path.join(root, file), silent=True)
+        path = os.path.join(root, file)
+        if (str(file)).startswith(".") and os.path.isfile(path):
+            remove_file(path, silent=True)
 
 
 # Removes the old series and cover image
@@ -3284,7 +3268,8 @@ def add_to_grouped_notifications(notifications, embed, passed_webhook=None):
     embed.embed.set_timestamp()
 
     # Add embed to list
-    notifications.append(embed)
+    if embed not in notifications:
+        notifications.append(embed)
 
     return notifications
 
@@ -3744,16 +3729,6 @@ def remove_duplicate_releases_from_download(
                                 )
                             if download in downloaded_releases:
                                 downloaded_releases.remove(download)
-                            if (
-                                grouped_notifications
-                                and not group_discord_notifications_until_max
-                            ):
-                                sent_status = send_discord_message(
-                                    None,
-                                    grouped_notifications,
-                                )
-                                if sent_status:
-                                    grouped_notifications = []
 
 
 def check_and_delete_empty_folder(folder):
@@ -3839,16 +3814,15 @@ def write_to_file(
         contains = False
 
         # check if it already contains the message
-        if check_for_dup and os.path.isfile(os.path.join(logs_dir_loc, file)):
-            contains = check_text_file_for_message(
-                os.path.join(logs_dir_loc, file), message
-            )
+        log_file_path = os.path.join(logs_dir_loc, file)
+
+        if check_for_dup and os.path.isfile(log_file_path):
+            contains = check_text_file_for_message(log_file_path, message)
 
         if not contains or overwrite:
             try:
-                file_path = os.path.join(logs_dir_loc, file)
                 append_write = ""
-                if os.path.exists(file_path):
+                if os.path.exists(log_file_path):
                     if not overwrite:
                         append_write = "a"  # append if already exists
                     else:
@@ -3859,7 +3833,7 @@ def write_to_file(
                     if append_write != "":
                         now = datetime.now()
                         dt_string = now.strftime("%d/%m/%Y %H:%M:%S")
-                        file = open(file_path, append_write)
+                        file = open(log_file_path, append_write)
                         if without_timestamp:
                             file.write(f"\n {message}")
                         else:
@@ -4098,49 +4072,38 @@ def get_input_from_user(
 
 
 # Retrieves the internally stored metadata from the file.
+# Retrieves the internal metadata from the file based on its extension.
 def get_internal_metadata(file_path, extension):
     metadata = None
     try:
         if extension in manga_extensions:
-            contains_comic_info = check_if_zip_file_contains_comic_info_xml(file_path)
-            if contains_comic_info:
+            if contains_comic_info(file_path):
                 comicinfo = get_file_from_zip(
-                    file_path, "comicinfo.xml", allow_base=False
+                    file_path, ["comicinfo.xml"], ".xml", allow_base=False
                 )
                 if comicinfo:
                     comicinfo = comicinfo.decode("utf-8")
-                    # not parsing pages correctly
                     metadata = parse_comicinfo_xml(comicinfo)
         elif extension in novel_extensions:
-            opf_files = [
-                "content.opf",
-                "package.opf",
-                "standard.opf",
-                "volume.opf",
-                "metadata.opf",
-            ]
             regex_searches = [
-                r"978.*\.opf",
+                r"content.opf",
+                r"package.opf",
+                r"standard.opf",
+                r"volume.opf",
+                r"metadata.opf",
+                r"978.*.opf",
             ]
-            opf_files.extend(regex_searches)
-            for file in opf_files:
-                opf = None
-                if file not in regex_searches:
-                    opf = get_file_from_zip(file_path, file)
-                else:
-                    opf = get_file_from_zip(file_path, file, re_search=True)
-                if opf:
-                    metadata = parse_html_tags(opf)
-                    break
+            opf = get_file_from_zip(file_path, regex_searches, ".opf")
+            if opf:
+                metadata = parse_html_tags(opf)
             if not metadata:
                 send_message(
-                    f"\t\tNo opf file found in {file_path}.\n\t\t\tSkipping metadata retrieval.",
+                    f"No opf file found in {file_path}. Skipping metadata retrieval.",
                     discord=False,
                 )
     except Exception as e:
         send_message(
-            f"Failed to retrieve metadata from {file_path}\n\tERROR: {e}",
-            error=True,
+            f"Failed to retrieve metadata from {file_path}\nERROR: {e}", error=True
         )
     return metadata
 
@@ -4148,10 +4111,10 @@ def get_internal_metadata(file_path, extension):
 # Checks if the epub file contains any premium content.
 def check_for_premium_content(file_path, extension):
     result = False
-    if extension in novel_extensions and search_and_add_premium_to_file_name:
+    if extension in novel_extensions:
         if re.search(r"\bPremium\b", os.path.basename(file_path), re.IGNORECASE):
             result = True
-        elif check_for_bonus_xhtml(file_path) or get_toc_or_copyright(file_path):
+        elif check_internals_for_premium_content(file_path):
             result = True
     return result
 
@@ -4161,25 +4124,38 @@ def reorganize_and_rename(files, dir, group=False):
     global transferred_files
     global grouped_notifications
 
+    modifiers = {
+        ext: "[%s]"
+        if ext in novel_extensions
+        else "(%s)"
+        if ext in manga_extensions
+        else ""
+        for ext in file_extensions
+    }
     base_dir = os.path.basename(dir)
+
     for file in files[:]:
-        preferred_naming_format = preferred_volume_renaming_format
-        keywords = volume_regex_keywords
-        if file.file_type == "chapter":
-            keywords = chapter_regex_keywords
-            preferred_naming_format = preferred_chapter_renaming_format
         try:
-            if re.search(
-                r"(\b(%s)([-_.]|)(([0-9]+)((([-_.]|)([0-9]+))+|))(\s|%s))"
-                % (keywords, file_extensions_regex),
-                file.name,
-                re.IGNORECASE,
-            ):
-                rename = ""
-                rename += base_dir
-                rename += f" {preferred_naming_format}"
-                number = None
+            keywords, preferred_naming_format, zfill_int, zfill_float = (
+                (
+                    chapter_regex_keywords,
+                    preferred_chapter_renaming_format,
+                    zfill_chapter_int_value,
+                    zfill_chapter_float_value,
+                )
+                if file.file_type == "chapter"
+                else (
+                    volume_regex_keywords,
+                    preferred_volume_renaming_format,
+                    zfill_volume_int_value,
+                    zfill_volume_float_value,
+                )
+            )
+            regex_pattern = rf"(\b({keywords})([-_.]|)(([0-9]+)((([-_.]|)([0-9]+))+|))(\s|{file_extensions_regex}))"
+            if re.search(regex_pattern, file.name, re.IGNORECASE):
+                rename = f"{base_dir} {preferred_naming_format}"
                 numbers = []
+
                 if file.multi_volume:
                     for n in file.volume_number:
                         numbers.append(n)
@@ -4187,32 +4163,25 @@ def reorganize_and_rename(files, dir, group=False):
                             numbers.append("-")
                 else:
                     numbers.append(file.volume_number)
-                zfill_int = zfill_volume_int_value
-                zfill_float = zfill_volume_float_value
-                if file.file_type == "chapter":
-                    zfill_int = zfill_chapter_int_value
-                    zfill_float = zfill_chapter_float_value
+
                 number_string = ""
+
                 for number in numbers:
                     if not isinstance(number, str) and number.is_integer():
                         if number < 10 or file.file_type == "chapter" and number < 100:
-                            volume_number = str(int(number)).zfill(zfill_int)
-                            number_string += volume_number
+                            number_string += str(int(number)).zfill(zfill_int)
                         else:
-                            volume_number = str(int(number))
-                            number_string += volume_number
+                            number_string += str(int(number))
                     elif isinstance(number, float):
                         if number < 10 or file.file_type == "chapter" and number < 100:
-                            volume_number = str(number).zfill(zfill_float)
-                            number_string += volume_number
+                            number_string += str(number).zfill(zfill_float)
                         else:
-                            volume_number = str(number)
-                            number_string += volume_number
+                            number_string += str(number)
                     elif isinstance(number, str) and number == "-":
                         number_string += "-"
 
-                if number_string:
-                    rename += number_string
+                rename += number_string
+
                 if (
                     add_issue_number_to_manga_file_name
                     and file.file_type == "volume"
@@ -4220,13 +4189,13 @@ def reorganize_and_rename(files, dir, group=False):
                     and number_string
                 ):
                     rename += f" #{number_string}"
+
                 if file.subtitle:
                     rename += f" - {file.subtitle}"
+
                 if file.volume_year:
-                    if file.extension in manga_extensions:
-                        rename += f" ({file.volume_year})"
-                    elif file.extension in novel_extensions:
-                        rename += f" [{file.volume_year}]"
+                    rename += f" {modifiers[file.extension] % file.volume_year}"
+
                     for item in file.extras[:]:
                         score = similar(
                             item,
@@ -4246,50 +4215,48 @@ def reorganize_and_rename(files, dir, group=False):
                 if (
                     file.publisher.from_meta or file.publisher.from_name
                 ) and add_publisher_name_to_file_name_when_renaming:
+                    added = False
                     for item in file.extras[:]:
+                        if added:
+                            break
+
                         for publisher in publishers:
+                            item_without_special_chars = re.sub(
+                                r"[\(\[\{\)\]\}]", "", item
+                            )
+                            meta_similarity = (
+                                similar(
+                                    item_without_special_chars, file.publisher.from_meta
+                                )
+                                if file.publisher.from_meta
+                                else 0
+                            )
+                            name_similarity = (
+                                similar(
+                                    item_without_special_chars, file.publisher.from_name
+                                )
+                                if file.publisher.from_name
+                                else 0
+                            )
+
                             if (
-                                similar(
-                                    re.sub(r"(\(|\[|\{|\)|\]|\})", "", item), publisher
-                                )
+                                similar(item_without_special_chars, publisher)
                                 >= publisher_similarity_score
+                                or meta_similarity >= publisher_similarity_score
+                                or name_similarity >= publisher_similarity_score
                             ):
                                 file.extras.remove(item)
+                                if file.publisher.from_meta:
+                                    rename += f" {modifiers[file.extension] % file.publisher.from_meta}"
+                                elif file.publisher.from_name:
+                                    rename += f" {modifiers[file.extension] % file.publisher.from_name}"
+
+                                added = True
                                 break
-                            elif file.publisher.from_name and (
-                                similar(
-                                    re.sub(r"(\(|\[|\{|\)|\]|\})", "", item),
-                                    file.publisher.from_name,
-                                )
-                                >= publisher_similarity_score
-                            ):
-                                file.extras.remove(item)
-                                break
-                            elif file.publisher.from_meta and (
-                                similar(
-                                    re.sub(r"(\(|\[|\{|\)|\]|\})", "", item),
-                                    file.publisher.from_meta,
-                                )
-                                >= publisher_similarity_score
-                            ):
-                                file.extras.remove(item)
-                                break
-                    if file.extension in manga_extensions:
-                        if file.publisher.from_meta:
-                            rename += f" ({file.publisher.from_meta})"
-                        elif file.publisher.from_name:
-                            rename += f" ({file.publisher.from_name})"
-                    elif file.extension in novel_extensions:
-                        if file.publisher.from_meta:
-                            rename += f" [{file.publisher.from_meta}]"
-                        elif file.publisher.from_name:
-                            rename += f" [{file.publisher.from_name}]"
 
                 if file.is_premium and search_and_add_premium_to_file_name:
-                    if file.extension in manga_extensions:
-                        rename += " (Premium)"
-                    elif file.extension in novel_extensions:
-                        rename += " [Premium]"
+                    rename += f" {modifiers[file.extension] % 'Premium'}"
+
                     for item in file.extras[:]:
                         score = similar(
                             item,
@@ -4301,22 +4268,19 @@ def reorganize_and_rename(files, dir, group=False):
                             re.IGNORECASE,
                         ):
                             file.extras.remove(item)
+
                 if (
                     move_release_group_to_end_of_file_name
                     and add_publisher_name_to_file_name_when_renaming
-                    and (
-                        file.release_group
-                        and (
-                            file.release_group != file.publisher.from_meta
-                            and file.release_group != file.publisher.from_name
-                        )
-                    )
+                    and file.release_group
+                    and file.release_group != file.publisher.from_meta
+                    and file.release_group != file.publisher.from_name
                 ):
                     for item in file.extras[:]:
                         # escape any regex characters
                         item_escaped = re.escape(item)
                         score = similar(
-                            item,
+                            re.sub(r"[\(\[\{\)\]\}]", "", item),
                             file.release_group,
                         )
                         left_brackets = r"(\(|\[|\{)"
@@ -4327,21 +4291,21 @@ def reorganize_and_rename(files, dir, group=False):
                             re.IGNORECASE,
                         ):
                             file.extras.remove(item)
+
                 if file.extras:
-                    for extra in file.extras:
-                        if not re.search(re.escape(extra), rename, re.IGNORECASE):
-                            rename += f" {extra}"
-                if move_release_group_to_end_of_file_name:
-                    release_group_escaped = None
-                    if file.release_group:
-                        release_group_escaped = re.escape(file.release_group)
-                    if release_group_escaped and not re.search(
+                    extras_to_add = [
+                        extra
+                        for extra in file.extras
+                        if not re.search(re.escape(extra), rename, re.IGNORECASE)
+                    ]
+                    rename += " " + " ".join(extras_to_add)
+
+                if move_release_group_to_end_of_file_name and file.release_group:
+                    release_group_escaped = re.escape(file.release_group)
+                    if not re.search(
                         rf"\b{release_group_escaped}\b", rename, re.IGNORECASE
                     ):
-                        if file.extension in manga_extensions:
-                            rename += f" ({file.release_group})"
-                        elif file.extension in novel_extensions:
-                            rename += f" [{file.release_group}]"
+                        rename += f" {modifiers[file.extension] % file.release_group}"
 
                 # remove * from the replacement
                 rename = re.sub(r"\*", "", rename)
@@ -4359,9 +4323,12 @@ def reorganize_and_rename(files, dir, group=False):
                 rename = re.sub(r"/", "-", rename)
 
                 processed_files.append(rename)
+
                 if file.name != rename:
+                    rename_path = os.path.join(file.root, rename)
+
                     if watchdog_toggle:
-                        transferred_files.append(os.path.join(file.root, rename))
+                        transferred_files.append(rename_path)
                     try:
                         send_message(f"\n\t\tBEFORE: {file.name}", discord=False)
                         send_message(f"\t\tAFTER:  {rename}", discord=False)
@@ -4375,10 +4342,10 @@ def reorganize_and_rename(files, dir, group=False):
                         )
 
                         if user_input == "y":
-                            if not os.path.isfile(os.path.join(file.root, rename)):
+                            if not os.path.isfile(rename_path):
                                 rename_status = rename_file(
                                     file.path,
-                                    os.path.join(file.root, rename),
+                                    rename_path,
                                     silent=True,
                                 )
 
@@ -4393,6 +4360,7 @@ def reorganize_and_rename(files, dir, group=False):
                                     "\t\t\tSuccessfully reorganized & renamed file.\n",
                                     discord=False,
                                 )
+
                                 if not mute_discord_rename_notifications:
                                     embed = [
                                         handle_fields(
@@ -4424,10 +4392,12 @@ def reorganize_and_rename(files, dir, group=False):
                                     f"\t\tFile already exists, skipping rename of {file.name} to {rename} and deleting {file.name}"
                                 )
                                 remove_file(file.path, silent=True)
+
                             # replace volume obj
                             replacement_obj = upgrade_to_volume_class(
                                 upgrade_to_file_class([rename], file.root)
                             )[0]
+
                             # append the new object and remove the old one
                             if replacement_obj not in files:
                                 files.append(replacement_obj)
@@ -4442,11 +4412,6 @@ def reorganize_and_rename(files, dir, group=False):
                 f"Failed to Reorganized & Renamed File: {file.name}: {e} with reoganize_and_rename",
                 error=True,
             )
-
-    if group and grouped_notifications and not group_discord_notifications_until_max:
-        sent_status = send_discord_message(None, grouped_notifications)
-        if sent_status:
-            grouped_notifications = []
 
     return files
 
@@ -4634,33 +4599,42 @@ class Result:
         return str(self)
 
 
-# gets the toc.xhtml or copyright.xhtml file from the novel file and checks for premium content
-def get_toc_or_copyright(file):
+# Checks the novel for bonus.xhtml or bonus[0-9].xhtml, otherwise it
+# gets the toc.xhtml or copyright.xhtml file from the novel file and checks
+# that for premium content
+def check_internals_for_premium_content(file):
     bonus_content_found = False
     try:
         with zipfile.ZipFile(file, "r") as zf:
-            for name in zf.namelist():
-                if os.path.basename(name) == "toc.xhtml":
-                    toc_file = zf.open(name)
-                    toc_file_contents = toc_file.read()
-                    lines = toc_file_contents.decode("utf-8")
-                    search = re.search(
-                        r"(Bonus\s+((Color\s+)?Illustrations?|(Short\s+)?Stories))",
-                        lines,
-                    )
-                    if search and re.search(r"J-Novel", lines, re.IGNORECASE):
-                        bonus_content_found = search.group(0)
-                        break
-                elif os.path.basename(name) == "copyright.xhtml":
-                    cop_file = zf.open(name)
-                    cop_file_contents = cop_file.read()
-                    lines = cop_file_contents.decode("utf-8")
-                    search = re.search(
-                        r"(Premium(\s)+(E?-?Book|Epub))", lines, re.IGNORECASE
-                    )
-                    if search:
-                        bonus_content_found = search.group(0)
-                        break
+            if re.search(
+                r"((bonus)_?([0-9]+)?\.xhtml)", str(zf.namelist()), re.IGNORECASE
+            ):
+                bonus_content_found = True
+
+            if not bonus_content_found:
+                for name in zf.namelist():
+                    base_name = os.path.basename(name)
+                    if base_name not in ["toc.xhtml", "copyright.xhtml"]:
+                        continue
+
+                    with zf.open(name) as file:
+                        file_contents = file.read().decode("utf-8")
+                        if base_name == "toc.xhtml":
+                            if re.search(
+                                r"(Bonus\s+((Color\s+)?Illustrations?|(Short\s+)?Stories))",
+                                file_contents,
+                                re.IGNORECASE,
+                            ) and re.search(r"J-Novel", file_contents, re.IGNORECASE):
+                                bonus_content_found = True
+                                break
+                        elif base_name == "copyright.xhtml":
+                            if re.search(
+                                r"(Premium(\s)+(E?-?Book|Epub))",
+                                file_contents,
+                                re.IGNORECASE,
+                            ):
+                                bonus_content_found = True
+                                break
     except Exception as e:
         send_message(str(e), error=True)
     return bonus_content_found
@@ -4686,6 +4660,7 @@ def check_upgrade(
     isbn=False,
     group=False,
     image=False,
+    test_mode=False,
 ):
     global moved_files, messages_to_send, grouped_notifications
 
@@ -4770,6 +4745,9 @@ def check_upgrade(
     )
 
     if (matching_manga or matching_novel) and (matching_chapter or matching_volume):
+        if test_mode:
+            return clean_existing
+
         download_dir_volumes = [file]
 
         if rename_files_in_download_folders_toggle and resturcture_when_renaming:
@@ -4969,10 +4947,8 @@ def check_upgrade(
 
                 if move_status:
                     check_and_delete_empty_folder(volume.root)
-                    volume.extensionless_path = get_extensionless_name(
-                        os.path.join(existing_dir, volume.name)
-                    )
                     volume.path = os.path.join(existing_dir, volume.name)
+                    volume.extensionless_path = get_extensionless_name(volume.path)
                     volume.root = existing_dir
                     moved_files.append(volume.path)
 
@@ -5000,15 +4976,6 @@ def check_upgrade(
                             )
                         )
                     elif volume.file_type == "volume":
-                        if (
-                            grouped_notifications
-                            and not group_discord_notifications_until_max
-                        ):
-                            sent_status = send_discord_message(
-                                None, grouped_notifications
-                            )
-                            if sent_status:
-                                grouped_notifications = []
                         send_discord_message(
                             None,
                             [Embed(embed[0], cover)],
@@ -5018,23 +4985,9 @@ def check_upgrade(
                     grouped_notifications = add_to_grouped_notifications(
                         grouped_notifications, Embed(embed[0], cover)
                     )
-                    if (
-                        grouped_notifications
-                        and not group_discord_notifications_until_max
-                    ):
-                        sent_status = send_discord_message(None, grouped_notifications)
-                        if sent_status:
-                            grouped_notifications = []
 
                 return True
         else:
-            if grouped_notifications and not group_discord_notifications_until_max:
-                sent_status = send_discord_message(
-                    None,
-                    grouped_notifications,
-                )
-                if sent_status:
-                    grouped_notifications = []
             check_and_delete_empty_folder(file.root)
             return True
     else:
@@ -5131,13 +5084,12 @@ def check_for_duplicate_volumes(paths_to_search=[], group=False):
                 print(f"\nSearching {p} for duplicate releases...")
                 for root, dirs, files in scandir.walk(p):
                     print(f"\t{root}")
-                    clean = None
                     if (
                         watchdog_toggle
                         and download_folders
                         and any(x for x in download_folders if root.startswith(x))
                     ):
-                        clean = clean_and_sort(
+                        files, dirs = clean_and_sort(
                             root,
                             files,
                             dirs,
@@ -5145,10 +5097,11 @@ def check_for_duplicate_volumes(paths_to_search=[], group=False):
                             just_these_dirs=transferred_dirs,
                         )
                     else:
-                        clean = clean_and_sort(root, files, dirs)
-                    files, dirs = clean[0], clean[1]
+                        files, dirs = clean_and_sort(root, files, dirs)
+
                     if not files:
                         continue
+
                     file_objects = upgrade_to_file_class(
                         [f for f in files if os.path.isfile(os.path.join(root, f))],
                         root,
@@ -5434,14 +5387,6 @@ def check_for_duplicate_volumes(paths_to_search=[], group=False):
                             continue
             else:
                 print(f"\n\t\tPath does not exist: {p}")
-        if (
-            group
-            and grouped_notifications
-            and not group_discord_notifications_until_max
-        ):
-            sent_status = send_discord_message(None, grouped_notifications)
-            if sent_status:
-                grouped_notifications = []
     except Exception as e:
         send_message(f"\n\t\tError: {e}", error=True)
 
@@ -5551,7 +5496,7 @@ class IdentifierResult:
 
 
 # get identifiers from the passed zip comment
-def get_identifiers_from_zip_comment(zip_comment):
+def get_identifiers(zip_comment):
     metadata = []
 
     if re.search(
@@ -5585,15 +5530,16 @@ def get_identifiers_from_zip_comment(zip_comment):
 @lru_cache(maxsize=None)
 def parse_words(user_string):
     words = []
-    try:
-        translator = str.maketrans("", "", string.punctuation)
-        words_no_punct = user_string.translate(translator)
-        words_lower = words_no_punct.lower()
-        words_no_uni = unidecode(words_lower).split()
-        if words_no_uni:
-            words = words_no_uni
-    except Exception as e:
-        send_message(f"parse_words(string={user_string}) - Error: {e}", error=True)
+    if user_string:
+        try:
+            translator = str.maketrans("", "", string.punctuation)
+            words_no_punct = user_string.translate(translator)
+            words_lower = words_no_punct.lower()
+            words_no_uni = unidecode(words_lower).split()
+            if words_no_uni:
+                words = words_no_uni
+        except Exception as e:
+            send_message(f"parse_words(string={user_string}) - Error: {e}", error=True)
     return words
 
 
@@ -5626,12 +5572,18 @@ def count_words(strings_list):
 
 # Checks for an existing series by pulling the series name from each elidable file in the downloads_folder
 # and comparing it to an existin folder within the user's library.
-def check_for_existing_series(group=False):
+def check_for_existing_series(
+    group=False,
+    test_mode=[],
+    test_paths=paths,
+    test_download_folders=download_folders,
+):
     global cached_paths
     global cached_identifier_results
     global messages_to_send
     global grouped_notifications
 
+    # Groups messages by their series
     def group_similar_series(messages_to_send):
         # Initialize an empty list to store grouped series
         grouped_series = []
@@ -5662,1088 +5614,858 @@ def check_for_existing_series(group=False):
         # Return the list of grouped series
         return grouped_series
 
-    cached_image_similarity_results = []
-    if download_folders:
-        print("\nChecking download folders for items to match to existing library...")
-        for download_folder in download_folders:
-            if os.path.exists(download_folder):
-                # Get all the paths
-                folders = get_all_folders_recursively_in_dir(download_folder)
-
-                # Reverse the list so we start with the deepest folders
-                # Helps when purging empty folders, since it won't purge a folder containing subfolders
-                folders.reverse()
-
-                # an array of unmatched items, used for skipping subsequent series
-                # items that won't match
-                unmatched_series = []
-
-                for folder in folders:
-                    root = folder["root"]
-                    dirs = folder["dirs"]
-                    files = folder["files"]
-
-                    print(f"\n{root}")
-                    clean = None
-                    if (
-                        watchdog_toggle
-                        and download_folders
-                        and any(x for x in download_folders if root.startswith(x))
-                    ):
-                        clean = clean_and_sort(
-                            root,
-                            files,
-                            dirs,
-                            sort=True,
-                            just_these_files=transferred_files,
-                            just_these_dirs=transferred_dirs,
-                        )
-                    else:
-                        clean = clean_and_sort(root, files, dirs, sort=True)
-
-                    files, dirs = clean[0], clean[1]
-
-                    if not files:
-                        continue
-
-                    volumes = upgrade_to_volume_class(
-                        upgrade_to_file_class(
-                            [f for f in files if os.path.isfile(os.path.join(root, f))],
-                            root,
+    # Determines whether an alternative match
+    # will be allowed to be attemtped or not.
+    def alternative_match_allowed(
+        inner_dir,
+        file,
+        short_word_filter_percentage,
+        required_similarity_score,
+        counted_words,
+    ):
+        # Get the shortened folder name
+        short_fldr_name = (
+            (
+                replace_underscore_in_name(
+                    remove_punctuation(
+                        remove_bracketed_info_from_name(
+                            get_shortened_title(inner_dir) or inner_dir
                         )
                     )
+                )
+            )
+            .strip()
+            .lower()
+        )
 
-                    # check that all volumes' index numbers aren't strings
-                    if any(isinstance(item.index_number, str) for item in volumes):
-                        # sort alphabetically by the file name
-                        volumes = sorted(volumes, key=lambda x: x.name)
-                    else:
-                        # sort by the index number
-                        volumes = sorted(
-                            volumes, key=lambda x: get_sort_key(x.index_number)
+        # Get the shortened series name from the file
+        short_file_series_name = (
+            replace_underscore_in_name(
+                remove_punctuation(
+                    remove_bracketed_info_from_name(
+                        file.shortened_series_name or file.series_name
+                    )
+                )
+            )
+            .strip()
+            .lower()
+        )
+
+        if not short_fldr_name or not short_file_series_name:
+            return False
+
+        long_folder_words = parse_words(inner_dir)
+        long_file_words = parse_words(file.series_name)
+
+        # use parse_words() to get the words from both strings
+        short_fldr_name_words = parse_words(short_fldr_name)
+        short_file_series_words = parse_words(short_file_series_name)
+
+        file_wrds_mod = short_file_series_words
+        fldr_wrds_mod = short_fldr_name_words
+
+        if not file_wrds_mod or not fldr_wrds_mod:
+            return False
+
+        # Determine the minimum length between file_wrds_mod and fldr_wrds_mod
+        # and calculate short_word_filter_percentage(70%) of the minimum length, ensuring it's at least 1
+        shortened_length = max(
+            1,
+            int(
+                min(len(file_wrds_mod), len(fldr_wrds_mod))
+                * short_word_filter_percentage
+            ),
+        )
+
+        # Shorten both arrays to the calculated length
+        file_wrds_mod = file_wrds_mod[:shortened_length]
+        fldr_wrds_mod = fldr_wrds_mod[:shortened_length]
+
+        folder_name_match = (
+            short_fldr_name.lower().strip() == short_file_series_name.lower().strip()
+        )
+        similar_score_match = (
+            similar(short_fldr_name, short_file_series_name)
+            >= required_similarity_score
+        )
+        consecutive_items_match = find_consecutive_items(
+            tuple(short_fldr_name_words), tuple(short_file_series_words)
+        ) or find_consecutive_items(tuple(long_folder_words), tuple(long_file_words))
+        unique_words_match = any(
+            [
+                i
+                for i in long_folder_words
+                if i in long_file_words and i in counted_words and counted_words[i] <= 3
+            ]
+        )
+
+        return (
+            folder_name_match
+            or similar_score_match
+            or consecutive_items_match
+            or unique_words_match
+        )
+
+    # Attempts an alternative match and returns the cover score
+    def attempt_alternative_match(
+        file_root, inner_dir, file, required_image_similarity_score
+    ):
+        # Returns volumes with a matching index number
+        def get_matching_volumes(file, img_volumes):
+            matching_volumes = [
+                volume
+                for volume in img_volumes
+                if (
+                    volume.index_number != ""
+                    and file.index_number != ""
+                    and (
+                        volume.index_number == file.index_number
+                        or (
+                            isinstance(file.index_number, list)
+                            and volume.index_number in file.index_number
+                        )
+                        or (
+                            isinstance(volume.index_number, list)
+                            and file.index_number in volume.index_number
+                        )
+                    )
+                )
+            ]
+
+            if (len(img_volumes) - len(matching_volumes)) <= 10:
+                matching_volumes.extend(
+                    [volume for volume in img_volumes if volume not in matching_volumes]
+                )
+
+            return matching_volumes
+
+        img_volumes = upgrade_to_volume_class(
+            upgrade_to_file_class(
+                [
+                    f
+                    for f in os.listdir(file_root)
+                    if os.path.isfile(join(file_root, f))
+                ],
+                file_root,
+            )
+        )
+        if not img_volumes:
+            print("\t\t\tNo volumees found for alternative match.")
+            return 0, None
+
+        matching_volumes = get_matching_volumes(file, img_volumes)
+
+        if not matching_volumes:
+            print("\t\t\tNo matching volumes found for alternative match.")
+            return 0, None
+
+        downloaded_volume_cover_data = find_and_extract_cover(
+            file, return_data_only=True, silent=True
+        )
+
+        if not downloaded_volume_cover_data:
+            print("\t\t\tNo downloaded volume cover data found.")
+            return 0, None
+
+        for matching_volume in matching_volumes:
+            print(
+                f"\t\t\tMatching volume:\n\t\t\t\t{matching_volume.name}\n\t\t\t\t{file.name}"
+            )
+
+            existing_volume_cover_data = find_and_extract_cover(
+                matching_volume, return_data_only=True, silent=True
+            )
+
+            if not existing_volume_cover_data:
+                print("\t\t\tNo existing volume cover data found.")
+                continue
+
+            score = prep_images_for_similarity(
+                existing_volume_cover_data,
+                downloaded_volume_cover_data,
+                both_cover_data=True,
+                silent=True,
+            )
+
+            print(f"\t\t\tRequired Image Similarity: {required_image_similarity_score}")
+            print(f"\t\t\t\tCover Image Similarity Score: {score}")
+
+            if score >= required_image_similarity_score:
+                return score, matching_volume
+        return 0, None
+
+    if test_mode:
+        if test_download_folders:
+            global download_folders
+            download_folders = test_download_folders
+        if test_paths:
+            global paths
+            paths = test_paths
+
+    cached_image_similarity_results = []
+
+    if not download_folders:
+        print("\nNo download folders specified, skipping check_for_existing_series.")
+        return
+
+    print("\nChecking download folders for items to match to existing library...")
+    for download_folder in download_folders:
+        if not os.path.exists(download_folder) and not test_mode:
+            print(f"\n\t{download_folder} does not exist, skipping...")
+            continue
+
+        # Get all the paths
+        folders = (
+            get_all_folders_recursively_in_dir(download_folder)
+            if not test_mode
+            else [{"root": "/test_mode", "dirs": [], "files": test_mode}]
+        )
+
+        # Reverse the list so we start with the deepest folders
+        # Helps when purging empty folders, since it won't purge a folder containing subfolders
+        folders.reverse()
+
+        # an array of unmatched items, used for skipping subsequent series
+        # items that won't match
+        unmatched_series = []
+
+        for folder in folders:
+            root = folder["root"]
+            dirs = folder["dirs"]
+            files = folder["files"]
+
+            print(f"\n{root}")
+            volumes = []
+
+            if not test_mode:
+                if (
+                    watchdog_toggle
+                    and download_folders
+                    and any(x for x in download_folders if root.startswith(x))
+                ):
+                    files, dirs = clean_and_sort(
+                        root,
+                        files,
+                        dirs,
+                        sort=True,
+                        just_these_files=transferred_files,
+                        just_these_dirs=transferred_dirs,
+                    )
+                else:
+                    files, dirs = clean_and_sort(root, files, dirs, sort=True)
+
+                if not files:
+                    continue
+
+                volumes = upgrade_to_volume_class(
+                    upgrade_to_file_class(
+                        [f for f in files if os.path.isfile(os.path.join(root, f))],
+                        root,
+                    )
+                )
+            else:
+                volumes = test_mode
+
+            # check that all volumes' index numbers aren't strings
+            if any(isinstance(item.index_number, str) for item in volumes):
+                # sort alphabetically by the file name
+                volumes = sorted(volumes, key=lambda x: x.name)
+            else:
+                # sort by the index number
+                volumes = sorted(volumes, key=lambda x: get_sort_key(x.index_number))
+
+            exclude = None
+
+            similar.cache_clear()
+
+            for file in volumes:
+                try:
+                    if not file.series_name:
+                        print(f"\tSkipping: {file.name}\n\t\t - has no series_name")
+                        continue
+
+                    if file.volume_number == "":
+                        print(f"\tSkipping: {file.name}\n\t\t - has no volume_number")
+                        continue
+
+                    if (
+                        file.extension in manga_extensions
+                        and not test_mode
+                        and not zipfile.is_zipfile(file.path)
+                    ):
+                        print(
+                            f"\tSkipping: {file.name}\n\t\t - is not a valid zip file, possibly corrupted."
+                        )
+                        continue
+
+                    if not (
+                        (file.name in processed_files or not processed_files)
+                        and (test_mode or os.path.isfile(file.path))
+                    ):
+                        continue
+
+                    done = False
+
+                    # 1.1 - Check cached image similarity results
+                    if (
+                        cached_image_similarity_results
+                        and match_through_image_similarity
+                    ):
+                        for cached_result in cached_image_similarity_results:
+                            # split on @@ and get the value to the right
+                            last_item = cached_result.split("@@")[-1].strip()
+
+                            target_key = f"{file.series_name} - {file.file_type} - {file.root} - {file.extension}"
+
+                            if target_key in cached_result:
+                                print(
+                                    "\n\t\tFound cached cover image similarity result."
+                                )
+                                done = check_upgrade(
+                                    os.path.dirname(last_item),
+                                    os.path.basename(last_item),
+                                    file,
+                                    similarity_strings=[
+                                        file.series_name,
+                                        file.series_name,
+                                        "CACHE",
+                                        required_image_similarity_score,
+                                    ],
+                                    group=group,
+                                    image=True,
+                                    test_mode=test_mode,
+                                )
+                                if done:
+                                    break
+                    if done:
+                        continue
+
+                    if unmatched_series and (
+                        (not match_through_identifiers or file.file_type == "chapter")
+                    ):
+                        if (
+                            f"{file.series_name} - {file.file_type} - {file.extension}"
+                            in unmatched_series
+                        ):
+                            # print(f"\t\tSkipping: {file.name}...")
+                            continue
+
+                    # 1.2 - Check cached identifier results
+                    if cached_identifier_results and file.file_type == "volume":
+                        found_item = next(
+                            (
+                                cached_identifier
+                                for cached_identifier in cached_identifier_results
+                                if cached_identifier.series_name == file.series_name
+                            ),
+                            None,
+                        )
+                        if found_item:
+                            done = check_upgrade(
+                                os.path.dirname(found_item.path),
+                                os.path.basename(found_item.path),
+                                file,
+                                similarity_strings=found_item.matches,
+                                isbn=True,
+                                group=group,
+                            )
+                            if found_item.path not in cached_paths:
+                                cache_path(found_item.path)
+                            if done:
+                                continue
+
+                    if cached_paths and not test_mode:
+                        if exclude:
+                            cached_paths = organize_array_list_by_first_letter(
+                                cached_paths, file.name, 1, exclude
+                            )
+                        else:
+                            cached_paths = organize_array_list_by_first_letter(
+                                cached_paths, file.name, 1
+                            )
+
+                    downloaded_file_series_name = (
+                        replace_underscore_in_name(
+                            remove_punctuation(
+                                ((str(file.series_name)).lower()).strip()
+                            )
+                        )
+                    ).strip()
+
+                    # organize the cached paths
+                    if (
+                        cached_paths
+                        and not test_mode
+                        and file.name != downloaded_file_series_name
+                    ):
+                        if exclude:
+                            cached_paths = organize_array_list_by_first_letter(
+                                cached_paths,
+                                downloaded_file_series_name,
+                                2,
+                                exclude,
+                            )
+                        else:
+                            cached_paths = organize_array_list_by_first_letter(
+                                cached_paths,
+                                downloaded_file_series_name,
+                                2,
+                            )
+
+                    # 2 - Use the cached paths
+                    if cached_paths and not test_mode:
+                        print("\n\tChecking path types...")
+                        for cached_path_index, p in enumerate(cached_paths[:]):
+                            if (
+                                not os.path.exists(p)
+                                or not os.path.isdir(p)
+                                or p in download_folders
+                            ) and not test_mode:
+                                continue
+
+                            # Skip any paths that don't contain the file type or extension
+                            if paths_with_types:
+                                skip_path = next(
+                                    (
+                                        item
+                                        for item in paths_with_types
+                                        if p.startswith(item.path)
+                                        and (
+                                            file.file_type not in item.path_formats
+                                            or file.extension
+                                            not in item.path_extensions
+                                        )
+                                    ),
+                                    None,
+                                )
+
+                                if skip_path:
+                                    print(
+                                        f"\t\tSkipping: {p} - Path: {skip_path.path_formats} File: {file.file_type}"
+                                        if file.file_type not in skip_path.path_formats
+                                        else f"\t\tSkipping: {p} - Path: {skip_path.path_extensions} File: {file.extension}"
+                                    )
+                                    continue
+
+                            successful_series_name = (
+                                (
+                                    replace_underscore_in_name(
+                                        remove_punctuation(os.path.basename(p))
+                                    )
+                                )
+                                .strip()
+                                .lower()
+                            )
+
+                            successful_similarity_score = (
+                                1
+                                if successful_series_name == downloaded_file_series_name
+                                else similar(
+                                    successful_series_name,
+                                    downloaded_file_series_name,
+                                )
+                            )
+
+                            print(
+                                f"\n\t\t-(CACHE)- {cached_path_index+1} of {len(cached_paths)} - "
+                                f'"{file.name}"\n\t\tCHECKING: {downloaded_file_series_name}\n\t\tAGAINST:  {successful_series_name}\n\t\tSCORE:    {successful_similarity_score}'
+                            )
+                            if successful_similarity_score >= required_similarity_score:
+                                send_message(
+                                    f'\n\t\tSimilarity between: "{successful_series_name}"\n\t\t\t"{downloaded_file_series_name}" Score: {successful_similarity_score} out of 1.0\n',
+                                    discord=False,
+                                )
+                                done = check_upgrade(
+                                    os.path.dirname(p),
+                                    os.path.basename(p),
+                                    file,
+                                    similarity_strings=[
+                                        downloaded_file_series_name,
+                                        downloaded_file_series_name,
+                                        successful_similarity_score,
+                                        required_similarity_score,
+                                    ],
+                                    cache=True,
+                                    group=group,
+                                    test_mode=test_mode,
+                                )
+                                if done:
+                                    if test_mode:
+                                        return done
+                                    if p not in cached_paths and not test_mode:
+                                        cache_path(p)
+                                    if (
+                                        len(volumes) > 1
+                                        and p in cached_paths
+                                        and p != cached_paths[0]
+                                    ):
+                                        cached_paths.remove(p)
+                                        cached_paths.insert(0, p)
+                                        exclude = p
+                                    break
+                    if done:
+                        continue
+
+                    dl_zip_comment = get_zip_comment(file.path) if not test_mode else ""
+                    dl_meta = get_identifiers(dl_zip_comment) if dl_zip_comment else []
+
+                    directories_found = []
+                    matched_ids = []
+
+                    for path_position, path in enumerate(paths):
+                        if done or not os.path.exists(path) or path in download_folders:
+                            continue
+
+                        skip_path = next(
+                            (
+                                item
+                                for item in paths_with_types
+                                if (
+                                    (
+                                        path == item.path
+                                        and file.file_type not in item.path_formats
+                                    )
+                                    or (
+                                        path == item.path
+                                        and file.extension not in item.path_extensions
+                                    )
+                                )
+                            ),
+                            None,  # default value if no match is found
                         )
 
-                    exclude = None
-                    similar.cache_clear()
-                    for file in volumes:
+                        # Skip any paths that don't contain the file type or extension
+                        if paths_with_types and skip_path:
+                            print(
+                                f"\nSkipping path: {path} - Path: "
+                                f"{array_to_string(skip_path.path_formats) if file.file_type not in skip_path.path_formats else array_to_string(skip_path.path_extensions)}"
+                                f" File: {str(file.file_type) if file.file_type not in skip_path.path_formats else str(file.extension)}"
+                            )
+                            continue
+
                         try:
-                            if not file.series_name:
-                                print(
-                                    f"\tSkipping: {file.name}\n\t\t - has no series_name"
-                                )
-                                continue
+                            os.chdir(path)
+                            reorganized = False
 
-                            if file.volume_number == "":
-                                print(
-                                    f"\tSkipping: {file.name}\n\t\t - has no volume_number"
-                                )
-                                continue
+                            for root, dirs, files in scandir.walk(path):
+                                if not dirs and (
+                                    test_mode or not match_through_identifiers
+                                ):
+                                    continue
 
-                            if (
-                                file.extension in manga_extensions
-                                and not zipfile.is_zipfile(file.path)
-                            ):
-                                print(
-                                    f"\tSkipping: {file.name}\n\t\t - is not a valid zip file, possibly corrupted."
-                                )
-                                continue
-
-                            if (
-                                file.name in processed_files or not processed_files
-                            ) and os.path.isfile(file.path):
-                                done = False
+                                if done:
+                                    break
 
                                 if (
-                                    cached_image_similarity_results
-                                    and match_through_image_similarity
+                                    not match_through_identifiers
+                                    and root in cached_paths
                                 ):
-                                    for (
-                                        cached_result
-                                    ) in cached_image_similarity_results:
-                                        # split on @@ and get the value to the right
-                                        last_item = cached_result.split("@@")[
-                                            -1
-                                        ].strip()
-                                        if not last_item:
-                                            continue
+                                    continue
 
+                                counted_words = count_words(dirs)
+
+                                if not reorganized:
+                                    dirs = organize_array_list_by_first_letter(
+                                        dirs,
+                                        file.series_name,
+                                        1,
+                                        exclude=exclude,
+                                    )
+                                    dirs = organize_array_list_by_first_letter(
+                                        dirs,
+                                        file.series_name,
+                                        2,
+                                        exclude=exclude,
+                                    )
+                                    reorganized = True
+
+                                clean_two = clean_and_sort(root, files, dirs)
+                                files, dirs = clean_two[0], clean_two[1]
+                                file_objects = upgrade_to_file_class(files, root)
+
+                                global folder_accessor
+                                folder_accessor = create_folder_obj(
+                                    root, dirs, file_objects
+                                )
+
+                                print(f"Looking inside: {folder_accessor.root}")
+                                if (
+                                    folder_accessor.dirs
+                                    and root not in cached_paths
+                                    and root not in download_folders
+                                ):
+                                    if done:
+                                        break
+
+                                    print(f"\n\tLooking for: {file.series_name}")
+                                    for dir_position, inner_dir in enumerate(
+                                        folder_accessor.dirs
+                                    ):
+                                        if done:
+                                            break
+
+                                        existing_series_folder_from_library = (
+                                            (
+                                                replace_underscore_in_name(
+                                                    remove_punctuation(
+                                                        remove_bracketed_info_from_name(
+                                                            inner_dir
+                                                        )
+                                                    )
+                                                )
+                                            )
+                                            .strip()
+                                            .lower()
+                                        )
+                                        similarity_score = (
+                                            1
+                                            if (
+                                                existing_series_folder_from_library.lower()
+                                                == downloaded_file_series_name.lower()
+                                            )
+                                            else similar(
+                                                existing_series_folder_from_library,
+                                                downloaded_file_series_name,
+                                            )
+                                        )
+
+                                        print(
+                                            f'\n\t\t-(NOT CACHE)- {dir_position+1} of {len(folder_accessor.dirs)} - path {path_position+1} of {len(paths)} - "{file.name}"\n\t\tCHECKING: {downloaded_file_series_name}\n\t\tAGAINST:  {existing_series_folder_from_library}\n\t\tSCORE:    {similarity_score}'
+                                        )
+                                        file_root = os.path.join(
+                                            folder_accessor.root, inner_dir
+                                        )
                                         if (
-                                            f"{file.series_name} - {file.file_type} - {file.root} - {file.extension}"
-                                            in cached_result
+                                            similarity_score
+                                            >= required_similarity_score
                                         ):
-                                            print(
-                                                "\n\t\tFound cached cover image similarity result."
+                                            send_message(
+                                                f'\n\t\tSimilarity between: "{existing_series_folder_from_library}" and "{downloaded_file_series_name}" '
+                                                f"Score: {similarity_score} out of 1.0\n",
+                                                discord=False,
                                             )
                                             done = check_upgrade(
-                                                os.path.dirname(last_item),
-                                                os.path.basename(last_item),
+                                                folder_accessor.root,
+                                                inner_dir,
                                                 file,
                                                 similarity_strings=[
-                                                    file.series_name,
-                                                    file.series_name,
-                                                    "CACHE",
-                                                    required_image_similarity_score,
+                                                    downloaded_file_series_name,
+                                                    existing_series_folder_from_library,
+                                                    similarity_score,
+                                                    required_similarity_score,
                                                 ],
                                                 group=group,
-                                                image=True,
+                                                test_mode=test_mode,
                                             )
-                                            if done:
-                                                break
-                                if done:
-                                    continue
-
-                                if unmatched_series and (
-                                    (
-                                        not match_through_identifiers
-                                        or file.file_type == "chapter"
-                                    )
-                                ):
-                                    if (
-                                        f"{file.series_name} - {file.file_type} - {file.extension}"
-                                        in unmatched_series
-                                    ):
-                                        # print(f"\t\tSkipping: {file.name}...")
-                                        continue
-                                if (
-                                    cached_identifier_results
-                                    and match_through_identifiers
-                                    and file.file_type == "volume"
-                                ):
-                                    found = False
-                                    for cached_identifier in cached_identifier_results:
-                                        if (
-                                            cached_identifier.series_name
-                                            == file.series_name
-                                        ):
-                                            check_upgrade(
-                                                os.path.dirname(cached_identifier.path),
-                                                os.path.basename(
-                                                    cached_identifier.path
-                                                ),
-                                                file,
-                                                similarity_strings=cached_identifier.matches,
-                                                isbn=True,
-                                                group=group,
-                                            )
-                                            if (
-                                                cached_identifier.path
-                                                not in cached_paths
-                                            ):
-                                                cached_paths.append(
-                                                    cached_identifier.path
-                                                )
-                                                write_to_file(
-                                                    "cached_paths.txt",
-                                                    cached_identifier.path,
-                                                    without_timestamp=True,
-                                                    check_for_dup=True,
-                                                )
-                                            found = True
-                                            break
-                                    if found:
-                                        continue
-                                if cached_paths:
-                                    if exclude:
-                                        cached_paths = (
-                                            organize_array_list_by_first_letter(
-                                                cached_paths, file.name, 1, exclude
-                                            )
-                                        )
-                                    else:
-                                        cached_paths = (
-                                            organize_array_list_by_first_letter(
-                                                cached_paths, file.name, 1
-                                            )
-                                        )
-                                downloaded_file_series_name = (
-                                    (str(file.series_name)).lower()
-                                ).strip()
-                                downloaded_file_series_name = (
-                                    (
-                                        replace_underscore_in_name(
-                                            remove_punctuation(
-                                                downloaded_file_series_name
-                                            )
-                                        )
-                                    )
-                                    .strip()
-                                    .lower()
-                                )
-                                if (
-                                    cached_paths
-                                    and file.name != downloaded_file_series_name
-                                ):
-                                    if exclude:
-                                        cached_paths = (
-                                            organize_array_list_by_first_letter(
-                                                cached_paths,
-                                                downloaded_file_series_name,
-                                                2,
-                                                exclude,
-                                            )
-                                        )
-                                    else:
-                                        cached_paths = (
-                                            organize_array_list_by_first_letter(
-                                                cached_paths,
-                                                downloaded_file_series_name,
-                                                2,
-                                            )
-                                        )
-
-                                if cached_paths:
-                                    print("\n\tChecking path types...")
-                                    for p in cached_paths:
-                                        if paths_with_types:
-                                            skip_cached_path = False
-                                            for item in paths_with_types:
-                                                if p.startswith(item.path):
-                                                    if (
-                                                        file.file_type
-                                                        not in item.path_formats
-                                                    ):
-                                                        print(
-                                                            f"\t\tSkipping: {p} - Path: {item.path_formats} File: {file.file_type}"
-                                                        )
-                                                        skip_cached_path = True
-                                                    elif (
-                                                        file.extension
-                                                        not in item.path_extensions
-                                                    ):
-                                                        print(
-                                                            f"\t\tSkipping: {p} - Path: {item.path_extensions} File: {file.extension}"
-                                                        )
-                                                        skip_cached_path = True
-                                                    break
-                                            if skip_cached_path:
+                                            if not done:
                                                 continue
-                                        position = cached_paths.index(p) + 1
-                                        if (
-                                            os.path.exists(p)
-                                            and os.path.isdir(p)
-                                            and p not in download_folders
-                                        ):
-                                            successful_file_series_name = (
-                                                (str(os.path.basename(p))).lower()
-                                            ).strip()
-                                            successful_file_series_name = (
-                                                (
-                                                    replace_underscore_in_name(
-                                                        remove_punctuation(
-                                                            successful_file_series_name
-                                                        )
-                                                    )
-                                                )
-                                                .strip()
-                                                .lower()
-                                            )
-                                            successful_similarity_score = None
+
+                                            if test_mode:
+                                                return done
+
                                             if (
-                                                successful_file_series_name.lower()
-                                                == downloaded_file_series_name.lower()
+                                                file_root not in cached_paths
+                                                and not test_mode
                                             ):
-                                                successful_similarity_score = 1
-                                            else:
-                                                successful_similarity_score = similar(
-                                                    successful_file_series_name,
-                                                    downloaded_file_series_name,
-                                                )
-                                            # print(similar.cache_info()) # only for testing
-                                            print(
-                                                f"\n\t\t-(CACHE)- {position} of {len(cached_paths)} - "
-                                                f'"{file.name}"\n\t\tCHECKING: {downloaded_file_series_name}\n\t\tAGAINST:  {successful_file_series_name}\n\t\tSCORE:    {successful_similarity_score}'
-                                            )
-                                            if (
-                                                successful_similarity_score
-                                                >= required_similarity_score
-                                            ):
-                                                write_to_file(
-                                                    "changes.txt",
-                                                    f'\t\tSimilarity between: "{successful_file_series_name}" and "{downloaded_file_series_name}"',
-                                                )
-                                                write_to_file(
-                                                    "changes.txt",
-                                                    f"\tSimilarity Score: {successful_similarity_score} out of 1.0",
-                                                )
-
-                                                print(
-                                                    f'\n\t\tSimilarity between: "{successful_file_series_name}" and "{downloaded_file_series_name}" Score: {successful_similarity_score} out of 1.0\n'
-                                                )
-                                                done = check_upgrade(
-                                                    os.path.dirname(p),
-                                                    os.path.basename(p),
-                                                    file,
-                                                    similarity_strings=[
-                                                        downloaded_file_series_name,
-                                                        downloaded_file_series_name,
-                                                        successful_similarity_score,
-                                                        required_similarity_score,
-                                                    ],
-                                                    cache=True,
-                                                    group=group,
-                                                )
-                                                if done:
-                                                    if (
-                                                        group
-                                                        and grouped_notifications
-                                                        and not group_discord_notifications_until_max
-                                                    ):
-                                                        sent_status = (
-                                                            send_discord_message(
-                                                                None,
-                                                                grouped_notifications,
-                                                            )
-                                                        )
-                                                        if sent_status:
-                                                            grouped_notifications = []
-                                                    if p not in cached_paths:
-                                                        cached_paths.append(p)
-                                                        write_to_file(
-                                                            "cached_paths.txt",
-                                                            p,
-                                                            without_timestamp=True,
-                                                            check_for_dup=True,
-                                                        )
-                                                    if (
-                                                        len(volumes) > 1
-                                                        and p in cached_paths
-                                                        and p != cached_paths[0]
-                                                    ):
-                                                        cached_paths.remove(p)
-                                                        cached_paths.insert(0, p)
-                                                        exclude = p
-                                                    break
-                                if done:
-                                    if (
-                                        group
-                                        and grouped_notifications
-                                        and not group_discord_notifications_until_max
-                                    ):
-                                        sent_status = send_discord_message(
-                                            None, grouped_notifications
-                                        )
-                                        if sent_status:
-                                            grouped_notifications = []
-                                    continue
-                                download_file_zip_comment = get_zip_comment(file.path)
-                                download_file_meta = (
-                                    get_identifiers_from_zip_comment(
-                                        download_file_zip_comment
-                                    )
-                                    if download_file_zip_comment
-                                    else []
-                                )
-                                directories_found = []
-                                matched_ids = []
-
-                                for path in paths:
-                                    path_position = paths.index(path) + 1
-                                    if (
-                                        os.path.exists(path)
-                                        and not done
-                                        and path not in download_folders
-                                    ):
-                                        if paths_with_types:
-                                            skip_path = False
-                                            for item in paths_with_types:
-                                                if path == item.path:
-                                                    if (
-                                                        file.file_type
-                                                        not in item.path_formats
-                                                    ):
-                                                        print(
-                                                            f"\nSkipping path: {path} - Path: {array_to_string(item.path_formats)} File: {str(file.file_type)}"
-                                                        )
-                                                        skip_path = True
-                                                        break
-                                                    elif (
-                                                        file.extension
-                                                        not in item.path_extensions
-                                                    ):
-                                                        print(
-                                                            f"\nSkipping path: {path} - Path: {array_to_string(item.path_extensions)} File: {str(file.extension)}"
-                                                        )
-                                                        skip_path = True
-                                                        break
-                                            if skip_path:
-                                                continue
-                                        try:
-                                            os.chdir(path)
-                                            reorganized = False
-                                            for root, dirs, files in scandir.walk(path):
-                                                if done:
-                                                    break
-
-                                                counted_words = count_words(
-                                                    [os.path.basename(x) for x in dirs]
-                                                )
-
-                                                if not reorganized:
-                                                    dirs = organize_array_list_by_first_letter(
-                                                        dirs,
-                                                        file.series_name,
-                                                        1,
-                                                        exclude=exclude,
-                                                    )
-                                                    dirs = organize_array_list_by_first_letter(
-                                                        dirs,
-                                                        file.series_name,
-                                                        2,
-                                                        exclude=exclude,
-                                                    )
-                                                    reorganized = True
-                                                if (
-                                                    not match_through_identifiers
-                                                    and root in cached_paths
-                                                ):
-                                                    continue
-                                                clean_two = clean_and_sort(
-                                                    root, files, dirs
-                                                )
-                                                files, dirs = clean_two[0], clean_two[1]
-                                                file_objects = upgrade_to_file_class(
-                                                    files, root
-                                                )
-                                                global folder_accessor
-                                                folder_accessor = create_folder_object(
-                                                    root, dirs, file_objects
-                                                )
-
-                                                print(
-                                                    f"Looking inside: {folder_accessor.root}"
-                                                )
-                                                if folder_accessor.dirs:
-                                                    if (
-                                                        root not in cached_paths
-                                                        and root not in download_folders
-                                                    ):
-                                                        if done:
-                                                            break
-
-                                                        print(
-                                                            f"\nLooking for: {file.series_name}"
-                                                        )
-                                                        for dir in folder_accessor.dirs:
-                                                            if done:
-                                                                break
-                                                            dir_position = (
-                                                                folder_accessor.dirs.index(
-                                                                    dir
-                                                                )
-                                                                + 1
-                                                            )
-                                                            existing_series_folder_from_library = (
-                                                                (
-                                                                    replace_underscore_in_name(
-                                                                        remove_punctuation(
-                                                                            remove_bracketed_info_from_name(
-                                                                                dir
-                                                                            )
-                                                                        )
-                                                                    )
-                                                                )
-                                                                .strip()
-                                                                .lower()
-                                                            )
-                                                            similarity_score = None
-                                                            if (
-                                                                existing_series_folder_from_library.lower()
-                                                                == downloaded_file_series_name.lower()
-                                                            ):
-                                                                similarity_score = 1
-                                                            else:
-                                                                similarity_score = similar(
-                                                                    existing_series_folder_from_library,
-                                                                    downloaded_file_series_name,
-                                                                )
-                                                            print(
-                                                                f'\n\t\t-(NOT CACHE)- {dir_position} of {len(folder_accessor.dirs)} - path {path_position} of {len(paths)} - "{file.name}"\n\t\tCHECKING: {downloaded_file_series_name}\n\t\tAGAINST:  {existing_series_folder_from_library}\n\t\tSCORE:    {similarity_score}'
-                                                            )
-                                                            if (
-                                                                similarity_score
-                                                                >= required_similarity_score
-                                                            ):
-                                                                write_to_file(
-                                                                    "changes.txt",
-                                                                    f'\t\tSimilarity between: "{existing_series_folder_from_library}" and "{downloaded_file_series_name}"',
-                                                                )
-
-                                                                write_to_file(
-                                                                    "changes.txt",
-                                                                    f"\tSimilarity Score: {similarity_score} out of 1.0",
-                                                                )
-                                                                print(
-                                                                    f'\n\t\tSimilarity between: "{existing_series_folder_from_library}" and "{downloaded_file_series_name}" Score: {similarity_score} out of 1.0\n'
-                                                                )
-                                                                done = check_upgrade(
-                                                                    folder_accessor.root,
-                                                                    dir,
-                                                                    file,
-                                                                    similarity_strings=[
-                                                                        downloaded_file_series_name,
-                                                                        existing_series_folder_from_library,
-                                                                        similarity_score,
-                                                                        required_similarity_score,
-                                                                    ],
-                                                                    group=group,
-                                                                )
-                                                                if done:
-                                                                    if (
-                                                                        group
-                                                                        and grouped_notifications
-                                                                        and not group_discord_notifications_until_max
-                                                                    ):
-                                                                        sent_status = send_discord_message(
-                                                                            None,
-                                                                            grouped_notifications,
-                                                                        )
-                                                                        if sent_status:
-                                                                            grouped_notifications = (
-                                                                                []
-                                                                            )
-                                                                    if (
-                                                                        os.path.join(
-                                                                            folder_accessor.root,
-                                                                            dir,
-                                                                        )
-                                                                        not in cached_paths
-                                                                    ):
-                                                                        cached_paths.append(
-                                                                            os.path.join(
-                                                                                folder_accessor.root,
-                                                                                dir,
-                                                                            )
-                                                                        )
-                                                                        write_to_file(
-                                                                            "cached_paths.txt",
-                                                                            os.path.join(
-                                                                                folder_accessor.root,
-                                                                                dir,
-                                                                            ),
-                                                                            without_timestamp=True,
-                                                                            check_for_dup=True,
-                                                                        )
-                                                                    if (
-                                                                        len(volumes) > 1
-                                                                        and os.path.join(
-                                                                            folder_accessor.root,
-                                                                            dir,
-                                                                        )
-                                                                        in cached_paths
-                                                                        and os.path.join(
-                                                                            folder_accessor.root,
-                                                                            dir,
-                                                                        )
-                                                                        != cached_paths[
-                                                                            0
-                                                                        ]
-                                                                    ):
-                                                                        cached_paths.remove(
-                                                                            os.path.join(
-                                                                                folder_accessor.root,
-                                                                                dir,
-                                                                            )
-                                                                        )
-                                                                        cached_paths.insert(
-                                                                            0,
-                                                                            os.path.join(
-                                                                                folder_accessor.root,
-                                                                                dir,
-                                                                            ),
-                                                                        )
-                                                                    break
-                                                                else:
-                                                                    continue
-                                                            elif (
-                                                                match_through_image_similarity
-                                                                and file.file_type
-                                                                == "volume"
-                                                            ):
-                                                                short_fldr_name = (
-                                                                    get_shortened_title(
-                                                                        dir
-                                                                    )
-                                                                )
-                                                                if not short_fldr_name:
-                                                                    short_fldr_name = (
-                                                                        dir
-                                                                    )
-                                                                short_fldr_name = (
-                                                                    (
-                                                                        replace_underscore_in_name(
-                                                                            remove_punctuation(
-                                                                                remove_bracketed_info_from_name(
-                                                                                    short_fldr_name
-                                                                                )
-                                                                            )
-                                                                        )
-                                                                    )
-                                                                    .strip()
-                                                                    .lower()
-                                                                )
-                                                                short_file_series_name = (
-                                                                    ""
-                                                                )
-                                                                if (
-                                                                    file.shortened_series_name
-                                                                ):
-                                                                    short_file_series_name = (
-                                                                        file.shortened_series_name
-                                                                    )
-                                                                else:
-                                                                    short_file_series_name = (
-                                                                        file.series_name
-                                                                    )
-                                                                short_file_series_name = (
-                                                                    (
-                                                                        replace_underscore_in_name(
-                                                                            remove_punctuation(
-                                                                                remove_bracketed_info_from_name(
-                                                                                    short_file_series_name
-                                                                                )
-                                                                            )
-                                                                        )
-                                                                    )
-                                                                    .strip()
-                                                                    .lower()
-                                                                )
-                                                                if (
-                                                                    short_fldr_name
-                                                                    and short_file_series_name
-                                                                ):
-                                                                    long_folder_words = parse_words(
-                                                                        dir
-                                                                    )
-                                                                    long_file_words = parse_words(
-                                                                        file.series_name
-                                                                    )
-
-                                                                    # use parse_words() to get the words from both strings
-                                                                    short_file_series_words = (
-                                                                        []
-                                                                    )
-                                                                    short_fldr_name_words = parse_words(
-                                                                        short_fldr_name
-                                                                    )
-
-                                                                    if short_fldr_name_words:
-                                                                        short_file_series_words = parse_words(
-                                                                            short_file_series_name
-                                                                        )
-
-                                                                    file_wrds_mod = short_file_series_words
-                                                                    fldr_wrds_mod = short_fldr_name_words
-
-                                                                    if (
-                                                                        file_wrds_mod
-                                                                        and fldr_wrds_mod
-                                                                    ):
-                                                                        # Determine the minimum length between file_wrds_mod and fldr_wrds_mod
-                                                                        min_length = min(
-                                                                            len(
-                                                                                file_wrds_mod
-                                                                            ),
-                                                                            len(
-                                                                                fldr_wrds_mod
-                                                                            ),
-                                                                        )
-
-                                                                        # Calculate short_word_filter_percentage(70%) of the minimum length, ensuring it's at least 1
-                                                                        shortened_length = max(
-                                                                            1,
-                                                                            int(
-                                                                                min_length
-                                                                                * short_word_filter_percentage
-                                                                            ),
-                                                                        )
-
-                                                                        # Shorten both arrays to the calculated length
-                                                                        file_wrds_mod = file_wrds_mod[
-                                                                            :shortened_length
-                                                                        ]
-                                                                        fldr_wrds_mod = fldr_wrds_mod[
-                                                                            :shortened_length
-                                                                        ]
-
-                                                                    folder_name_match = (
-                                                                        short_fldr_name.lower().strip()
-                                                                        == short_file_series_name.lower().strip()
-                                                                    )
-                                                                    similar_score_match = (
-                                                                        similar(
-                                                                            short_fldr_name,
-                                                                            short_file_series_name,
-                                                                        )
-                                                                        >= required_similarity_score
-                                                                    )
-                                                                    consecutive_items_match = find_consecutive_items(
-                                                                        tuple(
-                                                                            short_fldr_name_words
-                                                                        ),
-                                                                        tuple(
-                                                                            short_file_series_words
-                                                                        ),
-                                                                    ) or find_consecutive_items(
-                                                                        tuple(
-                                                                            long_folder_words
-                                                                        ),
-                                                                        tuple(
-                                                                            long_file_words
-                                                                        ),
-                                                                    )
-                                                                    unique_words_match = any(
-                                                                        [
-                                                                            i
-                                                                            for i in long_folder_words
-                                                                            if i
-                                                                            in long_file_words
-                                                                            and i
-                                                                            in counted_words
-                                                                            and counted_words[
-                                                                                i
-                                                                            ]
-                                                                            <= 3
-                                                                        ]
-                                                                    )
-
-                                                                    if (
-                                                                        folder_name_match
-                                                                        or similar_score_match
-                                                                        or consecutive_items_match
-                                                                        or unique_words_match
-                                                                    ):
-                                                                        print(
-                                                                            "\n\t\tAttempting alternative match through cover image similarity..."
-                                                                        )
-                                                                        print(
-                                                                            f"\t\t\tSeries Names: \n\t\t\t\t{dir}\n\t\t\t\t{file.series_name}"
-                                                                        )
-                                                                        # get the volumes from the dir, only files
-                                                                        img_volumes = upgrade_to_volume_class(
-                                                                            upgrade_to_file_class(
-                                                                                [
-                                                                                    f
-                                                                                    for f in os.listdir(
-                                                                                        os.path.join(
-                                                                                            folder_accessor.root,
-                                                                                            dir,
-                                                                                        )
-                                                                                    )
-                                                                                    if os.path.isfile(
-                                                                                        join(
-                                                                                            os.path.join(
-                                                                                                folder_accessor.root,
-                                                                                                dir,
-                                                                                            ),
-                                                                                            f,
-                                                                                        )
-                                                                                    )
-                                                                                ],
-                                                                                os.path.join(
-                                                                                    folder_accessor.root,
-                                                                                    dir,
-                                                                                ),
-                                                                            )
-                                                                        )
-                                                                        if img_volumes:
-                                                                            # find a matching volume number and part
-                                                                            matching_volumes = [
-                                                                                volume
-                                                                                for volume in img_volumes
-                                                                                if (
-                                                                                    volume.index_number
-                                                                                    != ""
-                                                                                    and file.index_number
-                                                                                    != ""
-                                                                                    and (
-                                                                                        volume.index_number
-                                                                                        == file.index_number
-                                                                                        or (
-                                                                                            isinstance(
-                                                                                                file.index_number,
-                                                                                                list,
-                                                                                            )
-                                                                                            and volume.index_number
-                                                                                            in file.index_number
-                                                                                        )
-                                                                                        or (
-                                                                                            isinstance(
-                                                                                                volume.index_number,
-                                                                                                list,
-                                                                                            )
-                                                                                            and file.index_number
-                                                                                            in volume.index_number
-                                                                                        )
-                                                                                    )
-                                                                                )
-                                                                            ]
-
-                                                                            # add the remaining volumes to matching volumes if the difference is less than 10
-                                                                            if (
-                                                                                len(
-                                                                                    img_volumes
-                                                                                )
-                                                                                - len(
-                                                                                    matching_volumes
-                                                                                )
-                                                                            ) <= 10:
-                                                                                matching_volumes.extend(
-                                                                                    [
-                                                                                        volume
-                                                                                        for volume in img_volumes
-                                                                                        if volume
-                                                                                        not in matching_volumes
-                                                                                    ]
-                                                                                )
-
-                                                                            if matching_volumes:
-                                                                                for matching_volume in matching_volumes:
-                                                                                    print(
-                                                                                        f"\t\t\tMatching volume:\n\t\t\t\t{matching_volume.name}\n\t\t\t\t{file.name}"
-                                                                                    )
-                                                                                    # get both covers and check the image similarity
-                                                                                    existing_volume_cover_data = find_and_extract_cover(
-                                                                                        matching_volume,
-                                                                                        return_data_only=True,
-                                                                                        silent=True,
-                                                                                    )
-                                                                                    downloaded_volume_cover_data = find_and_extract_cover(
-                                                                                        file,
-                                                                                        return_data_only=True,
-                                                                                        silent=True,
-                                                                                    )
-                                                                                    if (
-                                                                                        existing_volume_cover_data
-                                                                                        and downloaded_volume_cover_data
-                                                                                    ):
-                                                                                        score = prep_images_for_similarity(
-                                                                                            existing_volume_cover_data,
-                                                                                            downloaded_volume_cover_data,
-                                                                                            both_cover_data=True,
-                                                                                            silent=True,
-                                                                                        )
-                                                                                        print(
-                                                                                            f"\t\t\tRequired Image Similarity: {required_image_similarity_score}"
-                                                                                        )
-                                                                                        print(
-                                                                                            f"\t\t\t\tCover Image Similarity Score: {score}"
-                                                                                        )
-                                                                                        if (
-                                                                                            score
-                                                                                            >= required_image_similarity_score
-                                                                                        ):
-                                                                                            print(
-                                                                                                "\t\tMatch found through cover image similarity."
-                                                                                            )
-                                                                                            # check all volumes in volumes, if all the volumes in this dir have the same series_name
-                                                                                            all_matching = True
-                                                                                            same_root_files = [
-                                                                                                item
-                                                                                                for item in volumes
-                                                                                                if item.root
-                                                                                                == file.root
-                                                                                            ]
-                                                                                            if same_root_files:
-                                                                                                all_matching = all(
-                                                                                                    item.series_name.lower().strip()
-                                                                                                    == file.series_name.lower().strip()
-                                                                                                    for item in same_root_files
-                                                                                                    if item
-                                                                                                    != file
-                                                                                                )
-                                                                                            if all_matching:
-                                                                                                print(
-                                                                                                    "\t\t\tAll Download Series Names Match, Adding to Cache.\n"
-                                                                                                )
-                                                                                                cached_image_similarity_results.append(
-                                                                                                    f"{file.series_name} - {file.file_type} - {file.root} - {file.extension} @@ {os.path.join(folder_accessor.root, dir)}"
-                                                                                                )
-                                                                                            done = check_upgrade(
-                                                                                                folder_accessor.root,
-                                                                                                dir,
-                                                                                                file,
-                                                                                                similarity_strings=[
-                                                                                                    dir,
-                                                                                                    file.series_name,
-                                                                                                    score,
-                                                                                                    required_image_similarity_score,
-                                                                                                ],
-                                                                                                group=group,
-                                                                                                image=matching_volume,
-                                                                                            )
-                                                                                            if done:
-                                                                                                break
-                                                                                        else:
-                                                                                            print(
-                                                                                                "\t\tNo match found through image similarity."
-                                                                                            )
-                                                                                    else:
-                                                                                        if (
-                                                                                            not existing_volume_cover_data
-                                                                                        ):
-                                                                                            print(
-                                                                                                "\t\t\tNo existing volume cover data found."
-                                                                                            )
-                                                                                        if (
-                                                                                            not downloaded_volume_cover_data
-                                                                                        ):
-                                                                                            print(
-                                                                                                "\t\t\tNo downloaded volume cover data found."
-                                                                                            )
-                                                                            else:
-                                                                                print(
-                                                                                    "\t\t\tNo matching volumes found."
-                                                                                )
-                                                if (
-                                                    not done
-                                                    and match_through_identifiers
-                                                    and root not in download_folders
-                                                    and download_file_meta
-                                                    and file.file_type == "volume"
-                                                    and folder_accessor.files
-                                                ):
-                                                    if done:
-                                                        break
-
-                                                    print(
-                                                        f"\n\t\tMatching Identifier Search: {folder_accessor.root}"
-                                                    )
-                                                    for f in folder_accessor.files:
-                                                        if f.root in directories_found:
-                                                            break
-                                                        if (
-                                                            f.extension
-                                                            != file.extension
-                                                        ):
-                                                            continue
-
-                                                        print(f"\t\t\t{f.name}")
-                                                        existing_file_zip_comment = (
-                                                            get_zip_comment_cache(
-                                                                f.path
-                                                            )
-                                                        )
-                                                        existing_file_meta = get_identifiers_from_zip_comment(
-                                                            existing_file_zip_comment
-                                                        )
-                                                        if existing_file_meta:
-                                                            print(
-                                                                f"\t\t\t\t{existing_file_meta}"
-                                                            )
-                                                            if any(
-                                                                d_meta
-                                                                in existing_file_meta
-                                                                and f.root
-                                                                not in directories_found
-                                                                for d_meta in download_file_meta
-                                                            ):
-                                                                directories_found.append(
-                                                                    f.root
-                                                                )
-                                                                matched_ids.extend(
-                                                                    [
-                                                                        download_file_meta,
-                                                                        existing_file_meta,
-                                                                    ]
-                                                                )
-                                                                print(
-                                                                    f"\n\t\t\t\tMatch found in: {f.root}"
-                                                                )
-                                                                break
-                                                        else:
-                                                            print("\t\t\t\t[]")
-                                        except Exception as e:
-                                            send_message(str(e), error=True)
-                                if (
-                                    not done
-                                    and match_through_identifiers
-                                    and file.file_type == "volume"
-                                    and directories_found
-                                ):
-                                    directories_found = remove_duplicates(
-                                        directories_found
-                                    )
-                                    if len(directories_found) == 1:
-                                        print(
-                                            f"\n\n\t\tMatch found in: {directories_found[0]}\n"
-                                        )
-                                        base = os.path.basename(directories_found[0])
-                                        identifier = IdentifierResult(
-                                            file.series_name,
-                                            download_file_meta,
-                                            directories_found[0],
-                                            matched_ids,
-                                        )
-                                        if identifier not in cached_identifier_results:
-                                            cached_identifier_results.append(identifier)
-                                        done = check_upgrade(
-                                            os.path.dirname(directories_found[0]),
-                                            base,
-                                            file,
-                                            similarity_strings=matched_ids,
-                                            isbn=True,
-                                            group=group,
-                                        )
-                                        if done:
-                                            if (
-                                                group
-                                                and grouped_notifications
-                                                and not group_discord_notifications_until_max
-                                            ):
-                                                sent_status = send_discord_message(
-                                                    None, grouped_notifications
-                                                )
-                                                if sent_status:
-                                                    grouped_notifications = []
-                                            if directories_found[0] not in cached_paths:
-                                                cached_paths.append(
-                                                    directories_found[0]
-                                                )
-                                                write_to_file(
-                                                    "cached_paths.txt",
-                                                    directories_found[0],
-                                                    without_timestamp=True,
-                                                    check_for_dup=True,
-                                                )
+                                                cache_path(file_root)
                                             if (
                                                 len(volumes) > 1
-                                                and directories_found[0] in cached_paths
-                                                and directories_found[0]
-                                                != cached_paths[0]
+                                                and file_root in cached_paths
+                                                and file_root != cached_paths[0]
                                             ):
-                                                cached_paths.remove(
-                                                    directories_found[0]
-                                                )
+                                                cached_paths.remove(file_root)
                                                 cached_paths.insert(
-                                                    0, directories_found[0]
+                                                    0,
+                                                    file_root,
                                                 )
-                                    else:
-                                        print(
-                                            "\t\t\tMatching ISBN or Series ID found in multiple directories."
-                                        )
-                                        for d in directories_found:
-                                            print(f"\t\t\t\t{d}")
-                                        print("\t\t\tDisregarding Matches...")
-                                if not done:
-                                    unmatched_series.append(
-                                        f"{file.series_name} - {file.file_type} - {file.extension}"
+                                            break
+                                        elif (
+                                            match_through_image_similarity
+                                            and file.file_type == "volume"
+                                            and not test_mode
+                                            and alternative_match_allowed(
+                                                inner_dir,
+                                                file,
+                                                short_word_filter_percentage,
+                                                required_similarity_score,
+                                                counted_words,
+                                            )
+                                        ):
+                                            print(
+                                                "\n\t\tAttempting alternative match through cover image similarity..."
+                                            )
+                                            print(
+                                                f"\t\t\tSeries Names: \n\t\t\t\t{inner_dir}\n\t\t\t\t{file.series_name}"
+                                            )
+                                            (
+                                                score,
+                                                matching_volume,
+                                            ) = attempt_alternative_match(
+                                                file_root,
+                                                inner_dir,
+                                                file,
+                                                required_image_similarity_score,
+                                            )
+
+                                            if score >= required_image_similarity_score:
+                                                print(
+                                                    "\t\tMatch found through cover image similarity."
+                                                )
+                                                # check all volumes in volumes, if all the volumes in this inner_dir have the same series_name
+                                                all_matching = False
+                                                same_root_files = [
+                                                    item
+                                                    for item in volumes
+                                                    if item.root == file.root
+                                                ]
+                                                if same_root_files:
+                                                    all_matching = all(
+                                                        item.series_name.lower().strip()
+                                                        == file.series_name.lower().strip()
+                                                        for item in same_root_files
+                                                        if item != file
+                                                    )
+                                                if all_matching:
+                                                    print(
+                                                        "\t\t\tAll Download Series Names Match, Adding to Cache.\n"
+                                                    )
+                                                    cached_image_similarity_results.append(
+                                                        f"{file.series_name} - {file.file_type} - {file.root} - {file.extension} @@ {os.path.join(folder_accessor.root, inner_dir)}"
+                                                    )
+                                                done = check_upgrade(
+                                                    folder_accessor.root,
+                                                    inner_dir,
+                                                    file,
+                                                    similarity_strings=[
+                                                        inner_dir,
+                                                        file.series_name,
+                                                        score,
+                                                        required_image_similarity_score,
+                                                    ],
+                                                    group=group,
+                                                    image=matching_volume,
+                                                )
+                                                if done:
+                                                    break
+
+                                # 3.1 - Use identifier matching
+                                if (
+                                    not done
+                                    and not test_mode
+                                    and match_through_identifiers
+                                    and root not in download_folders
+                                    and dl_meta
+                                    and file.file_type == "volume"
+                                    and folder_accessor.files
+                                ):
+                                    print(
+                                        f"\n\t\tMatching Identifier Search: {folder_accessor.root}"
                                     )
-                                    print("No match found.")
+                                    for f in folder_accessor.files:
+                                        if f.root in directories_found:
+                                            break
+
+                                        if f.extension != file.extension:
+                                            continue
+
+                                        print(f"\t\t\t{f.name}")
+                                        existing_file_zip_comment = (
+                                            get_zip_comment_cache(f.path)
+                                        )
+                                        existing_file_meta = get_identifiers(
+                                            existing_file_zip_comment
+                                        )
+                                        if existing_file_meta:
+                                            print(f"\t\t\t\t{existing_file_meta}")
+                                            if any(
+                                                d_meta in existing_file_meta
+                                                and f.root not in directories_found
+                                                for d_meta in dl_meta
+                                            ):
+                                                directories_found.append(f.root)
+                                                matched_ids.extend(
+                                                    [
+                                                        dl_meta,
+                                                        existing_file_meta,
+                                                    ]
+                                                )
+                                                print(
+                                                    f"\n\t\t\t\tMatch found in: {f.root}"
+                                                )
+                                                break
+                                        else:
+                                            print("\t\t\t\t[]")
                         except Exception as e:
+                            # print stack trace
                             send_message(str(e), error=True)
 
-                # purge any empty folders
-                if folders:
-                    for folder in folders:
-                        check_and_delete_empty_folder(folder["root"])
+                    # 3.2 - Process identifier matches
+                    if (
+                        not done
+                        and not test_mode
+                        and match_through_identifiers
+                        and file.file_type == "volume"
+                        and directories_found
+                    ):
+                        directories_found = remove_duplicates(directories_found)
 
-    if grouped_notifications and not group_discord_notifications_until_max:
-        sent_status = send_discord_message(
-            None,
-            grouped_notifications,
-        )
-        if sent_status:
-            grouped_notifications = []
+                        if len(directories_found) == 1:
+                            matched_directory = directories_found[0]
+                            print(f"\n\t\tMatch found in: {matched_directory}\n")
+                            base = os.path.basename(matched_directory)
+
+                            identifier = IdentifierResult(
+                                file.series_name,
+                                dl_meta,
+                                matched_directory,
+                                matched_ids,
+                            )
+                            if identifier not in cached_identifier_results:
+                                cached_identifier_results.append(identifier)
+
+                            done = check_upgrade(
+                                os.path.dirname(matched_directory),
+                                base,
+                                file,
+                                similarity_strings=matched_ids,
+                                isbn=True,
+                                group=group,
+                            )
+
+                            if done:
+                                if matched_directory not in cached_paths:
+                                    cache_path(matched_directory)
+                                if (
+                                    len(volumes) > 1
+                                    and matched_directory in cached_paths
+                                    and matched_directory != cached_paths[0]
+                                ):
+                                    cached_paths.remove(matched_directory)
+                                    cached_paths.insert(0, matched_directory)
+                        else:
+                            print(
+                                "\t\t\tMatching ISBN or Series ID found in multiple directories."
+                            )
+                            for d in directories_found:
+                                print(f"\t\t\t\t{d}")
+                            print("\t\t\tDisregarding Matches...")
+
+                    if not done:
+                        unmatched_series.append(
+                            f"{file.series_name} - {file.file_type} - {file.extension}"
+                        )
+                        print(
+                            f"No match found for: {file.series_name} - {file.file_type} - {file.extension}"
+                        )
+                except Exception as e:
+                    stack_trace = traceback.format_exc()
+                    print(stack_trace)
+                    send_message(str(e), error=True)
+
+        # purge any empty folders
+        if folders and not test_mode:
+            for folder in folders:
+                check_and_delete_empty_folder(folder["root"])
 
     series_notifications = []
     webhook_to_use = pick_webhook(None, new_volume_webhook)
@@ -6770,7 +6492,7 @@ def check_for_existing_series(group=False):
                         )
                     ]
 
-                    if new_volume_webhook or not group_discord_notifications_until_max:
+                    if new_volume_webhook:
                         series_notifications = add_to_grouped_notifications(
                             series_notifications,
                             Embed(embed[0], cover),
@@ -6829,7 +6551,7 @@ def check_for_existing_series(group=False):
                         )
                     ]
 
-                    if new_volume_webhook or not group_discord_notifications_until_max:
+                    if new_volume_webhook:
                         series_notifications = add_to_grouped_notifications(
                             series_notifications,
                             Embed(embed[0], None),
@@ -6848,14 +6570,6 @@ def check_for_existing_series(group=False):
             series_notifications,
             passed_webhook=webhook_to_use,
         )
-    elif grouped_notifications and not group_discord_notifications_until_max:
-        sent_status = send_discord_message(
-            None,
-            grouped_notifications,
-            passed_webhook=webhook_to_use,
-        )
-        if sent_status:
-            grouped_notifications = []
 
     # clear lru_cache for parse_words
     parse_words.cache_clear()
@@ -6996,7 +6710,7 @@ def rename_dirs_in_download_folder(paths_to_process=download_folders, group=Fals
                     ]
 
                     # Add the new folder to transferred dirs
-                    transferred_dirs.append(create_folder_object(new_folder_path))
+                    transferred_dirs.append(create_folder_obj(new_folder_path))
 
                 result = True
             else:
@@ -7126,11 +6840,11 @@ def rename_dirs_in_download_folder(paths_to_process=download_folders, group=Fals
                     ]
 
                     # Add the new folder to transferred dirs
-                    transferred_dirs.append(create_folder_object(new_folder_path_two))
+                    transferred_dirs.append(create_folder_obj(new_folder_path_two))
             else:
                 # New folder exists, move files to it
                 for root, dirs, files in scandir.walk(root):
-                    folder_accessor_two = create_folder_object(
+                    folder_accessor_two = create_folder_obj(
                         root,
                         dirs,
                         upgrade_to_file_class(remove_hidden_files(files), root),
@@ -7182,13 +6896,12 @@ def rename_dirs_in_download_folder(paths_to_process=download_folders, group=Fals
                 continue
 
             try:
-                clean = None
                 if (
                     watchdog_toggle
                     and download_folders
                     and any(x for x in download_folders if root.startswith(x))
                 ):
-                    clean = clean_and_sort(
+                    files, dirs = clean_and_sort(
                         root,
                         files,
                         dirs,
@@ -7196,9 +6909,8 @@ def rename_dirs_in_download_folder(paths_to_process=download_folders, group=Fals
                         just_these_dirs=transferred_dirs,
                     )
                 else:
-                    clean = clean_and_sort(root, files, dirs)
+                    files, dirs = clean_and_sort(root, files, dirs)
 
-                files, dirs = clean[0], clean[1]
                 volumes = upgrade_to_volume_class(
                     upgrade_to_file_class(files, root), root
                 )
@@ -7247,50 +6959,55 @@ def rename_dirs_in_download_folder(paths_to_process=download_folders, group=Fals
             continue
         process_folder(path)
 
-    if group and grouped_notifications and not group_discord_notifications_until_max:
-        sent_status = send_discord_message(None, grouped_notifications)
-        if sent_status:
-            grouped_notifications = []
-
 
 # Retrieves any bracketed information in the name that isn't the release year.
 def get_extras(file_name, chapter=False, series_name="", subtitle=""):
+    # Helper function to remove matching patterns from text
+    def remove_matching(text, pattern):
+        return re.sub(re.escape(pattern), "", text, flags=re.IGNORECASE).strip()
+
+    # Helper function to extract unique patterns from text
+    def extract_unique_patterns(text):
+        results = re.findall(r"(\{|\(|\[)(.*?)(\]|\)|\})", text, flags=re.IGNORECASE)
+        results = ["".join(result) for result in results]
+        return list(dict.fromkeys(results))
+
+    # Helper function to remove specific patterns from a list
+    def remove_patterns(items, patterns):
+        pattern_combined_regex = "|".join(patterns)
+        items = [
+            item
+            for item in items
+            if not re.search(pattern_combined_regex, item, re.IGNORECASE)
+        ]
+        return items
+
+    # Get the file extension
     extension = get_file_extension(file_name)
-    if series_name and re.search(re.escape(series_name), file_name, re.IGNORECASE):
-        file_name = re.sub(
-            re.escape(series_name), "", file_name, flags=re.IGNORECASE
-        ).strip()
-    if subtitle and re.search(re.escape(subtitle), file_name, re.IGNORECASE):
-        file_name = re.sub(
-            re.escape(subtitle), "", file_name, flags=re.IGNORECASE
-        ).strip()
-    results = re.findall(r"(\{|\(|\[)(.*?)(\]|\)|\})", file_name, flags=re.IGNORECASE)
-    modified = []
 
-    for result in results:
-        combined = "".join(result)
-        if combined not in modified:
-            modified.append(combined)
+    # Remove series name and subtitle if provided
+    if series_name:
+        file_name = remove_matching(file_name, series_name)
 
+    if subtitle:
+        file_name = remove_matching(file_name, subtitle)
+
+    # Extract unique patterns from the file name
+    results = extract_unique_patterns(file_name)
+
+    # Define patterns and exclude patterns for removal
     patterns = [
-        r"(\{|\(|\[)(Premium|J-Novel Club Premium)(\]|\)|\})",
-        r"\((\d{4})\)",
-        r"(\{|\(|\[)(Omnibus|Omnibus Edition)(\]|\)|\})",
-        r"(Extra)(\]|\)|\})",
-        r"(\{|\(|\[)Part([-_. ]|)([0-9]+)(\]|\)|\})",
+        r"((\{|\(|\[)(Premium|J-Novel Club Premium)(\]|\)|\}))",
+        r"(\((\d{4})\))",
     ]
-    exclude_patterns = [patterns[4]]
 
-    for item in modified[:]:
-        for pattern in patterns:
-            if pattern in exclude_patterns:
-                if not chapter and re.search(pattern, item, re.IGNORECASE):
-                    modified.remove(item)
-                    break
-            elif re.search(pattern, item, re.IGNORECASE):
-                modified.remove(item)
-                break
+    if chapter:
+        patterns.append(r"((\{|\(|\[)Part([-_. ]|)([0-9]+)(\]|\)|\}))")
 
+    # Remove specified patterns from the results
+    results = remove_patterns(results, patterns)
+
+    # Generate file extension modifiers for keywords
     modifiers = {
         ext: "[%s]"
         if ext in novel_extensions
@@ -7300,41 +7017,28 @@ def get_extras(file_name, chapter=False, series_name="", subtitle=""):
         for ext in file_extensions
     }
 
-    keywords = ["Premium", "Complete", "Fanbook", "Short Stories?", "Omnibus"]
-    for keyword in keywords:
-        if re.search(rf"\b{keyword}\b", file_name, re.IGNORECASE):
-            modified_keyword = modifiers[extension] % keyword.strip()
-            if modified_keyword not in modified:
-                modified.append(modified_keyword)
-
-    keywords_two = ["Extra", "Arc"]
-    for keyword_two in keywords_two:
-        match = re.search(
-            rf"(([A-Za-z]|[0-9]+)|)+ {keyword_two}([-_ ]|)([0-9]+|([A-Za-z]|[0-9]+)+|)",
-            file_name,
-            re.IGNORECASE,
-        )
-        if match:
-            result = match.group()
-            if result not in {"Episode ", "Arc", "arc", "ARC"}:
-                modified_result = modifiers[extension] % result.strip()
-                if modified_result not in modified:
-                    modified.append(modified_result)
-
+    # Check for and add "Part" patterns to the results
     part_search = re.search(r"(\s|\b)Part([-_. ]|)([0-9]+)", file_name, re.IGNORECASE)
     if part_search:
         result = part_search.group()
         modified_result = modifiers[extension] % result.strip()
-        if modified_result not in modified:
-            modified.append(modified_result)
+        if modified_result not in results:
+            results.append(modified_result)
 
-    # Move Premium to the beginning of the list
+    # Check for and add keywords to the results
+    if re.search(rf"\bPremium\b", file_name, re.IGNORECASE):
+        modified_keyword = modifiers[extension] % "Premium"
+        if modified_keyword not in results:
+            results.append(modified_keyword)
+
     premium_items, non_premium_items = [], []
+    modified = results.copy()
     for item in modified:
         if "Premium" in item:
             premium_items.append(item)
         else:
             non_premium_items.append(item)
+
     return premium_items + non_premium_items
 
 
@@ -7358,7 +7062,7 @@ def isint(x):
 
 
 # check if zip file contains ComicInfo.xml
-def check_if_zip_file_contains_comic_info_xml(zip_file):
+def contains_comic_info(zip_file):
     result = False
     try:
         with zipfile.ZipFile(zip_file, "r") as zip_ref:
@@ -7370,45 +7074,40 @@ def check_if_zip_file_contains_comic_info_xml(zip_file):
 
 
 # Retrieve the file specified from the zip file and return the data for it.
-def get_file_from_zip(zip_file, file_name, allow_base=True, re_search=False):
+def get_file_from_zip(zip_file, searches, extension=None, allow_base=True):
     result = None
     try:
         with zipfile.ZipFile(zip_file, "r") as z:
-            # Iterate through all the files in the zip
-            for info in z.infolist():
-                if allow_base:
-                    if not re_search:
-                        # Check the base name of the file
-                        if os.path.basename(info.filename).lower() == file_name.lower():
-                            # Read the contents of the file
-                            result = z.read(info)
-                            break
-                    else:
-                        if re.search(
-                            rf"{file_name}",
-                            os.path.basename(info.filename).lower(),
-                            re.IGNORECASE,
-                        ):
-                            # Read the contents of the file
-                            result = z.read(info)
-                            break
+            # Filter out any item that doesn't end in the specified extension
+            file_list = [
+                item
+                for item in z.namelist()
+                if item.endswith(extension) or not extension
+            ]
 
-                else:
-                    # Check the entire path of the file
-                    if not re_search:
-                        if info.filename.lower() == file_name.lower():
-                            # Read the contents of the file
-                            result = z.read(info)
-                            break
-                    else:
-                        if re.search(
-                            rf"{file_name}", info.filename.lower(), re.IGNORECASE
-                        ):
-                            # Read the contents of the file
-                            result = z.read(info)
-                            break
+            # Interate through it
+            for path in file_list:
+                # if allow_base, then change it to the base name of the file
+                # otherwise purge the base name
+                mod_file_name = (
+                    os.path.basename(path).lower()
+                    if allow_base
+                    else re.sub(os.path.basename(path), "", path).lower()
+                    if re.sub(os.path.basename(path), "", path).lower()
+                    else path.lower()
+                )
+                found = any(
+                    (
+                        item
+                        for item in searches
+                        if re.search(item, mod_file_name, re.IGNORECASE)
+                    ),
+                )
+                if found:
+                    result = z.read(path)
+                    break
     except (zipfile.BadZipFile, FileNotFoundError) as e:
-        send_message(f"Attempted to read file: {file_name}\nERROR: {e}", error=True)
+        send_message(f"Attempted to read file: {zip_file}\nERROR: {e}", error=True)
     return result
 
 
@@ -7418,8 +7117,7 @@ def parse_comicinfo_xml(xml_file):
     if xml_file:
         try:
             tree = ET.fromstring(xml_file)
-            for child in tree:
-                tags[child.tag] = child.text
+            tags = {child.tag: child.text for child in tree}
         except Exception as e:
             send_message(
                 f"Attempted to parse comicinfo.xml: {xml_file}\nERROR: {e}",
@@ -7432,9 +7130,7 @@ def parse_comicinfo_xml(xml_file):
 # dynamically parse all html tags and values and return a dictionary of them
 def parse_html_tags(html):
     soup = BeautifulSoup(html, "html.parser")
-    tags = {}
-    for tag in soup.find_all(True):
-        tags[tag.name] = tag.get_text()
+    tags = {tag.name: tag.get_text() for tag in soup.find_all(True)}
     return tags
 
 
@@ -7452,13 +7148,12 @@ def rename_files_in_download_folders(
                 if test_mode:
                     dirs = []
                     files = only_these_files
-                clean = None
                 if (
                     watchdog_toggle
                     and download_folders
                     and any(x for x in download_folders if root.startswith(x))
                 ):
-                    clean = clean_and_sort(
+                    files, dirs = clean_and_sort(
                         root,
                         files,
                         dirs,
@@ -7467,10 +7162,11 @@ def rename_files_in_download_folders(
                         test_mode=test_mode,
                     )
                 else:
-                    clean = clean_and_sort(root, files, dirs, test_mode=test_mode)
-                files, dirs = clean[0], clean[1]
+                    files, dirs = clean_and_sort(root, files, dirs, test_mode=test_mode)
+
                 if not files:
                     continue
+
                 volumes = upgrade_to_volume_class(
                     upgrade_to_file_class(
                         [
@@ -8073,11 +7769,6 @@ def rename_files_in_download_folders(
             else:
                 print(f"\nERROR: {path} is an invalid path.\n")
 
-    if group and grouped_notifications and not group_discord_notifications_until_max:
-        sent_status = send_discord_message(None, grouped_notifications)
-        if sent_status:
-            grouped_notifications = []
-
 
 # Checks for any exception keywords that will prevent the chapter release from being deleted.
 def check_for_exception_keywords(file_name, exception_keywords):
@@ -8095,13 +7786,12 @@ def delete_chapters_from_downloads(group=False):
             if os.path.exists(path):
                 os.chdir(path)
                 for root, dirs, files in scandir.walk(path):
-                    clean = None
                     if (
                         watchdog_toggle
                         and download_folders
                         and any(x for x in download_folders if root.startswith(x))
                     ):
-                        clean = clean_and_sort(
+                        files, dirs = clean_and_sort(
                             root,
                             files,
                             dirs,
@@ -8110,8 +7800,8 @@ def delete_chapters_from_downloads(group=False):
                             just_these_dirs=transferred_dirs,
                         )
                     else:
-                        clean = clean_and_sort(root, files, dirs, chapters=True)
-                    files, dirs = clean[0], clean[1]
+                        files, dirs = clean_and_sort(root, files, dirs, chapters=True)
+
                     for file in files:
                         if (
                             contains_chapter_keywords(file)
@@ -8177,21 +7867,13 @@ def delete_chapters_from_downloads(group=False):
                     else:
                         clean_two = clean_and_sort(root, files, dirs)
                     files, dirs = clean_two[0], clean_two[1]
-                    for dir in dirs:
-                        check_and_delete_empty_folder(os.path.join(root, dir))
+                    for folder in dirs:
+                        check_and_delete_empty_folder(os.path.join(root, folder))
             else:
                 if not path:
                     print("\nERROR: Path cannot be empty.")
                 else:
                     print(f"\nERROR: {path} is an invalid path.\n")
-        if (
-            group
-            and grouped_notifications
-            and not group_discord_notifications_until_max
-        ):
-            sent_status = send_discord_message(None, grouped_notifications)
-            if sent_status:
-                grouped_notifications = []
     except Exception as e:
         send_message(str(e), error=True)
 
@@ -8456,15 +8138,13 @@ def extract_covers(paths_to_process=paths):
                         # Store the modification time for the root
                         root_modification_times[root] = root_mod_time
 
-            clean = None
-
             # Clean and sort the files and directories
             if (
                 watchdog_toggle
                 and download_folders
                 and any(x for x in download_folders if root.startswith(x))
             ):
-                clean = clean_and_sort(
+                files, dirs = clean_and_sort(
                     root,
                     files,
                     dirs,
@@ -8472,10 +8152,9 @@ def extract_covers(paths_to_process=paths):
                     just_these_dirs=transferred_dirs,
                 )
             else:
-                clean = clean_and_sort(root, files, dirs)
-            global folder_accessor
+                files, dirs = clean_and_sort(root, files, dirs)
 
-            files, dirs = clean[0], clean[1]
+            global folder_accessor
 
             print(f"\nRoot: {root}")
             print(f"Files: {files}")
@@ -8498,7 +8177,7 @@ def extract_covers(paths_to_process=paths):
                 )
 
                 # Create a folder accessor object
-                folder_accessor = create_folder_object(root, dirs, volume_objects)
+                folder_accessor = create_folder_obj(root, dirs, volume_objects)
 
                 # Get the series cover
                 series_cover_path = next(
@@ -9055,13 +8734,12 @@ def delete_unacceptable_files(group=False):
                 if os.path.exists(path):
                     os.chdir(path)
                     for root, dirs, files in scandir.walk(path):
-                        clean = None
                         if (
                             watchdog_toggle
                             and download_folders
                             and any(x for x in download_folders if root.startswith(x))
                         ):
-                            clean = clean_and_sort(
+                            files, dirs = clean_and_sort(
                                 root,
                                 files,
                                 dirs,
@@ -9071,13 +8749,12 @@ def delete_unacceptable_files(group=False):
                                 keep_images_in_just_these_files=True,
                             )
                         else:
-                            clean = clean_and_sort(
+                            files, dirs = clean_and_sort(
                                 root,
                                 files,
                                 dirs,
                                 skip_remove_unaccepted_file_types=True,
                             )
-                        files, dirs = clean[0], clean[1]
                         for file in files:
                             file_path = os.path.join(root, file)
                             if os.path.isfile(file_path):
@@ -9141,21 +8818,13 @@ def delete_unacceptable_files(group=False):
                         else:
                             clean_two = clean_and_sort(root, files, dirs)
                         files, dirs = clean_two[0], clean_two[1]
-                        for dir in dirs:
-                            check_and_delete_empty_folder(os.path.join(root, dir))
+                        for folder in dirs:
+                            check_and_delete_empty_folder(os.path.join(root, folder))
                 else:
                     if not path:
                         print("\nERROR: Path cannot be empty.")
                     else:
                         print(f"\nERROR: {path} is an invalid path.\n")
-            if (
-                group
-                and grouped_notifications
-                and not group_discord_notifications_until_max
-            ):
-                sent_status = send_discord_message(None, grouped_notifications)
-                if sent_status:
-                    grouped_notifications = []
         except Exception as e:
             send_message(str(e), error=True)
 
@@ -9801,7 +9470,7 @@ def search_bookwalker(
                 print(f"\t\t\t\t\t\tBookwalker: {clean_title}")
                 print(f"\t\t\t\t\t\tLibrary:    {clean_query}")
                 print(
-                    f"\t\t\t\t\t\tScore: {score} Match: {score >= required_similarity_score} (>= {required_similarity_score})"
+                    f"\t\t\t\t\t\tScore: {score} | Match: {score >= required_similarity_score} (>= {required_similarity_score})"
                 )
                 print(f"\t\t\t\t\t\tVolume Number: {volume_number}")
                 if part:
@@ -9817,7 +9486,7 @@ def search_bookwalker(
                         f"\t\t\t\t\t\tLibrary:    {clean_query if shortened_title and clean_shortened_title else clean_shortened_query}"
                     )
                     print(
-                        f"\t\t\t\t\t\tScore: {score_two} Match: {score_two >= required_similarity_score} (>= {required_similarity_score})"
+                        f"\t\t\t\t\t\tScore: {score_two} | Match: {score_two >= required_similarity_score} (>= {required_similarity_score})"
                     )
                     print(f"\t\t\t\t\t\tVolume Number: {volume_number}")
                     if part:
@@ -10186,10 +9855,13 @@ def check_for_new_volumes_on_bookwalker():
         )
 
         if log_to_file:
-            if os.path.isfile(os.path.join(LOGS_DIR, "released.txt")):
-                remove_file(os.path.join(LOGS_DIR, "released.txt"), silent=True)
-            if os.path.isfile(os.path.join(LOGS_DIR, "pre-orders.txt")):
-                remove_file(os.path.join(LOGS_DIR, "pre-orders.txt"), silent=True)
+            released_path = os.path.join(LOGS_DIR, "released.txt")
+            pre_orders_path = os.path.join(LOGS_DIR, "pre-orders.txt")
+
+            if os.path.isfile(released_path):
+                remove_file(released_path, silent=True)
+            if os.path.isfile(pre_orders_path):
+                remove_file(pre_orders_path, silent=True)
 
         process_items(released, "Released", grey_color, 0)
         process_items(pre_orders, "Pre-orders", preorder_blue_color, 1)
@@ -10312,21 +9984,8 @@ def check_for_new_volumes_on_bookwalker():
     discord_embed_limit = original_limit
 
 
-# Checks the novel for bonus.xhtml or bonus[0-9].xhtml
-def check_for_bonus_xhtml(zip_file_path):
-    try:
-        with zipfile.ZipFile(zip_file_path) as zip_file:
-            for file_name in zip_file.namelist():
-                if re.search(r"((bonus)_?([0-9]+)?\.xhtml)", file_name, re.IGNORECASE):
-                    return True
-    except Exception as e:
-        send_message(str(e), error=True)
-    return False
-
-
 # caches all roots encountered when walking paths
 def cache_existing_library_paths():
-    global cached_paths
     paths_cached = []
     print("\nCaching paths recursively...")
     for path in paths:
@@ -10337,13 +9996,7 @@ def cache_existing_library_paths():
                         if (root != path and root not in cached_paths) and (
                             not root.startswith(".") and not root.startswith("_")
                         ):
-                            cached_paths.append(root)
-                            write_to_file(
-                                "cached_paths.txt",
-                                root,
-                                without_timestamp=True,
-                                check_for_dup=True,
-                            )
+                            cache_path(root)
                             if path not in paths_cached:
                                 paths_cached.append(path)
                 except Exception as e:
@@ -10546,8 +10199,7 @@ def generate_rename_lists():
                 try:
                     skipped_file_volumes = []
                     for root, dirs, files in scandir.walk(path):
-                        clean = clean_and_sort(root, files, dirs, sort=True)
-                        files, dirs = clean[0], clean[1]
+                        files, dirs = clean_and_sort(root, files, dirs, sort=True)
                         if files:
                             volumes = upgrade_to_volume_class(
                                 upgrade_to_file_class(
@@ -10757,9 +10409,7 @@ def generate_rename_lists():
 
 # Checks if a string only contains one set of numbers
 def only_has_one_set_of_numbers(string, chapter=False, file=None):
-    keywords = volume_regex_keywords
-    if chapter:
-        keywords = chapter_regex_keywords + "|"
+    keywords = volume_regex_keywords if not chapter else chapter_regex_keywords + "|"
     result = False
     search = re.findall(
         r"\b(%s)(%s)?(([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?(#([0-9]+)(([-_.])([0-9]+)|)+)?(_extra)?)\b"
@@ -10941,13 +10591,12 @@ def convert_to_cbz(group=False):
             if os.path.isdir(folder):
                 print(f"\t{folder}")
                 for root, dirs, files in scandir.walk(folder):
-                    clean = None
                     if (
                         watchdog_toggle
                         and download_folders
                         and any(x for x in download_folders if root.startswith(x))
                     ):
-                        clean = clean_and_sort(
+                        files, dirs = clean_and_sort(
                             root,
                             files,
                             dirs,
@@ -10957,13 +10606,13 @@ def convert_to_cbz(group=False):
                             keep_images_in_just_these_files=True,
                         )
                     else:
-                        clean = clean_and_sort(
+                        files, dirs = clean_and_sort(
                             root,
                             files,
                             dirs,
                             skip_remove_unaccepted_file_types=True,
                         )
-                    files, dirs = clean[0], clean[1]
+
                     for entry in files:
                         try:
                             extension = get_file_extension(entry)
@@ -11249,11 +10898,6 @@ def convert_to_cbz(group=False):
     else:
         print("No download folders specified.")
 
-    if group and grouped_notifications and not group_discord_notifications_until_max:
-        sent_status = send_discord_message(None, grouped_notifications)
-        if sent_status:
-            grouped_notifications = []
-
 
 # Goes through each file in download_folders and checks for an incorrect file extension
 # based on the file header. If the file extension is incorrect, it will rename the file.
@@ -11267,13 +10911,12 @@ def correct_file_extensions(group=False):
             if os.path.isdir(folder):
                 print(f"\t{folder}")
                 for root, dirs, files in scandir.walk(folder):
-                    clean = None
                     if (
                         watchdog_toggle
                         and download_folders
                         and any(x for x in download_folders if root.startswith(x))
                     ):
-                        clean = clean_and_sort(
+                        files, dirs = clean_and_sort(
                             root,
                             files,
                             dirs,
@@ -11282,10 +10925,9 @@ def correct_file_extensions(group=False):
                             is_correct_extensions_feature=True,
                         )
                     else:
-                        clean = clean_and_sort(
+                        files, dirs = clean_and_sort(
                             root, files, dirs, is_correct_extensions_feature=True
                         )
-                    files, dirs = clean[0], clean[1]
                     volumes = upgrade_to_file_class(
                         [f for f in files if os.path.isfile(os.path.join(root, f))],
                         root,
@@ -11363,11 +11005,6 @@ def correct_file_extensions(group=False):
     else:
         print("No download folders specified.")
 
-    if group and grouped_notifications and not group_discord_notifications_until_max:
-        sent_status = send_discord_message(None, grouped_notifications)
-        if sent_status:
-            grouped_notifications = []
-
 
 # Optional features below, use at your own risk.
 # Activate them in settings.py
@@ -11387,6 +11024,14 @@ def main():
     moved_files = []
     download_folder_in_paths = False
 
+    cached_paths_path = os.path.join(LOGS_DIR, "cached_paths.txt")
+    release_groups_path = os.path.join(LOGS_DIR, "release_groups.txt")
+    publishers_path = os.path.join(LOGS_DIR, "publishers.txt")
+    skipped_release_group_files_path = os.path.join(
+        LOGS_DIR, "skipped_release_group_files.txt"
+    )
+    skipped_publisher_files_path = os.path.join(LOGS_DIR, "skipped_publisher_files.txt")
+
     # Determines when the cover_extraction should be run
     if download_folders and paths:
         for folder in download_folders:
@@ -11396,12 +11041,12 @@ def main():
 
     # Load cached_paths.txt into cached_paths
     if (
-        os.path.isfile(os.path.join(LOGS_DIR, "cached_paths.txt"))
+        os.path.isfile(cached_paths_path)
         and check_for_existing_series_toggle
         and not cached_paths
     ):
         cached_paths = get_lines_from_file(
-            os.path.join(LOGS_DIR, "cached_paths.txt"),
+            cached_paths_path,
             ignore=paths + download_folders,
             check_paths=True,
         )
@@ -11410,7 +11055,7 @@ def main():
     if (
         (
             cache_each_root_for_each_path_in_paths_at_beginning_toggle
-            or not os.path.isfile(os.path.join(LOGS_DIR, "cached_paths.txt"))
+            or not os.path.isfile(cached_paths_path)
         )
         and paths
         and check_for_existing_series_toggle
@@ -11421,10 +11066,8 @@ def main():
             print(f"\n\tLoaded {len(cached_paths)} cached paths")
 
     # Load release_groups.txt into release_groups
-    if os.path.isfile(os.path.join(LOGS_DIR, "release_groups.txt")):
-        release_groups_read = get_lines_from_file(
-            os.path.join(LOGS_DIR, "release_groups.txt")
-        )
+    if os.path.isfile(release_groups_path):
+        release_groups_read = get_lines_from_file(release_groups_path)
         if release_groups_read:
             release_groups = release_groups_read
             print(
@@ -11432,8 +11075,8 @@ def main():
             )
 
     # Load publishers.txt into publishers
-    if os.path.isfile(os.path.join(LOGS_DIR, "publishers.txt")):
-        publishers_read = get_lines_from_file(os.path.join(LOGS_DIR, "publishers.txt"))
+    if os.path.isfile(publishers_path):
+        publishers_read = get_lines_from_file(publishers_path)
         if publishers_read:
             publishers = publishers_read
             print(f"\tLoaded {len(publishers)} publishers from publishers.txt")
@@ -11463,9 +11106,9 @@ def main():
         and not in_docker
     ):
         # Loads skipped_release_group_files.txt into skipped_release_group_files
-        if os.path.isfile(os.path.join(LOGS_DIR, "skipped_release_group_files.txt")):
+        if os.path.isfile(skipped_release_group_files_path):
             skipped_release_group_files_read = get_lines_from_file(
-                os.path.join(LOGS_DIR, "skipped_release_group_files.txt")
+                skipped_release_group_files_path
             )
             if skipped_release_group_files_read:
                 skipped_release_group_files = skipped_release_group_files_read
@@ -11474,9 +11117,9 @@ def main():
                 )
 
         # Loads skipped_publisher_files.txt into skipped_publisher_files
-        if os.path.isfile(os.path.join(LOGS_DIR, "skipped_publisher_files.txt")):
+        if os.path.isfile(skipped_publisher_files_path):
             skipped_publisher_files_read = get_lines_from_file(
-                os.path.join(LOGS_DIR, "skipped_publisher_files.txt")
+                skipped_publisher_files_path
             )
             if skipped_publisher_files_read:
                 skipped_publisher_files = skipped_publisher_files_read
