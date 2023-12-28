@@ -44,7 +44,7 @@ from watchdog.observers import Observer
 from settings import *
 
 # Version of the script
-script_version = (2, 4, 23)
+script_version = (2, 4, 24)
 script_version_text = "v{}.{}.{}".format(*script_version)
 
 # Paths = existing library
@@ -143,6 +143,8 @@ blank_black_image_path = (
 
 # Cached paths from the users existing library. Read from cached_paths.txt
 cached_paths = []
+
+cached_paths_path = os.path.join(LOGS_DIR, "cached_paths.txt")
 
 # Cached identifier results, aka successful matches via series_id or isbn
 cached_identifier_results = []
@@ -266,22 +268,26 @@ chapter_keywords = [
 # Helps avoid picking the wrong chapter number
 # when no chapter keyword was used before it.
 exclusion_keywords = [
-    "Part",
-    "Episode",
-    "Season",
-    "Arc",
-    "Prologue",
-    "Epilogue",
-    "Omake",
-    "Extra",
-    "- Special",
-    "Side Story",
-    "S",
-    "Act",
-    "Special Episode",
-    "Ep",
-    "- Version",
-    "Ver",
+    r"(\s)Part(\s)",
+    r"(\s)Episode(\s)",
+    r"(\s)Season(\s)",
+    r"(\s)Arc(\s)",
+    r"(\s)Prologue(\s)",
+    r"(\s)Epilogue(\s)",
+    r"(\s)Omake(\s)",
+    r"(\s)Extra(\s)",
+    r"(\s)- Special(\s)",
+    r"(\s)Side Story(\s)",
+    r"(\s)S(\s)",
+    r"(\s)Act(\s)",
+    r"(\s)Special Episode(\s)",
+    r"(\s)Ep(\s)",
+    r"(\s)- Version(\s)",
+    r"(\s)Ver(\s)",
+    r"(\s)PT\.",
+    r"(\s)PT(\s)",
+    r",",
+    r"(\s)×",
 ]
 
 # Volume Regex Keywords to be used throughout the script
@@ -290,13 +296,8 @@ volume_regex_keywords = "(?<![A-Za-z])" + "|(?<![A-Za-z])".join(volume_keywords)
 # Exclusion keywords joined by just |
 exclusion_keywords_joined = "|".join(exclusion_keywords)
 
-# Exclusion Regex Keywords to be used in the Chapter Regex Keywords to avoid incorrect number matches.
-exclusion_keywords_joined_with_exclusion = "|".join(
-    r"(\s)" + keyword + r"(\s)" for keyword in exclusion_keywords
-)
-
-# Put the exclusion_keywords_joined_with_exclusion inside of (?<!%s)
-exclusion_keywords_regex = r"(?<!%s)" % exclusion_keywords_joined_with_exclusion
+# Put the exclusion_keywords_joined inside of (?<!%s)
+exclusion_keywords_regex = r"(?<!%s)" % exclusion_keywords_joined
 
 # Chapter Regex Keywords to be used throughout the script
 chapter_regex_keywords = r"(?<![A-Za-z])" + (r"|(?<![A-Za-z])").join(chapter_keywords)
@@ -315,7 +316,7 @@ image_extensions_regex = "|".join(image_extensions).replace(".", "\.")
 # Once a match is found, it will stop checking the rest.
 # IMPORTANT: Any change of order or swapping of regexes, requires change in full_chapter_match_attempt_allowed alternative logic!
 chapter_searches = [
-    r"\s-(\s+)?(#)?([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?(\s+)?-\s",
+    r"(?<!\d)\s-(\s+)?(#)?([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?(\s+)?-\s",
     r"(\b(%s)((\.)|)(\s+)?([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?\b)"
     % chapter_regex_keywords,
     r"((\b(%s|)((\.)|)(\s+)?(%s)([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?(#([0-9]+)(([-_.])([0-9]+)|)+)?\b)(\s+)?((\[[^\]]*\]|\([^\)]*\)|\{[^}]*\})|((?<!\w(\s))|(?<!\w))(%s)(?!\w)))"
@@ -429,7 +430,6 @@ komga_libraries = []
 # Will move new series that couldn't be matched to the library to the appropriate library.
 # requires: '--watchdog "True"' and check_for_existing_series_toggle = True
 move_new_series_to_library_toggle = False
-
 
 # Folder Class
 class Folder:
@@ -2147,7 +2147,6 @@ def set_modification_date(file_path, date):
 def move_images(
     file,
     folder_name,
-    group=False,
     highest_index_num="",
     is_chapter_dir=False,
 ):
@@ -2426,7 +2425,7 @@ def get_series_name_from_file_name_chapter(name, root, chapter_number="", second
 
 
 # Creates folders for our stray volumes sitting in the root of the download folder.
-def create_folders_for_items_in_download_folder(group=False):
+def create_folders_for_items_in_download_folder():
     global transferred_files, transferred_dirs, grouped_notifications
 
     print("\nCreating folders for lone items in download folder...")
@@ -2545,7 +2544,6 @@ def create_folders_for_items_in_download_folder(group=False):
                                     move_file(
                                         file,
                                         new_folder_location,
-                                        group=group,
                                     )
                                     if watchdog_toggle:
                                         transferred_files.append(already_existing_file)
@@ -2578,7 +2576,7 @@ def create_folders_for_items_in_download_folder(group=False):
                         does_folder_exist = os.path.exists(folder_location)
                         if not does_folder_exist:
                             os.mkdir(folder_location)
-                        move_file(file, folder_location, group=group)
+                        move_file(file, folder_location)
                         if watchdog_toggle:
                             transferred_files.append(
                                 os.path.join(folder_location, file.name)
@@ -2745,6 +2743,10 @@ def remove_everything_but_volume_num(files, chapter=False):
                 else:
                     file = ""
                 if chapter:
+                    # Removes starting period
+                    # EX: "series_name. 031 (2023).cbz" --> "'. 031 (2023)"" --> "031 (2023)"
+                    file = re.sub(r"^(\s+)?(\.)", "", file, re.IGNORECASE).strip()
+
                     # Remove any subtitle
                     # EX: "Solo Leveling 179.1 - Epilogue 01 (2023) (Digital) (LuCaZ).cbz" -->
                     # "" 179.1 - Epilogue 01"  --> "179.1"
@@ -2753,23 +2755,19 @@ def remove_everything_but_volume_num(files, chapter=False):
                             r"((\s+(-)|:)\s+).*$", "", file, re.IGNORECASE
                         ).strip()
 
-                    # Removes starting period
-                    # EX: "series_name. 031 (2023).cbz" --> "'. 031 (2023)"" --> "031 (2023)"
-                    file = re.sub(r"^(\s+)?(\.)", "", file, re.IGNORECASE).strip()
-
                     # Removes # from the number
-                    # EX: #001 becomes 001
+                    # EX: #001 --> 001
                     file = re.sub(r"($#)", "", file, re.IGNORECASE).strip()
 
                     # Removes # from bewteen the numbers
-                    # EX: 154#3 becomes 154
+                    # EX: 154#3 --> 154
                     if re.search(r"(\d+#\d+)", file):
                         file = re.sub(
                             r"((#)([0-9]+)(([-_.])([0-9]+)|)+)", "", file
                         ).strip()
 
                     # removes part from chapter number
-                    # EX: 053x1 or c053x1 becomes 053 or c053
+                    # EX: 053x1 or c053x1 --> 053 or c053
                     file = re.sub(r"(x[0-9]+)", "", file, re.IGNORECASE).strip()
 
                     # removes the bracketed info from the end of the string, empty or not
@@ -2785,11 +2783,11 @@ def remove_everything_but_volume_num(files, chapter=False):
                         re.IGNORECASE,
                     ).strip()
 
-                    # - #404 - becomes #404
+                    # - #404 - --> #404
                     file = re.sub(r"^- | -$", "", file).strip()
 
                     # remove # at the beginning of the string
-                    # EX: #001 becomes 001
+                    # EX: #001 --> 001
                     file = re.sub(r"^#", "", file).strip()
 
                 file = re.sub(
@@ -3290,7 +3288,7 @@ def remove_folder(folder):
 
 
 # Removes a file and its associated image files.
-def remove_file(full_file_path, silent=False, group=False):
+def remove_file(full_file_path, silent=False):
     global grouped_notifications
 
     # Check if the file exists
@@ -3356,7 +3354,6 @@ def move_file(
     file,
     new_location,
     silent=False,
-    group=False,
     highest_index_num="",
     is_chapter_dir=False,
 ):
@@ -3397,7 +3394,6 @@ def move_file(
                 move_images(
                     file,
                     new_location,
-                    group=group,
                     highest_index_num=highest_index_num,
                     is_chapter_dir=is_chapter_dir,
                 )
@@ -3414,13 +3410,13 @@ def move_file(
 
 
 # Replaces an old file.
-def replace_file(old_file, new_file, group=False, highest_index_num=""):
+def replace_file(old_file, new_file, highest_index_num=""):
     global grouped_notifications
     result = False
 
     try:
         if os.path.isfile(old_file.path) and os.path.isfile(new_file.path):
-            file_removal_status = remove_file(old_file.path, group=group)
+            file_removal_status = remove_file(old_file.path)
             if not os.path.isfile(old_file.path) and file_removal_status:
                 move_file(
                     new_file,
@@ -3496,7 +3492,7 @@ def execute_command(command):
 
 # Removes the duplicate after determining it's upgrade status, otherwise, it upgrades
 def remove_duplicate_releases_from_download(
-    original_releases, downloaded_releases, group=False, image_similarity_match=False
+    original_releases, downloaded_releases, image_similarity_match=False
 ):
     global moved_files
     global grouped_notifications
@@ -3682,7 +3678,7 @@ def remove_duplicate_releases_from_download(
                             )
                             if download in downloaded_releases:
                                 downloaded_releases.remove(download)
-                            remove_file(download.path, group=group)
+                            remove_file(download.path)
                         else:
                             send_message(
                                 f"\t\tUPGRADE: {download.name} is an upgrade to: {original.name}\n\tUpgrading {original.name}",
@@ -3712,14 +3708,11 @@ def remove_duplicate_releases_from_download(
                                                 == original.volume_part
                                             )
                                         ):
-                                            remove_file(
-                                                original_volume.path, group=group
-                                            )
+                                            remove_file(original_volume.path)
                                             original_releases.remove(original_volume)
                             replace_file_status = replace_file(
                                 original,
                                 download,
-                                group=group,
                                 highest_index_num=highest_index_num,
                             )
                             if replace_file_status:
@@ -4120,7 +4113,7 @@ def check_for_premium_content(file_path, extension):
 
 
 # Rebuilds the file name by cleaning up, adding, and moving some parts around.
-def reorganize_and_rename(files, dir, group=False):
+def reorganize_and_rename(files, dir):
     global transferred_files
     global grouped_notifications
 
@@ -4215,11 +4208,7 @@ def reorganize_and_rename(files, dir, group=False):
                 if (
                     file.publisher.from_meta or file.publisher.from_name
                 ) and add_publisher_name_to_file_name_when_renaming:
-                    added = False
                     for item in file.extras[:]:
-                        if added:
-                            break
-
                         for publisher in publishers:
                             item_without_special_chars = re.sub(
                                 r"[\(\[\{\)\]\}]", "", item
@@ -4246,13 +4235,9 @@ def reorganize_and_rename(files, dir, group=False):
                                 or name_similarity >= publisher_similarity_score
                             ):
                                 file.extras.remove(item)
-                                if file.publisher.from_meta:
-                                    rename += f" {modifiers[file.extension] % file.publisher.from_meta}"
-                                elif file.publisher.from_name:
-                                    rename += f" {modifiers[file.extension] % file.publisher.from_name}"
-
-                                added = True
                                 break
+                    if file.publisher.from_meta or file.publisher.from_name:
+                        rename += f" {modifiers[file.extension] % (file.publisher.from_meta or file.publisher.from_name)}"
 
                 if file.is_premium and search_and_add_premium_to_file_name:
                     rename += f" {modifiers[file.extension] % 'Premium'}"
@@ -4658,7 +4643,6 @@ def check_upgrade(
     similarity_strings=None,
     cache=False,
     isbn=False,
-    group=False,
     image=False,
     test_mode=False,
 ):
@@ -4751,7 +4735,7 @@ def check_upgrade(
         download_dir_volumes = [file]
 
         if rename_files_in_download_folders_toggle and resturcture_when_renaming:
-            reorganize_and_rename(download_dir_volumes, existing_dir, group=group)
+            reorganize_and_rename(download_dir_volumes, existing_dir)
 
         fields = [
             {
@@ -4865,7 +4849,6 @@ def check_upgrade(
         remove_duplicate_releases_from_download(
             clean_existing,
             download_dir_volumes,
-            group=group,
             image_similarity_match=image,
         )
 
@@ -4940,7 +4923,6 @@ def check_upgrade(
                 move_status = move_file(
                     volume,
                     existing_dir,
-                    group=group,
                     highest_index_num=highest_index_num,
                     is_chapter_dir=is_chapter_dir,
                 )
@@ -5075,7 +5057,7 @@ def remove_bracketed_info_from_name(string):
 
 
 # Checks for any duplicate releases and deletes the lower ranking one.
-def check_for_duplicate_volumes(paths_to_search=[], group=False):
+def check_for_duplicate_volumes(paths_to_search=[]):
     global grouped_notifications
 
     try:
@@ -5279,7 +5261,6 @@ def check_for_duplicate_volumes(paths_to_search=[], group=False):
                                                         if user_input == "y":
                                                             remove_file(
                                                                 duplicate_file.path,
-                                                                group=group,
                                                             )
                                                         else:
                                                             print(
@@ -5331,7 +5312,6 @@ def check_for_duplicate_volumes(paths_to_search=[], group=False):
                                                             # Delete the compare file
                                                             remove_file(
                                                                 compare_file.path,
-                                                                group=group,
                                                             )
                                                         else:
                                                             send_message(
@@ -5573,7 +5553,6 @@ def count_words(strings_list):
 # Checks for an existing series by pulling the series name from each elidable file in the downloads_folder
 # and comparing it to an existin folder within the user's library.
 def check_for_existing_series(
-    group=False,
     test_mode=[],
     test_paths=paths,
     test_download_folders=download_folders,
@@ -5931,7 +5910,6 @@ def check_for_existing_series(
                                         "CACHE",
                                         required_image_similarity_score,
                                     ],
-                                    group=group,
                                     image=True,
                                     test_mode=test_mode,
                                 )
@@ -5967,7 +5945,6 @@ def check_for_existing_series(
                                 file,
                                 similarity_strings=found_item.matches,
                                 isbn=True,
-                                group=group,
                             )
                             if found_item.path not in cached_paths:
                                 cache_path(found_item.path)
@@ -6086,7 +6063,6 @@ def check_for_existing_series(
                                         required_similarity_score,
                                     ],
                                     cache=True,
-                                    group=group,
                                     test_mode=test_mode,
                                 )
                                 if done:
@@ -6254,7 +6230,6 @@ def check_for_existing_series(
                                                     similarity_score,
                                                     required_similarity_score,
                                                 ],
-                                                group=group,
                                                 test_mode=test_mode,
                                             )
                                             if not done:
@@ -6342,7 +6317,6 @@ def check_for_existing_series(
                                                         score,
                                                         required_image_similarity_score,
                                                     ],
-                                                    group=group,
                                                     image=matching_volume,
                                                 )
                                                 if done:
@@ -6429,7 +6403,6 @@ def check_for_existing_series(
                                 file,
                                 similarity_strings=matched_ids,
                                 isbn=True,
-                                group=group,
                             )
 
                             if done:
@@ -6600,7 +6573,7 @@ def get_series_name(dir):
 # Renames the folders in our download directory.
 # If volume releases are available, it will rename based on those.
 # Otherwise it will fallback to just cleaning the name of any brackets.
-def rename_dirs_in_download_folder(paths_to_process=download_folders, group=False):
+def rename_dirs_in_download_folder(paths_to_process=download_folders):
     global grouped_notifications
 
     def process_folder(download_folder):
@@ -6720,7 +6693,7 @@ def rename_dirs_in_download_folder(paths_to_process=download_folders, group=Fals
 
                     # File doesn't exist in the new folder, move it
                     if not os.path.isfile(target_file_path):
-                        move_file(v, new_folder, group=group)
+                        move_file(v, new_folder)
 
                         if watchdog_toggle:
                             transferred_files.append(target_file_path)
@@ -6864,7 +6837,6 @@ def rename_dirs_in_download_folder(paths_to_process=download_folders, group=Fals
                             move_file(
                                 file,
                                 new_location_folder,
-                                group=group,
                             )
                         else:
                             # File exists in the new folder, delete the one that would've been moved
@@ -7136,7 +7108,7 @@ def parse_html_tags(html):
 
 # Renames files.
 def rename_files_in_download_folders(
-    only_these_files=[], group=False, download_folders=download_folders, test_mode=False
+    only_these_files=[], download_folders=download_folders, test_mode=False
 ):
     global transferred_files
     global grouped_notifications
@@ -7762,7 +7734,7 @@ def rename_files_in_download_folders(
                     except Exception as e:
                         send_message(f"\nERROR: {e} ({file.name})", error=True)
                     if resturcture_when_renaming and not test_mode:
-                        reorganize_and_rename([file], file.series_name, group=group)
+                        reorganize_and_rename([file], file.series_name)
         else:
             if not path:
                 print("\nERROR: Path cannot be empty.")
@@ -7777,7 +7749,7 @@ def check_for_exception_keywords(file_name, exception_keywords):
 
 
 # Deletes chapter files from the download folder.
-def delete_chapters_from_downloads(group=False):
+def delete_chapters_from_downloads():
     global grouped_notifications
 
     print("\nSearching for chapter files to delete...")
@@ -7849,7 +7821,7 @@ def delete_chapters_from_downloads(group=False):
                                 grouped_notifications = add_to_grouped_notifications(
                                     grouped_notifications, Embed(embed[0], None)
                                 )
-                                remove_file(os.path.join(root, file), group=group)
+                                remove_file(os.path.join(root, file))
                 for root, dirs, files in scandir.walk(path):
                     clean_two = None
                     if (
@@ -8724,7 +8696,7 @@ def print_stats():
 
 
 # Deletes any file with an extension in unacceptable_keywords from the download_folders
-def delete_unacceptable_files(group=False):
+def delete_unacceptable_files():
     global grouped_notifications
 
     if unacceptable_keywords:
@@ -8799,7 +8771,7 @@ def delete_unacceptable_files(group=False):
                                                 Embed(embed[0], None),
                                             )
                                         )
-                                        remove_file(file_path, group=group)
+                                        remove_file(file_path)
                                         break
                     for root, dirs, files in scandir.walk(path):
                         clean_two = None
@@ -10429,7 +10401,7 @@ def has_multiple_numbers(file_name):
     new_numbers = []
     if numbers:
         for number in numbers:
-            for item in number:
+            for item in tuple(filter(None, set(number))):
                 if (
                     item
                     and set_num_as_float_or_int(item) not in new_numbers
@@ -10446,30 +10418,21 @@ def extract_all_numbers_from_string(string):
         % exclusion_keywords_regex,
         string,
     )
+
     new_numbers = []
     if numbers:
         for number in numbers:
             if isinstance(number, tuple):
-                for item in number:
-                    if item:
-                        if re.search(r"(x[0-9]+)", item):
-                            continue
-                        if re.search(r"(#([0-9]+)(([-_.])([0-9]+)|)+)", item):
-                            continue
-                        if re.search(r"^(-|\.)$", item):
-                            continue
-                        if item:
-                            new_numbers.append(set_num_as_float_or_int(item))
+                for item in tuple(filter(None, set(number))):
+                    if item and not re.search(
+                        r"(x[0-9]+)|(#([0-9]+)(([-_.])([0-9]+)|)+)|^(-|\.)$", item
+                    ):
+                        new_numbers.append(set_num_as_float_or_int(item))
             else:
-                if number:
-                    if re.search(r"(x[0-9]+)", number):
-                        continue
-                    if re.search(r"(#([0-9]+)(([-_.])([0-9]+)|)+)", number):
-                        continue
-                    if re.search(r"^(-|\.)$", number):
-                        continue
-                    if number:
-                        new_numbers.append(set_num_as_float_or_int(number))
+                if number and not re.search(
+                    r"(x[0-9]+)|(#([0-9]+)(([-_.])([0-9]+)|)+)|^(-|\.)$", number
+                ):
+                    new_numbers.append(set_num_as_float_or_int(number))
     return new_numbers
 
 
@@ -10581,7 +10544,7 @@ def compress(temp_dir, cbz_filename):
 
 
 # Converts supported archives to CBZ.
-def convert_to_cbz(group=False):
+def convert_to_cbz():
     global transferred_files
     global grouped_notifications
 
@@ -10637,13 +10600,13 @@ def convert_to_cbz(group=False):
                                             "\t\t\tCBZ file is zero bytes, deleting...",
                                             discord=False,
                                         )
-                                        remove_file(repacked_file, group=group)
+                                        remove_file(repacked_file)
                                     elif not zipfile.is_zipfile(repacked_file):
                                         send_message(
                                             "\t\t\tCBZ file is not a valid zip file, deleting...",
                                             discord=False,
                                         )
-                                        remove_file(repacked_file, group=group)
+                                        remove_file(repacked_file)
                                     else:
                                         send_message(
                                             "\t\t\tCBZ file already exists, skipping...",
@@ -10758,7 +10721,7 @@ def convert_to_cbz(group=False):
                                     remove_folder(temp_dir)
 
                                     # remove cbz file
-                                    remove_file(repacked_file, group=group)
+                                    remove_file(repacked_file)
 
                                     continue
                                 else:
@@ -10826,7 +10789,7 @@ def convert_to_cbz(group=False):
                                     )
 
                                     # remove the source file
-                                    remove_file(source_file, group=group)
+                                    remove_file(source_file)
 
                                     if watchdog_toggle:
                                         if source_file in transferred_files:
@@ -10838,7 +10801,7 @@ def convert_to_cbz(group=False):
                                         "\t\t\tHashes did not verify", error=True
                                     )
                                     # remove cbz file
-                                    remove_file(repacked_file, group=group)
+                                    remove_file(repacked_file)
 
                             elif extension == ".zip" and rename_zip_to_cbz:
                                 header_extension = get_file_extension_from_header(
@@ -10892,7 +10855,7 @@ def convert_to_cbz(group=False):
 
                             # if the cbz file exists, remove it
                             if os.path.isfile(repacked_file):
-                                remove_file(repacked_file, group=group)
+                                remove_file(repacked_file)
             else:
                 send_message(f"\t{folder} does not exist.", error=True)
     else:
@@ -10901,7 +10864,7 @@ def convert_to_cbz(group=False):
 
 # Goes through each file in download_folders and checks for an incorrect file extension
 # based on the file header. If the file extension is incorrect, it will rename the file.
-def correct_file_extensions(group=False):
+def correct_file_extensions():
     global transferred_files
     global grouped_notifications
 
@@ -11024,7 +10987,6 @@ def main():
     moved_files = []
     download_folder_in_paths = False
 
-    cached_paths_path = os.path.join(LOGS_DIR, "cached_paths.txt")
     release_groups_path = os.path.join(LOGS_DIR, "release_groups.txt")
     publishers_path = os.path.join(LOGS_DIR, "publishers.txt")
     skipped_release_group_files_path = os.path.join(
@@ -11083,19 +11045,19 @@ def main():
 
     # Correct any incorrect file extensions
     if correct_file_extensions_toggle and download_folders:
-        correct_file_extensions(group=True)
+        correct_file_extensions()
 
     # Convert any non-cbz supported file to cbz
     if convert_to_cbz_toggle and download_folders:
-        convert_to_cbz(group=True)
+        convert_to_cbz()
 
     # Delete any files with unacceptable keywords in their name
     if delete_unacceptable_files_toggle and download_folders and unacceptable_keywords:
-        delete_unacceptable_files(group=True)
+        delete_unacceptable_files()
 
     # Delete any chapters from the downloads folder
     if delete_chapters_from_downloads_toggle and download_folders:
-        delete_chapters_from_downloads(group=True)
+        delete_chapters_from_downloads()
 
     # Generate the release group list
     if (
@@ -11130,15 +11092,15 @@ def main():
 
     # Rename the files in the download folders
     if rename_files_in_download_folders_toggle and download_folders:
-        rename_files_in_download_folders(group=True)
+        rename_files_in_download_folders()
 
     # Create folders for items in the download folder
     if create_folders_for_items_in_download_folder_toggle and download_folders:
-        create_folders_for_items_in_download_folder(group=True)
+        create_folders_for_items_in_download_folder()
 
     # Checks for duplicate volumes/chapters in the download folders
     if check_for_duplicate_volumes_toggle and download_folders:
-        check_for_duplicate_volumes(download_folders, group=True)
+        check_for_duplicate_volumes(download_folders)
 
     # Extract the covers from the files in the download folders
     if extract_covers_toggle and paths and download_folder_in_paths:
@@ -11147,11 +11109,11 @@ def main():
 
     # Match the files in the download folders to the files in the library
     if check_for_existing_series_toggle and download_folders and paths:
-        check_for_existing_series(group=True)
+        check_for_existing_series()
 
     # Rename the root directory folders in the download folder
     if rename_dirs_in_download_folder_toggle and download_folders:
-        rename_dirs_in_download_folder(group=True)
+        rename_dirs_in_download_folder()
 
     if watchdog_toggle:
         if transferred_files:
