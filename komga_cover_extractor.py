@@ -44,7 +44,7 @@ from watchdog.observers import Observer
 from settings import *
 
 # Version of the script
-script_version = (2, 4, 24)
+script_version = (2, 4, 25)
 script_version_text = "v{}.{}.{}".format(*script_version)
 
 # Paths = existing library
@@ -431,6 +431,7 @@ komga_libraries = []
 # requires: '--watchdog "True"' and check_for_existing_series_toggle = True
 move_new_series_to_library_toggle = False
 
+
 # Folder Class
 class Folder:
     def __init__(self, root, dirs, basename, folder_name, files):
@@ -499,7 +500,6 @@ class Volume:
         volume_number,
         volume_part,
         index_number,
-        is_fixed,
         release_group,
         name,
         extensionless_name,
@@ -523,7 +523,6 @@ class Volume:
         self.volume_number = volume_number
         self.volume_part = volume_part
         self.index_number = index_number
-        self.is_fixed = is_fixed
         self.release_group = release_group
         self.name = name
         self.extensionless_name = extensionless_name
@@ -614,18 +613,25 @@ file_counters = {x: 0 for x in file_extensions}
 
 
 # Sends a message, prints it, and writes it to a file.
-def send_message(message, discord=True, error=False, log=log_to_file):
+def send_message(
+    message,
+    discord=True,
+    error=False,
+    log=log_to_file,
+    error_file_name="errors.txt",
+    changes_file_name="changes.txt",
+):
     print(message)
     if discord != False:
         send_discord_message(message)
     if error:
         errors.append(message)
         if log:
-            write_to_file("errors.txt", message)
+            write_to_file(error_file_name, message)
     else:
         items_changed.append(message)
         if log:
-            write_to_file("changes.txt", message)
+            write_to_file(changes_file_name, message)
 
 
 # Checks if the file is fully transferred by checking the file size
@@ -998,7 +1004,7 @@ def get_lines_from_file(file_path, ignore=[], check_paths=False):
                 if line in ignore:
                     continue
 
-                if check_paths and not line.startswith(tuple(paths)):
+                if check_paths and paths and not line.startswith(tuple(paths)):
                     continue
 
                 if line in results:
@@ -1455,10 +1461,7 @@ def parse_my_args():
 
     if parser.log_to_file:
         global log_to_file
-        if parser.log_to_file.lower() == "true":
-            log_to_file = True
-        elif parser.log_to_file.lower() == "false":
-            log_to_file = False
+        log_to_file = True if parser.log_to_file.lower() == "true" else False
     print(f"\tlog_to_file: {log_to_file}")
 
     # Print all the settings from settings.py
@@ -1474,17 +1477,17 @@ def parse_my_args():
         if not callable(getattr(settings_file, var)) and not var.startswith("__")
     ]
     # print all of the variables
-    sensitive_keywords = ["password", "email", "_ip", "token"]
+    sensitive_keywords = ["password", "email", "_ip", "token", "user"]
     ignored_settings = ["ranked_keywords", "unacceptable_keywords"]
 
     for setting in settings:
         if setting in ignored_settings:
             continue
 
-        if any(keyword in setting.lower() for keyword in sensitive_keywords):
+        value = getattr(settings_file, setting)
+
+        if value and any(keyword in setting.lower() for keyword in sensitive_keywords):
             value = "********"
-        else:
-            value = getattr(settings_file, setting)
 
         print(f"\t{setting}: {value}")
 
@@ -1509,14 +1512,12 @@ def set_num_as_float_or_int(volume_number, silent=False):
     try:
         if volume_number != "":
             if isinstance(volume_number, list):
-                result = ""
-                for num in volume_number:
-                    if float(num) == int(num):
-                        result += f"{int(num)}"
-                    else:
-                        result += f"{float(num)}"
-                    if num != volume_number[-1]:
-                        result += "-"
+                result = "-".join(
+                    [
+                        str(int(num)) if float(num) == int(num) else str(float(num))
+                        for num in volume_number
+                    ]
+                )
                 return result
             elif isinstance(volume_number, str) and "." in volume_number:
                 volume_number = float(volume_number)
@@ -1592,8 +1593,7 @@ def check_text_file_for_message(text_file, message):
 def handle_fields(embed, fields):
     if fields:
         # An embed can contain a maximum of 25 fields
-        if len(fields) > 25:
-            fields = fields[:25]
+        fields = fields[:25]
 
         for field in fields:
             # A field name/title is limited to 256 characters
@@ -1603,6 +1603,7 @@ def handle_fields(embed, fields):
                     if not re.search(r"```$", field["name"])
                     else field["name"][:-3][:250] + "...```"
                 )
+
             # The value of the field is limited to 1024 characters
             if len(field["value"]) > 1024:
                 field["value"] = (
@@ -1627,21 +1628,16 @@ last_hook_index = None
 def pick_webhook(hook, passed_webhook=None, url=None):
     global last_hook_index
 
-    if not passed_webhook:
-        if discord_webhook_url:
-            if not last_hook_index and last_hook_index != 0:
-                hook = discord_webhook_url[0]
-            else:
-                if last_hook_index == len(discord_webhook_url) - 1:
-                    hook = discord_webhook_url[0]
-                else:
-                    hook = discord_webhook_url[last_hook_index + 1]
-        if url:
-            hook = url
-        elif hook:
-            last_hook_index = discord_webhook_url.index(hook)
-    else:
+    if passed_webhook:
         hook = passed_webhook
+    elif url:
+        hook = url
+    elif discord_webhook_url:
+        if last_hook_index is None or last_hook_index == len(discord_webhook_url) - 1:
+            hook = discord_webhook_url[0]
+        else:
+            hook = discord_webhook_url[last_hook_index + 1]
+        last_hook_index = discord_webhook_url.index(hook)
 
     return hook
 
@@ -1680,7 +1676,10 @@ def send_discord_message(
                     if script_version_text:
                         embed.embed.set_footer(text=script_version_text)
 
-                    if timestamp and not embed.embed.timestamp:
+                    if timestamp and (
+                        not hasattr(embed.embed, "timestamp")
+                        or not embed.embed.timestamp
+                    ):
                         embed.embed.set_timestamp()
 
                     if image and not image_local:
@@ -1759,16 +1758,12 @@ def contains_chapter_keywords(file_name):
     ).strip()
 
     # Use compiled patterns for searching
-    chapter_search_results = [
-        pattern.search(file_name_clean) for pattern in chapter_search_patterns_comp
-    ]
-    chapter_search_results = [x for x in chapter_search_results if x]
-
-    # Check for chapters and volume keywords
-    found = any(
-        result and not re.search(r"^((\(|\{|\[)\d{4}(\]|\}|\)))$", result.group(0))
-        for result in chapter_search_results
-    )
+    found = False
+    for pattern in chapter_search_patterns_comp:
+        result = pattern.search(file_name_clean)
+        if result and not re.search(r"^((\(|\{|\[)\d{4}(\]|\}|\)))$", result.group(0)):
+            found = True
+            break
 
     if not found and not contains_volume_keywords(file_name):
         # Remove volume year
@@ -1837,7 +1832,7 @@ def cache_path(path):
     )
 
 
-# Cleans up the files array before usage
+# Cleans and sorts the passed files and directories
 def clean_and_sort(
     root,
     files=[],
@@ -1854,6 +1849,7 @@ def clean_and_sort(
     is_correct_extensions_feature=False,
     test_mode=False,
 ):
+    # Cache the root path
     if (
         check_for_existing_series_toggle
         and not test_mode
@@ -1863,26 +1859,38 @@ def clean_and_sort(
         and not any(root.startswith(path) for path in download_folders)
     ):
         cache_path(root)
+
+    # Remove ignored folder names if present
     if ignored_folder_names and not skip_remove_ignored_folder_names:
-        ignored_parts = [
-            part for part in root.split(os.sep) if part and part in ignored_folder_names
-        ]
-        if any(ignored_parts):
+        ignored_parts = any(
+            part for part in root.split(os.sep) if part in ignored_folder_names
+        )
+        if ignored_parts:
             return [], []
+
+    # Sort files and directories
+    if sort:
+        files.sort()
+        dirs.sort()
+
+    # Process files
     if files:
-        if sort:
-            files.sort()
+        # Remove hidden files
         if not skip_remove_hidden_files:
             files = remove_hidden_files(files)
-        if not skip_remove_unaccepted_file_types:
-            if not is_correct_extensions_feature:
-                files = remove_unaccepted_file_types(
-                    files, root, file_extensions, test_mode=test_mode
-                )
-            else:
-                files = remove_unaccepted_file_types(
-                    files, root, file_extensions + rar_extensions, test_mode=test_mode
-                )
+
+        # Remove unaccepted file types
+        if not skip_remove_unaccepted_file_types and files:
+            files = remove_unaccepted_file_types(
+                files,
+                root,
+                file_extensions
+                if not is_correct_extensions_feature
+                else file_extensions + rar_extensions,
+                test_mode=test_mode,
+            )
+
+        # Filter files based on just_these_files
         if just_these_files and files:
             files = [
                 x
@@ -1893,28 +1901,58 @@ def clean_and_sort(
                     and get_file_extension(x) in image_extensions
                 )
             ]
-        if not chapters:
+
+        # Filter out all chapter releases
+        if not chapters and files:
             files = filter_non_chapters(files)
+
+    # Process directories
     if dirs:
-        if sort:
-            dirs.sort()
+        # Remove hidden folders
         if not skip_remove_hidden_folders:
             dirs = remove_hidden_folders(dirs)
-        # if just_these_dirs and dirs:
-        #     allowed_dirs = []
-        #     for transferred_dir in just_these_dirs:
-        #         for dir in dirs:
-        #             if transferred_dir.folder_name == dir:
-        #                 current_files = get_all_files_recursively_in_dir_watchdog(
-        #                     os.path.join(root, dir)
-        #                 )
-        #                 if len(transferred_dir.files) == len(current_files) or len(
-        #                     current_files
-        #                 ) < len(transferred_dir.files):
-        #                     allowed_dirs.append(dir)
-        #     dirs = allowed_dirs
-        if not skip_remove_ignored_folder_names:
+
+        # Remove ignored folder names
+        if not skip_remove_ignored_folder_names and dirs:
             dirs = remove_ignored_folder_names(dirs)
+
+    return files, dirs
+
+
+def process_files_and_folders(
+    root,
+    files=[],
+    dirs=[],
+    sort=False,
+    chapters=chapter_support_toggle,
+    just_these_files=[],
+    just_these_dirs=[],
+    skip_remove_unaccepted_file_types=False,
+    keep_images_in_just_these_files=False,
+    is_correct_extensions_feature=False,
+    test_mode=False,
+):
+    in_download_folders = (
+        watchdog_toggle
+        and download_folders
+        and any(x for x in download_folders if root.startswith(x))
+    )
+
+    files, dirs = clean_and_sort(
+        root,
+        files,
+        dirs,
+        sort=sort,
+        chapters=chapters,
+        just_these_files=just_these_files if in_download_folders else [],
+        just_these_dirs=just_these_dirs if in_download_folders else [],
+        skip_remove_unaccepted_file_types=skip_remove_unaccepted_file_types,
+        keep_images_in_just_these_files=keep_images_in_just_these_files
+        if in_download_folders
+        else False,
+        is_correct_extensions_feature=is_correct_extensions_feature,
+        test_mode=test_mode,
+    )
     return files, dirs
 
 
@@ -1923,8 +1961,7 @@ def get_file_extension(file):
     return os.path.splitext(file)[1]
 
 
-# Gets the predicted file extension from the file header using
-# import filetype
+# Gets the predicted file extension from the file header using filetype
 def get_file_extension_from_header(file):
     extension_from_name = get_file_extension(file)
     if extension_from_name in manga_extensions or extension_from_name in rar_extensions:
@@ -1950,7 +1987,7 @@ def get_extensionless_name(file):
     return os.path.splitext(file)[0]
 
 
-# Trades out our regular files for file objects
+# Creates and returns file objects from the passed files and root
 def upgrade_to_file_class(
     files,
     root,
@@ -1959,6 +1996,9 @@ def upgrade_to_file_class(
     test_mode=False,
     clean=True,
 ):
+    if not files:
+        return []
+
     # Avoid any features that require an actual file
     if test_mode:
         skip_get_file_extension_from_header = True
@@ -2087,16 +2127,19 @@ def get_novel_cover(novel_path):
 @lru_cache(maxsize=None)
 def is_volume_one(volume_name):
     keywords = volume_regex_keywords
+
     if contains_chapter_keywords(volume_name) and not contains_volume_keywords(
         volume_name
     ):
         keywords = chapter_regex_keywords + "|"
+
     if re.search(
         r"(\b(%s)([-_. ]|)(\s+)?(One|1|01|001|0001)(([-_.]([0-9]+))+)?\b)" % keywords,
         volume_name,
         re.IGNORECASE,
     ):
         return True
+
     return False
 
 
@@ -2104,10 +2147,13 @@ def is_volume_one(volume_name):
 # If neither are present, the volume is assumed to be a one-shot volume.
 def is_one_shot(file_name, root=None, skip_folder_check=False, test_mode=False):
     files = []
+
     if test_mode:
         skip_folder_check = True
+
     if not skip_folder_check:
         files = clean_and_sort(root, os.listdir(root))[0]
+
     if (len(files) == 1 or skip_folder_check) or (
         download_folders and root in download_folders
     ):
@@ -2120,16 +2166,24 @@ def is_one_shot(file_name, root=None, skip_folder_check=False, test_mode=False):
             not volume_file_status and not chapter_file_status
         ) and not exception_keyword_status:
             return True
+
     return False
 
 
 # Checks similarity between two strings.
 @lru_cache(maxsize=None)
 def similar(a, b):
+    # convert to lowercase and strip
+    a = a.lower().strip()
+    b = b.lower().strip()
+
+    # evaluate
     if a == "" or b == "":
         return 0.0
+    elif a == b:
+        return 1.0
     else:
-        return SequenceMatcher(None, a.lower(), b.lower()).ratio()
+        return SequenceMatcher(None, a, b).ratio()
 
 
 # Sets the modification date of the passed file path to the passed date.
@@ -2143,6 +2197,21 @@ def set_modification_date(file_path, date):
         )
 
 
+# Determies if two index_numbers are the same
+def is_same_index_number(index_one, index_two):
+    if (
+        index_one != ""
+        and index_two != ""
+        and (
+            index_one == index_two
+            or (isinstance(index_one, list) and index_two in index_one)
+            or (isinstance(index_two, list) and index_one in index_two)
+        )
+    ):
+        return True
+    return False
+
+
 # Moves the image into a folder if said image exists. Also checks for a cover/poster image and moves that.
 def move_images(
     file,
@@ -2154,12 +2223,9 @@ def move_images(
         image = file.extensionless_path + extension
         if os.path.isfile(image):
             already_existing_image = os.path.join(folder_name, os.path.basename(image))
-            # check that the image is not already in the folder
-            if not os.path.isfile(already_existing_image):
-                shutil.move(image, folder_name)
-            else:
+            if os.path.isfile(already_existing_image):
                 remove_file(already_existing_image, silent=True)
-                shutil.move(image, folder_name)
+            shutil.move(image, folder_name)
 
         for cover_file_name in series_cover_file_names:
             cover_image_file_name = cover_file_name + extension
@@ -2180,15 +2246,8 @@ def move_images(
                     shutil.move(cover_image_file_path, folder_name)
                 elif (
                     use_latest_volume_cover_as_series_cover
-                    and highest_index_num != ""
                     and file.file_type == "volume"
-                    and (
-                        file.index_number == highest_index_num
-                        or (
-                            isinstance(file.index_number, list)
-                            and highest_index_num in file.index_number
-                        )
-                    )
+                    and is_same_index_number(file.index_number, highest_index_num)
                 ):
                     # get the cover image in the folder
                     existing_cover_image_file_path = [
@@ -2424,178 +2483,6 @@ def get_series_name_from_file_name_chapter(name, root, chapter_number="", second
     return result
 
 
-# Creates folders for our stray volumes sitting in the root of the download folder.
-def create_folders_for_items_in_download_folder():
-    global transferred_files, transferred_dirs, grouped_notifications
-
-    print("\nCreating folders for lone items in download folder...")
-    for download_folder in download_folders:
-        if not os.path.exists(download_folder):
-            send_message(
-                f"\nERROR: {download_folder} is an invalid path.\n", error=True
-            )
-            continue
-
-        try:
-            for root, dirs, files in scandir.walk(download_folder):
-                if (
-                    watchdog_toggle
-                    and download_folders
-                    and any(x for x in download_folders if root.startswith(x))
-                ):
-                    files, dirs = clean_and_sort(
-                        root,
-                        files,
-                        dirs,
-                        just_these_files=transferred_files,
-                        just_these_dirs=transferred_dirs,
-                    )
-                else:
-                    files, dirs = clean_and_sort(root, files, dirs)
-
-                if not files:
-                    continue
-
-                global folder_accessor
-                file_objects = upgrade_to_file_class(files, root)
-                folder_accessor = create_folder_obj(root, dirs, file_objects)
-
-                for file in folder_accessor.files:
-                    if not (
-                        file.extension in file_extensions
-                        and os.path.basename(download_folder)
-                        == os.path.basename(file.root)
-                    ):
-                        continue
-
-                    done = False
-
-                    if move_lone_files_to_similar_folder and dirs:
-                        for folder in dirs:
-                            folder_lower = folder.strip().lower()
-                            basename_lower = file.basename.strip().lower()
-
-                            if (folder_lower == basename_lower) or (
-                                similar(
-                                    replace_underscore_in_name(
-                                        remove_punctuation(folder)
-                                    )
-                                    .strip()
-                                    .lower(),
-                                    replace_underscore_in_name(
-                                        remove_punctuation(file.basename)
-                                    )
-                                    .strip()
-                                    .lower(),
-                                )
-                                >= required_similarity_score
-                            ):
-                                if (
-                                    replace_series_name_in_file_name_with_similar_folder_name
-                                    and file.basename != folder
-                                ):
-                                    # replace the series name in the file name with the folder name and rename the file
-                                    new_file_name = re.sub(
-                                        file.basename,
-                                        folder,
-                                        file.name,
-                                        flags=re.IGNORECASE,
-                                    )
-                                    new_file_path = os.path.join(root, new_file_name)
-
-                                    # create file object
-                                    new_file_obj = File(
-                                        new_file_name,
-                                        get_extensionless_name(new_file_name),
-                                        get_series_name_from_file_name(
-                                            new_file_name, root
-                                        ),
-                                        get_file_extension(new_file_name),
-                                        root,
-                                        new_file_path,
-                                        get_extensionless_name(new_file_path),
-                                        None,
-                                        None,
-                                        get_file_extension_from_header(new_file_path),
-                                    )
-
-                                    # if it doesn't already exist
-                                    if not os.path.isfile(
-                                        os.path.join(file.root, new_file_obj.name)
-                                    ):
-                                        rename_file(
-                                            file.path,
-                                            new_file_obj.path,
-                                        )
-                                        file = new_file_obj
-                                    else:
-                                        # if it does exist, delete the file
-                                        remove_file(file.path, silent=True)
-
-                                already_existing_file = os.path.join(
-                                    root, folder, file.name
-                                )
-                                # check that the file doesn't already exist in the folder
-                                if os.path.isfile(file.path) and not os.path.isfile(
-                                    already_existing_file
-                                ):
-                                    new_folder_location = os.path.join(root, folder)
-                                    # it doesn't, we move it and the image associated with it, to that folder
-                                    move_file(
-                                        file,
-                                        new_folder_location,
-                                    )
-                                    if watchdog_toggle:
-                                        transferred_files.append(already_existing_file)
-
-                                        # remove old item from transferred files
-                                        if file.path in transferred_files:
-                                            transferred_files.remove(file.path)
-
-                                        # add new folder object to transferred dirs
-                                        transferred_dirs.append(
-                                            create_folder_obj(new_folder_location)
-                                        )
-                                    done = True
-                                    break
-                                else:
-                                    # it does, so we remove the duplicate file
-                                    remove_file(
-                                        os.path.join(root, file.name),
-                                        silent=True,
-                                    )
-                                    done = True
-                                    break
-                    if not done:
-                        similarity_result = similar(file.name, file.basename)
-                        write_to_file(
-                            "changes.txt",
-                            f"Similarity Result between: {file.name} and {file.basename} was {similarity_result}",
-                        )
-                        folder_location = os.path.join(file.root, file.basename)
-                        does_folder_exist = os.path.exists(folder_location)
-                        if not does_folder_exist:
-                            os.mkdir(folder_location)
-                        move_file(file, folder_location)
-                        if watchdog_toggle:
-                            transferred_files.append(
-                                os.path.join(folder_location, file.name)
-                            )
-                            # remove old item from transferred files
-                            if file.path in transferred_files:
-                                transferred_files.remove(file.path)
-
-                            # add new folder object to transferred dirs
-                            transferred_dirs.append(
-                                create_folder_obj(
-                                    folder_location,
-                                )
-                            )
-
-        except Exception as e:
-            send_message(str(e), error=True)
-
-
 def get_percent_for_folder(files, extensions=None, file_type=None):
     if not files:
         return 0
@@ -2697,9 +2584,11 @@ def remove_everything_but_volume_num(files, chapter=False):
         file = remove_dual_space(
             re.sub(r"_extra", " ", file, flags=re.IGNORECASE)
         ).strip()
+
         result = None
         file = replace_underscore_in_name(file)
         is_multi_volume = check_for_multi_volume_file(file, chapter=chapter)
+
         if not chapter:
             result = re.search(
                 r"\b({})((\.)|)(\s+)?([0-9]+)(([-_.])([0-9]+)|)+\b".format(keywords),
@@ -2737,11 +2626,7 @@ def remove_everything_but_volume_num(files, chapter=False):
 
         if result:
             try:
-                file = result
-                if hasattr(file, "group"):
-                    file = file.group()
-                else:
-                    file = ""
+                file = result.group() if hasattr(result, "group") else ""
                 if chapter:
                     # Removes starting period
                     # EX: "series_name. 031 (2023).cbz" --> "'. 031 (2023)"" --> "031 (2023)"
@@ -2810,6 +2695,7 @@ def remove_everything_but_volume_num(files, chapter=False):
                             flags=re.IGNORECASE,
                         )
                     ).strip()
+
                 try:
                     if is_multi_volume or re.search(
                         r"([0-9]+(\.[0-9]+)?)([-_]([0-9]+(\.[0-9]+)?))+", file
@@ -2818,34 +2704,32 @@ def remove_everything_but_volume_num(files, chapter=False):
                             is_multi_volume = True
                         multi_numbers = get_min_and_max_numbers(file)
                         if multi_numbers:
-                            if len(multi_numbers) > 1:
-                                for volume_number in multi_numbers:
-                                    results.append(float(volume_number))
-                            elif len(multi_numbers) == 1:
-                                results.append(float(multi_numbers[0]))
+                            results.extend(
+                                float(volume_number) for volume_number in multi_numbers
+                            )
+                            if len(multi_numbers) == 1:
                                 is_multi_volume = False
                     else:
                         results.append(float(file))
+
                 except ValueError:
-                    message = f"Not a float: {files[0]}"
-                    print(message)
-                    write_to_file("errors.txt", message)
+                    send_message(f"Not a float: {file}", error=True)
             except AttributeError:
-                print(str(AttributeError.with_traceback))
+                send_message(str(AttributeError.with_traceback), error=True)
         else:
             if file in files:
                 files.remove(file)
-    if is_multi_volume == True and results:
+
+    if is_multi_volume and results:
         return results
-    elif results and (len(results) == len(files)):
+    elif results and len(results) == len(files):
         if chapter:
             return results[0]
+        elif results[0] < 2000:
+            return results[0]
         else:
-            if results[0] < 2000:
-                return results[0]
-            else:
-                return ""
-    elif not results:
+            return ""
+    else:
         return ""
 
 
@@ -2855,39 +2739,29 @@ volume_year_regex = r"(\(|\[|\{)(\d{4})(\)|\]|\})"
 # Get the release year from the file metadata, if present, otherwise from the file name
 def get_release_year(name, metadata=None):
     result = None
-    converted = None
+
     match = re.search(volume_year_regex, name, re.IGNORECASE)
     if match:
         result = int(re.sub(r"(\(|\[|\{)|(\)|\]|\})", "", match.group(0)))
+
     if metadata and not result:
         release_year_from_file = None
+
         if "Year" in metadata:
             release_year_from_file = metadata["Year"]
-            if release_year_from_file and release_year_from_file.isdigit():
-                converted = int(release_year_from_file)
         elif "dc:date" in metadata:
             release_year_from_file = metadata["dc:date"].strip()
             release_year_from_file = re.search(r"\d{4}", release_year_from_file)
-            if release_year_from_file:
-                release_year_from_file = release_year_from_file.group(0)
-                if release_year_from_file and release_year_from_file.isdigit():
-                    converted = int(release_year_from_file)
-        if converted and converted >= 1000:
-            result = converted
+            release_year_from_file = (
+                release_year_from_file.group(0) if release_year_from_file else None
+            )
+
+        if release_year_from_file and release_year_from_file.isdigit():
+            result = int(release_year_from_file)
+            if result < 1000:
+                result = None
+
     return result
-
-
-# Compile the regular expression pattern outside of the function
-fixed_volume_pattern = re.compile(
-    r"(\(|\[|\{)(f|fix(ed)?)([-_. :]+)?([0-9]+)?(\)|\]|\})", re.IGNORECASE
-)
-
-
-# Determines if the release is a fixed release
-@lru_cache(maxsize=None)
-def is_fixed_volume(name, fixed_volume_pattern=fixed_volume_pattern):
-    result = fixed_volume_pattern.search(name)
-    return True if result else False
 
 
 # Retrieves the release_group on the file name
@@ -2908,15 +2782,15 @@ def get_extra_from_group(name, groups):
         re.IGNORECASE,
     )
 
+    # Search for the combined pattern in the name
     search = combined_pattern.search(name)
 
     # If a match is found
     if search:
         result = search.group()
 
-        if result:
-            # Remove any brackets that the matched string starts with or ends with
-            result = bracket_pattern.sub("", result)
+        # Remove any brackets that the matched string starts with or ends with
+        result = bracket_pattern.sub("", result)
 
         # Return the result after removing brackets
         return result
@@ -2980,16 +2854,19 @@ def get_file_part(file, chapter=False, series_name=None, subtitle=None):
 
 # Retrieves the publisher from the passed in metadata
 def get_publisher_from_meta(metadata):
+    def clean_publisher_name(name):
+        name = titlecase(name)
+        name = remove_dual_space(name)
+        name = re.sub(r", LLC.*", "", name).strip()
+        return name
+
     publisher = None
+
     if metadata:
         if "Publisher" in metadata:
-            publisher = titlecase(metadata["Publisher"])
-            publisher = remove_dual_space(publisher)
-            publisher = re.sub(r", LLC.*", "", publisher)
+            publisher = clean_publisher_name(metadata["Publisher"])
         elif "dc:publisher" in metadata:
-            publisher = titlecase(metadata["dc:publisher"])
-            publisher = remove_dual_space(publisher)
-            publisher = re.sub(r", LLC.*", "", publisher).strip()
+            publisher = clean_publisher_name(metadata["dc:publisher"])
             publisher = re.sub(r"LLC", "", publisher).strip()
             publisher = re.sub(r":", " - ", publisher).strip()
             publisher = remove_dual_space(publisher)
@@ -3001,7 +2878,6 @@ def upgrade_to_volume_class(
     files,
     skip_release_year=False,
     skip_file_part=False,
-    skip_fixed_volume=False,
     skip_release_group=False,
     skip_extras=False,
     skip_publisher=False,
@@ -3010,6 +2886,9 @@ def upgrade_to_volume_class(
     skip_multi_volume=False,
     test_mode=False,
 ):
+    if not files:
+        return []
+
     if test_mode:
         skip_release_year = True
         skip_publisher = True
@@ -3019,13 +2898,16 @@ def upgrade_to_volume_class(
     for file in files:
         internal_metadata = None
         publisher = Publisher(None, None)
+
         if not skip_release_year or not skip_publisher:
             internal_metadata = get_internal_metadata(file.path, file.extension)
+
         if add_publisher_name_to_file_name_when_renaming:
             if internal_metadata and not skip_publisher:
                 publisher.from_meta = get_publisher_from_meta(internal_metadata)
             if publishers:
                 publisher.from_name = get_extra_from_group(file.name, publishers)
+
         file_obj = Volume(
             file.file_type,
             file.basename,
@@ -3038,7 +2920,6 @@ def upgrade_to_volume_class(
             file.volume_number,
             "",
             "",
-            (is_fixed_volume(file.name) if not skip_fixed_volume else False),
             (
                 get_extra_from_group(file.name, release_groups)
                 if not skip_release_group
@@ -3062,9 +2943,10 @@ def upgrade_to_volume_class(
             file.header_extension,
             (
                 (
-                    check_for_multi_volume_file(file.name)
-                    if file.file_type != "chapter"
-                    else check_for_multi_volume_file(file.name, chapter=True)
+                    check_for_multi_volume_file(
+                        file.name,
+                        chapter=True if file.file_type == "chapter" else False,
+                    )
                 )
                 if not skip_multi_volume
                 else False
@@ -3075,45 +2957,28 @@ def upgrade_to_volume_class(
                 else False
             ),
         )
+
         if not skip_subtitle:
             file_obj.subtitle = get_subtitle_from_title(
                 file_obj, publisher=file_obj.publisher
             )
-            if file_obj.subtitle:
-                write_to_file(
-                    "extracted_subtitles.txt",
-                    f"{file_obj.name} - {file_obj.subtitle}",
-                    without_timestamp=True,
-                    check_for_dup=True,
-                )
+
         if not skip_file_part:
-            if file_obj.file_type != "chapter":
-                file_obj.volume_part = get_file_part(
-                    file_obj.name,
-                    series_name=file_obj.series_name,
-                    subtitle=file_obj.subtitle,
-                )
-            else:
-                file_obj.volume_part = get_file_part(
-                    file_obj.name,
-                    series_name=file_obj.series_name,
-                    subtitle=file_obj.subtitle,
-                    chapter=True,
-                )
+            file_obj.volume_part = get_file_part(
+                file_obj.name,
+                series_name=file_obj.series_name,
+                subtitle=file_obj.subtitle,
+                chapter=True if file_obj.file_type == "chapter" else False,
+            )
+
         if not skip_extras:
-            if file_obj.file_type != "chapter":
-                file_obj.extras = get_extras(
-                    file_obj.name,
-                    series_name=file_obj.series_name,
-                    subtitle=file_obj.subtitle,
-                )
-            else:
-                file_obj.extras = get_extras(
-                    file_obj.name,
-                    chapter=True,
-                    series_name=file_obj.series_name,
-                    subtitle=file_obj.subtitle,
-                )
+            file_obj.extras = get_extras(
+                file_obj.name,
+                chapter=True if file_obj.file_type == "chapter" else False,
+                series_name=file_obj.series_name,
+                subtitle=file_obj.subtitle,
+            )
+
         if file_obj.is_one_shot:
             file_obj.volume_number = 1
 
@@ -3147,17 +3012,31 @@ class RankedKeywordResult:
         return str(self)
 
 
-# Retrieves the release_group score from the list, using a high similarity
-def get_keyword_score(name, file_type, ranked_keywords):
-    tags = []
-    score = 0.0
-    for keyword in ranked_keywords:
-        if file_type == keyword.file_type or keyword.file_type == "both":
-            search = re.search(keyword.name, name, re.IGNORECASE)
+compiled_searches = [
+    re.compile(keyword.name, re.IGNORECASE) for keyword in ranked_keywords
+]
+
+
+# Retrieves the ranked keyword score and matching tags
+# for both releases.
+def get_keyword_scores(release1, release2):
+    tags1, score1 = [], 0.0
+    tags2, score2 = [], 0.0
+
+    for keyword, compiled_search in zip(ranked_keywords, compiled_searches):
+        if keyword.file_type in ["both", release1.file_type]:
+            search = compiled_search.search(release1.name)
             if search:
-                tags.append(Keyword(search.group(0), keyword.score))
-                score += keyword.score
-    return RankedKeywordResult(score, tags)
+                tags1.append(Keyword(search.group(0), keyword.score))
+                score1 += keyword.score
+
+        if keyword.file_type in ["both", release2.file_type]:
+            search = compiled_search.search(release2.name)
+            if search:
+                tags2.append(Keyword(search.group(0), keyword.score))
+                score2 += keyword.score
+
+    return RankedKeywordResult(score1, tags1), RankedKeywordResult(score2, tags2)
 
 
 # > This class represents the result of an upgrade check
@@ -3177,11 +3056,8 @@ class UpgradeResult:
 
 # Checks if the downloaded release is an upgrade for the current release.
 def is_upgradeable(downloaded_release, current_release):
-    downloaded_release_result = get_keyword_score(
-        downloaded_release.name, downloaded_release.file_type, ranked_keywords
-    )
-    current_release_result = get_keyword_score(
-        current_release.name, current_release.file_type, ranked_keywords
+    downloaded_release_result, current_release_result = get_keyword_scores(
+        downloaded_release, current_release
     )
     upgrade_result = UpgradeResult(
         downloaded_release_result.total_score > current_release_result.total_score,
@@ -3278,12 +3154,16 @@ def remove_folder(folder):
     if os.path.isdir(folder) and (
         folder not in download_folders and folder not in paths
     ):
-        shutil.rmtree(folder)
-        if not os.path.isdir(folder):
-            send_message(f"\t\t\tRemoved {folder}", discord=False)
-            result = True
-        else:
-            send_message(f"\t\t\tFailed to remove {folder}", error=True)
+        try:
+            shutil.rmtree(folder)
+            if not os.path.isdir(folder):
+                send_message(f"\t\t\tRemoved {folder}", discord=False)
+                result = True
+            else:
+                send_message(f"\t\t\tFailed to remove {folder}", error=True)
+        except Exception as e:
+            send_message(f"\t\t\tFailed to remove {folder}: {str(e)}", error=True)
+            return result
     return result
 
 
@@ -3497,231 +3377,198 @@ def remove_duplicate_releases_from_download(
     global moved_files
     global grouped_notifications
 
-    for download in downloaded_releases[:]:
-        if (
-            not isinstance(download.volume_number, int)
-            and not isinstance(download.volume_number, float)
-            and not download.multi_volume
-        ):
+    # Extracts and formats file tags information
+    def get_file_tags_info(result):
+        tags = result.keywords
+        if tags:
+            return ", ".join([f"{tag.name} ({tag.score})" for tag in tags])
+        return "None"
+
+    # Retrieves and formats file size information in MB
+    def get_file_size_info(path):
+        if os.path.isfile(path):
+            size = os.path.getsize(path) / 1000000  # convert to MB
+            return f"{round(size, 1)} MB"
+        return None
+
+    new_original_releases = original_releases.copy()
+    new_downloaded_releases = downloaded_releases.copy()
+
+    for download in downloaded_releases:
+        if download.index_number == "":
             send_message(
                 f"\n\t\t{download.file_type.capitalize()} number empty/missing in: {download.name}",
                 error=True,
             )
-            downloaded_releases.remove(download)
-        if downloaded_releases:
-            chap_dl_percent = get_percent_for_folder(
-                downloaded_releases, file_type="chapter"
+            continue
+
+        chap_dl_percent = get_percent_for_folder(
+            downloaded_releases, file_type="chapter"
+        )
+        is_chapter_dir = chap_dl_percent >= required_matching_percentage
+
+        highest_index_num = (
+            get_highest_release(
+                tuple(
+                    [
+                        item.index_number
+                        if not isinstance(item.index_number, list)
+                        else tuple(item.index_number)
+                        for item in new_downloaded_releases + new_original_releases
+                    ]
+                ),
+                is_chapter_directory=is_chapter_dir,
             )
-            is_chapter_dir = chap_dl_percent >= required_matching_percentage
-            highest_index_num = (
-                get_highest_release(
-                    tuple(
-                        [
-                            item.index_number
-                            if not isinstance(item.index_number, list)
-                            else tuple(item.index_number)
-                            for item in downloaded_releases
-                        ]
-                        + [
-                            item.index_number
-                            if not isinstance(item.index_number, list)
-                            else tuple(item.index_number)
-                            for item in original_releases
-                        ]
-                    ),
-                    is_chapter_directory=is_chapter_dir,
+            if not is_chapter_dir
+            else ""
+        )
+
+        for original in original_releases:
+            if not os.path.isfile(download.path):
+                break
+
+            if not os.path.isfile(original.path):
+                continue
+
+            if download.file_type != original.file_type:
+                continue
+
+            if not (
+                is_same_index_number(download.index_number, original.index_number)
+                or (
+                    image_similarity_match
+                    and hasattr(image_similarity_match, "name")
+                    and image_similarity_match.name == original.name
                 )
-                if not is_chapter_dir
-                else ""
+            ):
+                continue
+
+            upgrade_status = is_upgradeable(download, original)
+
+            original_file_tags = get_file_tags_info(
+                upgrade_status.current_ranked_result
             )
-            for original in original_releases[:]:
-                if not os.path.isfile(download.path):
-                    break
-                if (
-                    (
-                        isinstance(download.index_number, float)
-                        and isinstance(original.index_number, float)
-                    )
-                    or (
-                        download.index_number
-                        and download.multi_volume
-                        and isinstance(download.index_number, list)
-                    )
-                ) and os.path.isfile(original.path):
-                    fields = []
-                    if (
-                        download.index_number != ""
-                        and original.index_number != ""
-                        and (
-                            download.index_number == original.index_number
-                            or (
-                                image_similarity_match
-                                and hasattr(image_similarity_match, "name")
-                                and image_similarity_match.name == original.name
-                            )
+            downloaded_file_tags = get_file_tags_info(
+                upgrade_status.downloaded_ranked_result
+            )
+
+            original_file_size = get_file_size_info(original.path)
+            downloaded_file_size = get_file_size_info(download.path)
+
+            fields = [
+                {
+                    "name": "From",
+                    "value": f"```{original.name}```",
+                    "inline": False,
+                },
+                {
+                    "name": "Score",
+                    "value": str(upgrade_status.current_ranked_result.total_score),
+                    "inline": True,
+                },
+                {
+                    "name": "Tags",
+                    "value": str(original_file_tags),
+                    "inline": True,
+                },
+                {
+                    "name": "To",
+                    "value": f"```{download.name}```",
+                    "inline": False,
+                },
+                {
+                    "name": "Score",
+                    "value": str(upgrade_status.downloaded_ranked_result.total_score),
+                    "inline": True,
+                },
+                {
+                    "name": "Tags",
+                    "value": str(downloaded_file_tags),
+                    "inline": True,
+                },
+            ]
+
+            if original_file_size and downloaded_file_size:
+                # insert original file size at index 3
+                fields.insert(
+                    3,
+                    {
+                        "name": "Size",
+                        "value": str(original_file_size),
+                        "inline": True,
+                    },
+                )
+                # append downloaded file size at the end
+                fields.append(
+                    {
+                        "name": "Size",
+                        "value": str(downloaded_file_size),
+                        "inline": True,
+                    }
+                )
+
+            status = "Not Upgradeable" if not upgrade_status.is_upgrade else "Upgrade"
+            verb = "not an" if not upgrade_status.is_upgrade else "an"
+            action = "Deleting" if not upgrade_status.is_upgrade else "Upgrading"
+            color = yellow_color if not upgrade_status.is_upgrade else green_color
+
+            send_message(
+                f"\t\t{status}: {download.name} is {verb} upgrade to: {original.name}\n\t{action}: {download.name} from download folder.",
+                discord=False,
+            )
+
+            embed = [
+                handle_fields(
+                    DiscordEmbed(
+                        title=f"Upgrade Process ({status})",
+                        color=color,
+                    ),
+                    fields=fields,
+                )
+            ]
+            grouped_notifications = add_to_grouped_notifications(
+                grouped_notifications, Embed(embed[0], None)
+            )
+
+            if upgrade_status.is_upgrade:
+                if download.multi_volume and not original.multi_volume:
+                    files_to_remove = [
+                        original_volume
+                        for original_volume in original_releases
+                        for volume_number in download.volume_number
+                        if (
+                            volume_number != original.volume_number
+                            and original_volume.volume_number == volume_number
+                            and original_volume.volume_part == original.volume_part
                         )
-                        and download.file_type == original.file_type
-                    ):
-                        upgrade_status = is_upgradeable(download, original)
-                        original_file_tags = (
-                            upgrade_status.current_ranked_result.keywords
-                        )
-                        if original_file_tags:
-                            original_file_tags = ", ".join(
-                                [
-                                    f"{tag.name} ({tag.score})"
-                                    for tag in original_file_tags
-                                ]
-                            )
-                        else:
-                            original_file_tags = "None"
-                        downloaded_file_tags = (
-                            upgrade_status.downloaded_ranked_result.keywords
-                        )
-                        if downloaded_file_tags:
-                            downloaded_file_tags = ", ".join(
-                                [
-                                    f"{tag.name} ({tag.score})"
-                                    for tag in downloaded_file_tags
-                                ]
-                            )
-                        else:
-                            downloaded_file_tags = "None"
-                        original_file_size = None
-                        if os.path.isfile(original.path):
-                            original_file_size = os.path.getsize(original.path)
-                            # convert to MB
-                            if original_file_size:
-                                original_file_size = original_file_size / 1000000
-                                original_file_size = (
-                                    f"{round(original_file_size, 1)} MB"
-                                )
-                        downloaded_file_size = None
-                        if os.path.isfile(download.path):
-                            downloaded_file_size = os.path.getsize(download.path)
-                            # convert to MB
-                            if downloaded_file_size:
-                                downloaded_file_size = downloaded_file_size / 1000000
-                                downloaded_file_size = (
-                                    f"{round(downloaded_file_size, 1)} MB"
-                                )
-                        fields = [
-                            {
-                                "name": "From",
-                                "value": f"```{original.name}```",
-                                "inline": False,
-                            },
-                            {
-                                "name": "Score",
-                                "value": str(
-                                    upgrade_status.current_ranked_result.total_score
-                                ),
-                                "inline": True,
-                            },
-                            {
-                                "name": "Tags",
-                                "value": str(original_file_tags),
-                                "inline": True,
-                            },
-                            {
-                                "name": "To",
-                                "value": f"```{download.name}```",
-                                "inline": False,
-                            },
-                            {
-                                "name": "Score",
-                                "value": str(
-                                    upgrade_status.downloaded_ranked_result.total_score
-                                ),
-                                "inline": True,
-                            },
-                            {
-                                "name": "Tags",
-                                "value": str(downloaded_file_tags),
-                                "inline": True,
-                            },
-                        ]
-                        if original_file_size and downloaded_file_size and fields:
-                            # insert original file size at index 3
-                            fields.insert(
-                                3,
-                                {
-                                    "name": "Size",
-                                    "value": str(original_file_size),
-                                    "inline": True,
-                                },
-                            )
-                            # append downloaded file size at the end
-                            fields.append(
-                                {
-                                    "name": "Size",
-                                    "value": str(downloaded_file_size),
-                                    "inline": True,
-                                }
-                            )
-                        if not upgrade_status.is_upgrade:
-                            send_message(
-                                f"\t\tNOT UPGRADEABLE: {download.name} is not an upgrade to: {original.name}\n\t\tDeleting: {download.name} from download folder.",
-                                discord=False,
-                            )
-                            embed = [
-                                handle_fields(
-                                    DiscordEmbed(
-                                        title="Upgrade Process (Not Upgradeable)",
-                                        color=yellow_color,
-                                    ),
-                                    fields=fields,
-                                )
-                            ]
-                            grouped_notifications = add_to_grouped_notifications(
-                                grouped_notifications, Embed(embed[0], None)
-                            )
-                            if download in downloaded_releases:
-                                downloaded_releases.remove(download)
-                            remove_file(download.path)
-                        else:
-                            send_message(
-                                f"\t\tUPGRADE: {download.name} is an upgrade to: {original.name}\n\tUpgrading {original.name}",
-                                discord=False,
-                            )
-                            embed = [
-                                handle_fields(
-                                    DiscordEmbed(
-                                        title="Upgrade Process (Upgradeable)",
-                                        color=green_color,
-                                    ),
-                                    fields=fields,
-                                )
-                            ]
-                            grouped_notifications = add_to_grouped_notifications(
-                                grouped_notifications, Embed(embed[0], None)
-                            )
-                            if download.multi_volume and not original.multi_volume:
-                                for original_volume in original_releases[:]:
-                                    for volume_number in download.volume_number:
-                                        if (
-                                            volume_number != original.volume_number
-                                            and (
-                                                original_volume.volume_number
-                                                == volume_number
-                                                and original_volume.volume_part
-                                                == original.volume_part
-                                            )
-                                        ):
-                                            remove_file(original_volume.path)
-                                            original_releases.remove(original_volume)
-                            replace_file_status = replace_file(
-                                original,
-                                download,
-                                highest_index_num=highest_index_num,
-                            )
-                            if replace_file_status:
-                                # append the new path to moved_files
-                                moved_files.append(
-                                    os.path.join(original.root, download.name)
-                                )
-                            if download in downloaded_releases:
-                                downloaded_releases.remove(download)
+                    ]
+
+                    # Remove the files
+                    for file in files_to_remove:
+                        remove_file(file.path)
+                        if file in new_original_releases:
+                            new_original_releases.remove(file)
+
+                replace_file_status = replace_file(
+                    original,
+                    download,
+                    highest_index_num=highest_index_num,
+                )
+
+                if replace_file_status:
+                    # append the new path to moved_files
+                    moved_files.append(os.path.join(original.root, download.name))
+                    if download in new_downloaded_releases:
+                        new_downloaded_releases.remove(download)
+                break
+            else:
+                # Additional logic for non-upgrade case
+                remove_file(download.path)
+                if download in new_downloaded_releases:
+                    new_downloaded_releases.remove(download)
+                break
+
+    return new_original_releases, new_downloaded_releases
 
 
 def check_and_delete_empty_folder(folder):
@@ -3791,7 +3638,7 @@ def write_to_file(
     write_to=None,
 ):
     write_status = False
-    logs_dir_loc = LOGS_DIR if not write_to else write_to
+    logs_dir_loc = write_to or LOGS_DIR
 
     # check if the logs directory exists, if not create it
     if not os.path.exists(logs_dir_loc):
@@ -3799,7 +3646,7 @@ def write_to_file(
             os.makedirs(logs_dir_loc)
         except OSError as e:
             send_message(str(e), error=True)
-            return
+            return False
 
     if log_to_file and logs_dir_loc:
         # get rid of formatting
@@ -3875,7 +3722,6 @@ def check_for_missing_volumes():
                     root,
                 ),
                 skip_release_year=True,
-                skip_fixed_volume=True,
                 skip_release_group=True,
                 skip_extras=True,
                 skip_publisher=True,
@@ -4542,6 +4388,198 @@ def remove_punctuation(s, disable_lang=False):
         )
 
 
+# Cleans the string by removing punctuation, bracketed info, and replacing underscores with periods.
+# Converts the string to lowercase and removes leading/trailing whitespace.
+@lru_cache(maxsize=None)
+def clean_string(
+    string,
+    skip_bracket=False,
+    skip_punctuation=False,
+    skip_underscore=False,
+    disable_lang=False,
+):
+    # Convert to lower and strip
+    string = string.lower().strip()
+
+    # Remove bracketed info
+    string_without_brackets = (
+        remove_bracketed_info_from_name(string) if not skip_bracket else string
+    )
+
+    # Remove punctuation
+    string_without_punctuation = (
+        remove_punctuation(string_without_brackets, disable_lang=disable_lang)
+        if not skip_punctuation
+        else string_without_brackets
+    )
+
+    # Replace underscores with periods
+    string_without_underscore = (
+        replace_underscore_in_name(string_without_punctuation)
+        if not skip_underscore
+        else string_without_punctuation
+    )
+
+    return string_without_underscore.strip()
+
+
+# Creates folders for our stray volumes sitting in the root of the download folder.
+def create_folders_for_items_in_download_folder():
+    global transferred_files, transferred_dirs, grouped_notifications
+
+    print("\nCreating folders for lone items in download folder...")
+    for download_folder in download_folders:
+        if not os.path.exists(download_folder):
+            send_message(
+                f"\nERROR: {download_folder} is an invalid path.\n", error=True
+            )
+            continue
+
+        try:
+            for root, dirs, files in scandir.walk(download_folder):
+                files, dirs = process_files_and_folders(
+                    root,
+                    files,
+                    dirs,
+                    just_these_files=transferred_files,
+                    just_these_dirs=transferred_dirs,
+                )
+
+                if not files:
+                    continue
+
+                global folder_accessor
+                file_objects = upgrade_to_file_class(files, root)
+                folder_accessor = create_folder_obj(root, dirs, file_objects)
+
+                for file in folder_accessor.files:
+                    if not (
+                        file.extension in file_extensions
+                        and os.path.basename(download_folder)
+                        == os.path.basename(file.root)
+                    ):
+                        continue
+
+                    done = False
+
+                    if move_lone_files_to_similar_folder and dirs:
+                        for folder in dirs:
+                            folder_lower = folder.strip().lower()
+                            basename_lower = file.basename.strip().lower()
+
+                            if (folder_lower == basename_lower) or (
+                                similar(
+                                    clean_string(folder, skip_bracket=True),
+                                    clean_string(file.basename, skip_bracket=True),
+                                )
+                                >= required_similarity_score
+                            ):
+                                if (
+                                    replace_series_name_in_file_name_with_similar_folder_name
+                                    and file.basename != folder
+                                ):
+                                    # replace the series name in the file name with the folder name and rename the file
+                                    new_file_name = re.sub(
+                                        file.basename,
+                                        folder,
+                                        file.name,
+                                        flags=re.IGNORECASE,
+                                    )
+                                    new_file_path = os.path.join(root, new_file_name)
+
+                                    # create file object
+                                    new_file_obj = File(
+                                        new_file_name,
+                                        get_extensionless_name(new_file_name),
+                                        get_series_name_from_file_name(
+                                            new_file_name, root
+                                        ),
+                                        get_file_extension(new_file_name),
+                                        root,
+                                        new_file_path,
+                                        get_extensionless_name(new_file_path),
+                                        None,
+                                        None,
+                                        get_file_extension_from_header(new_file_path),
+                                    )
+
+                                    # if it doesn't already exist
+                                    if not os.path.isfile(
+                                        os.path.join(file.root, new_file_obj.name)
+                                    ):
+                                        rename_file(
+                                            file.path,
+                                            new_file_obj.path,
+                                        )
+                                        file = new_file_obj
+                                    else:
+                                        # if it does exist, delete the file
+                                        remove_file(file.path, silent=True)
+
+                                already_existing_file = os.path.join(
+                                    root, folder, file.name
+                                )
+                                # check that the file doesn't already exist in the folder
+                                if os.path.isfile(file.path) and not os.path.isfile(
+                                    already_existing_file
+                                ):
+                                    new_folder_location = os.path.join(root, folder)
+                                    # it doesn't, we move it and the image associated with it, to that folder
+                                    move_file(
+                                        file,
+                                        new_folder_location,
+                                    )
+                                    if watchdog_toggle:
+                                        transferred_files.append(already_existing_file)
+
+                                        # remove old item from transferred files
+                                        if file.path in transferred_files:
+                                            transferred_files.remove(file.path)
+
+                                        # add new folder object to transferred dirs
+                                        transferred_dirs.append(
+                                            create_folder_obj(new_folder_location)
+                                        )
+                                    done = True
+                                    break
+                                else:
+                                    # it does, so we remove the duplicate file
+                                    remove_file(
+                                        os.path.join(root, file.name),
+                                        silent=True,
+                                    )
+                                    done = True
+                                    break
+                    if not done:
+                        similarity_result = similar(file.name, file.basename)
+                        write_to_file(
+                            "changes.txt",
+                            f"Similarity Result between: {file.name} and {file.basename} was {similarity_result}",
+                        )
+                        folder_location = os.path.join(file.root, file.basename)
+                        does_folder_exist = os.path.exists(folder_location)
+                        if not does_folder_exist:
+                            os.mkdir(folder_location)
+                        move_file(file, folder_location)
+                        if watchdog_toggle:
+                            transferred_files.append(
+                                os.path.join(folder_location, file.name)
+                            )
+                            # remove old item from transferred files
+                            if file.path in transferred_files:
+                                transferred_files.remove(file.path)
+
+                            # add new folder object to transferred dirs
+                            transferred_dirs.append(
+                                create_folder_obj(
+                                    folder_location,
+                                )
+                            )
+
+        except Exception as e:
+            send_message(str(e), error=True)
+
+
 # detect language of the passed string using langdetect
 @lru_cache(maxsize=None)
 def detect_language(s):
@@ -4817,18 +4855,18 @@ def check_upgrade(
                     error=True,
                 )
 
-            if cache:
-                message = f"Found existing series from cache: {existing_dir}"
-                title = "Found Series Match (CACHE)"
-            elif isbn:
-                message = f"Found existing series: {existing_dir}"
-                title = "Found Series Match (Matching Identifier)"
-            elif image:
-                message = f"Found existing series: {existing_dir}"
-                title = "Found Series Match (Cover Match)"
-            else:
-                message = f"Found existing series: {existing_dir}"
-                title = "Found Series Match"
+        message = f"Found existing series: {existing_dir}"
+        title = "Found Series Match"
+
+        if cache:
+            message += " (CACHE)"
+            title += " (CACHE)"
+        elif isbn:
+            message += " (Matching Identifier)"
+            title += " (Matching Identifier)"
+        elif image:
+            message += " (Cover Match)"
+            title += " (Cover Match)"
 
         send_message(f"\n\t\t{message}", discord=False)
 
@@ -4846,7 +4884,7 @@ def check_upgrade(
                 grouped_notifications, Embed(embed[0], None)
             )
 
-        remove_duplicate_releases_from_download(
+        clean_existing, download_dir_volumes = remove_duplicate_releases_from_download(
             clean_existing,
             download_dir_volumes,
             image_similarity_match=image,
@@ -4905,13 +4943,7 @@ def check_upgrade(
                                 item.index_number
                                 if not isinstance(item.index_number, list)
                                 else tuple(item.index_number)
-                                for item in clean_existing
-                            ]
-                            + [
-                                item.index_number
-                                if not isinstance(item.index_number, list)
-                                else tuple(item.index_number)
-                                for item in download_dir_volumes
+                                for item in clean_existing + download_dir_volumes
                             ]
                         ),
                         is_chapter_directory=is_chapter_dir,
@@ -5026,34 +5058,26 @@ def remove_bracketed_info_from_name(string):
     if re.search(r"^[\(\[\{].*[\)\]\}]$", string):
         return string
 
-    # Use a while loop to repeatedly apply the regular expression to the string and remove the matched bracketed content
-    while True:
-        # The regular expression matches any substring enclosed in brackets and not immediately preceded or followed by a dash, along with the surrounding whitespace characters
-        match = re.search(
-            r"(?<!-|[A-Za-z]\s)\s*([\(\[\{][^\)\]\}]+[\)\]\}])\s*(?!-|\s*[A-Za-z])",
-            string,
-        )
+    # Remove all grouped brackets as long as they aren't surrounded by dashes,
+    # letters, or square brackets.
+    # Regex 1: ([\[\{\(]((\d{4}))[\]\}\)]) - FOR YEAR
+    # Regex 2: (((?<!-|[A-Za-z]\s|\[)(\[[^\]]*\]|\([^\)]*\)|\{[^}]*\})(?!-|\s*[A-Za-z]|\]))(\s+)?)+ - FOR EVERYTHING ELSE
+    string = re.sub(
+        r"((((?<!-|[A-Za-z]\s|\[)(\[[^\]]*\]|\([^\)]*\)|\{[^}]*\})(?!-|\s*[A-Za-z]|\]))(\s+)?)+|([\[\{\(]((\d{4}))[\]\}\)]))",
+        "",
+        string,
+    ).strip()
 
-        # If there are no more matches, exit the loop
-        if not match:
-            break
-
-        # Replace the first set of brackets and their contents, along with the surrounding whitespace characters, with an empty string
-        string = re.sub(
-            r"(?<!-|[A-Za-z]\s)\s*([\(\[\{][^\)\]\}]+[\)\]\}])\s*(?!-|\s*[A-Za-z])",
-            " ",
-            string,
-            1,
-        )
-
-    # Remove all whitespace characters from the right side of the string
-    string = string.rstrip()
+    # Remove ending bracket against the extension
+    # EX: test (digital).cbz --> test .cbz
+    string = re.sub(r"(\[[^\]]*\]|\([^\)]*\)|\{[^}]*\})(\.\w+$)", r"\2", string).strip()
 
     # Remove any space before the extension from having removed bracketed content
-    string = re.sub(r"\s\.(\w+)$", r".\1", string)
+    # EX: test .cbz --> test.cbz
+    string = re.sub(r"\s\.(\w+)$", r".\1", string).strip()
 
     # Return the modified string
-    return string.strip()
+    return string
 
 
 # Checks for any duplicate releases and deletes the lower ranking one.
@@ -5066,20 +5090,13 @@ def check_for_duplicate_volumes(paths_to_search=[]):
                 print(f"\nSearching {p} for duplicate releases...")
                 for root, dirs, files in scandir.walk(p):
                     print(f"\t{root}")
-                    if (
-                        watchdog_toggle
-                        and download_folders
-                        and any(x for x in download_folders if root.startswith(x))
-                    ):
-                        files, dirs = clean_and_sort(
-                            root,
-                            files,
-                            dirs,
-                            just_these_files=transferred_files,
-                            just_these_dirs=transferred_dirs,
-                        )
-                    else:
-                        files, dirs = clean_and_sort(root, files, dirs)
+                    files, dirs = process_files_and_folders(
+                        root,
+                        files,
+                        dirs,
+                        just_these_files=transferred_files,
+                        just_these_dirs=transferred_dirs,
+                    )
 
                     if not files:
                         continue
@@ -5120,17 +5137,8 @@ def check_for_duplicate_volumes(paths_to_search=[]):
                     for file in volumes:
                         try:
                             if os.path.isfile(file.path):
-                                volume_series_name = (
-                                    replace_underscore_in_name(
-                                        remove_punctuation(
-                                            remove_bracketed_info_from_name(
-                                                file.series_name
-                                            )
-                                        )
-                                    )
-                                    .lower()
-                                    .strip()
-                                )
+                                volume_series_name = clean_string(file.series_name)
+
                                 compare_volumes = [
                                     x
                                     for x in volumes.copy()
@@ -5150,18 +5158,11 @@ def check_for_duplicate_volumes(paths_to_search=[]):
                                                     f"\t\t\tAgainst: {compare_file.name}"
                                                 )
                                                 compare_volume_series_name = (
-                                                    (
-                                                        replace_underscore_in_name(
-                                                            remove_punctuation(
-                                                                remove_bracketed_info_from_name(
-                                                                    compare_file.series_name
-                                                                )
-                                                            )
-                                                        )
+                                                    clean_string(
+                                                        compare_file.series_name
                                                     )
-                                                    .lower()
-                                                    .strip()
                                                 )
+
                                                 if (
                                                     file.root == compare_file.root
                                                     and (
@@ -5222,7 +5223,7 @@ def check_for_duplicate_volumes(paths_to_search=[]):
                                                         embed = [
                                                             handle_fields(
                                                                 DiscordEmbed(
-                                                                    title="Duplicate Download Release (NOT UPGRADEABLE)",
+                                                                    title="Duplicate Download Release (Not Upgradeable)",
                                                                     color=yellow_color,
                                                                 ),
                                                                 fields=[
@@ -5420,14 +5421,16 @@ def get_internal_file_hash(zip_file, file_name):
         return None
 
 
-# regex out underscore from passed string and return it
+# Regex out underscore from passed string and return it
 @lru_cache(maxsize=None)
 def replace_underscore_in_name(name):
     # Replace underscores that are preceded and followed by a number with a period
     name = re.sub(r"(?<=\d)_(?=\d)", ".", name)
+
     # Replace all other underscores with a space
     name = re.sub(r"_", " ", name)
     name = remove_dual_space(name).strip()
+
     return name
 
 
@@ -5550,12 +5553,35 @@ def count_words(strings_list):
     return word_count
 
 
+# Moves strings in item_array that match the first three words of target_item to the top of the array.
+def move_strings_to_top(target_item, item_array):
+    target_words = parse_words(unidecode(target_item.lower().strip()))
+
+    # Find items in item_array that match the first three words of target_item
+    items_to_move = [
+        item
+        for item in item_array
+        if parse_words(os.path.basename(unidecode(item.lower().strip())))[:3]
+        == target_words[:3]
+    ]
+
+    # Remove items_to_move from item_array
+    item_array = [item for item in item_array if item not in items_to_move]
+
+    # Insert items_to_move at the beginning of item_array
+    item_array = items_to_move + item_array
+
+    return item_array
+
+
 # Checks for an existing series by pulling the series name from each elidable file in the downloads_folder
 # and comparing it to an existin folder within the user's library.
 def check_for_existing_series(
     test_mode=[],
     test_paths=paths,
     test_download_folders=download_folders,
+    test_paths_with_types=paths_with_types,
+    test_cached_paths=cached_paths,
 ):
     global cached_paths
     global cached_identifier_results
@@ -5602,32 +5628,20 @@ def check_for_existing_series(
         required_similarity_score,
         counted_words,
     ):
+        # Get the subtitle from the folder name
+        folder_subtitle = get_subtitle_from_dash(inner_dir, replace=True)
+        folder_subtitle_clean = clean_string(folder_subtitle) if folder_subtitle else ""
+
+        # Get the cleaned subtitle from the file series name
+        file_subtitle = get_subtitle_from_dash(file.series_name, replace=True)
+        file_subtitle_clean = clean_string(file_subtitle) if file_subtitle else ""
+
         # Get the shortened folder name
-        short_fldr_name = (
-            (
-                replace_underscore_in_name(
-                    remove_punctuation(
-                        remove_bracketed_info_from_name(
-                            get_shortened_title(inner_dir) or inner_dir
-                        )
-                    )
-                )
-            )
-            .strip()
-            .lower()
-        )
+        short_fldr_name = clean_string(get_shortened_title(inner_dir) or inner_dir)
 
         # Get the shortened series name from the file
-        short_file_series_name = (
-            replace_underscore_in_name(
-                remove_punctuation(
-                    remove_bracketed_info_from_name(
-                        file.shortened_series_name or file.series_name
-                    )
-                )
-            )
-            .strip()
-            .lower()
+        short_file_series_name = clean_string(
+            file.shortened_series_name or file.series_name
         )
 
         if not short_fldr_name or not short_file_series_name:
@@ -5677,12 +5691,18 @@ def check_for_existing_series(
                 if i in long_file_words and i in counted_words and counted_words[i] <= 3
             ]
         )
+        subtitle_match = (folder_subtitle_clean and file_subtitle_clean) and (
+            folder_subtitle_clean == file_subtitle_clean
+            or similar(folder_subtitle_clean, file_subtitle_clean)
+            >= required_similarity_score
+        )
 
         return (
             folder_name_match
             or similar_score_match
             or consecutive_items_match
             or unique_words_match
+            or subtitle_match
         )
 
     # Attempts an alternative match and returns the cover score
@@ -5694,21 +5714,7 @@ def check_for_existing_series(
             matching_volumes = [
                 volume
                 for volume in img_volumes
-                if (
-                    volume.index_number != ""
-                    and file.index_number != ""
-                    and (
-                        volume.index_number == file.index_number
-                        or (
-                            isinstance(file.index_number, list)
-                            and volume.index_number in file.index_number
-                        )
-                        or (
-                            isinstance(volume.index_number, list)
-                            and file.index_number in volume.index_number
-                        )
-                    )
-                )
+                if is_same_index_number(volume.index_number, file.index_number)
             ]
 
             if (len(img_volumes) - len(matching_volumes)) <= 10:
@@ -5739,7 +5745,10 @@ def check_for_existing_series(
             return 0, None
 
         downloaded_volume_cover_data = find_and_extract_cover(
-            file, return_data_only=True, silent=True
+            file,
+            return_data_only=True,
+            silent=True,
+            blank_image_check=True,
         )
 
         if not downloaded_volume_cover_data:
@@ -5752,7 +5761,10 @@ def check_for_existing_series(
             )
 
             existing_volume_cover_data = find_and_extract_cover(
-                matching_volume, return_data_only=True, silent=True
+                matching_volume,
+                return_data_only=True,
+                silent=True,
+                blank_image_check=True,
             )
 
             if not existing_volume_cover_data:
@@ -5780,6 +5792,12 @@ def check_for_existing_series(
         if test_paths:
             global paths
             paths = test_paths
+        if test_paths_with_types:
+            global paths_with_types
+            paths_with_types = test_paths_with_types
+        if test_cached_paths:
+            global cached_paths
+            cached_paths = test_cached_paths
 
     cached_image_similarity_results = []
 
@@ -5817,21 +5835,14 @@ def check_for_existing_series(
             volumes = []
 
             if not test_mode:
-                if (
-                    watchdog_toggle
-                    and download_folders
-                    and any(x for x in download_folders if root.startswith(x))
-                ):
-                    files, dirs = clean_and_sort(
-                        root,
-                        files,
-                        dirs,
-                        sort=True,
-                        just_these_files=transferred_files,
-                        just_these_dirs=transferred_dirs,
-                    )
-                else:
-                    files, dirs = clean_and_sort(root, files, dirs, sort=True)
+                files, dirs = process_files_and_folders(
+                    root,
+                    files,
+                    dirs,
+                    sort=True,
+                    just_these_files=transferred_files,
+                    just_these_dirs=transferred_dirs,
+                )
 
                 if not files:
                     continue
@@ -5961,19 +5972,15 @@ def check_for_existing_series(
                                 cached_paths, file.name, 1
                             )
 
-                    downloaded_file_series_name = (
-                        replace_underscore_in_name(
-                            remove_punctuation(
-                                ((str(file.series_name)).lower()).strip()
-                            )
-                        )
-                    ).strip()
+                    downloaded_file_series_name = clean_string(
+                        file.series_name, skip_bracket=True
+                    )
 
                     # organize the cached paths
                     if (
                         cached_paths
-                        and not test_mode
                         and file.name != downloaded_file_series_name
+                        and not test_mode
                     ):
                         if exclude:
                             cached_paths = organize_array_list_by_first_letter(
@@ -5989,15 +5996,21 @@ def check_for_existing_series(
                                 2,
                             )
 
+                    # Move paths matching the first three words to the top of the list
+                    if cached_paths:
+                        cached_paths = move_strings_to_top(
+                            file.series_name, cached_paths
+                        )
+
                     # 2 - Use the cached paths
-                    if cached_paths and not test_mode:
+                    if cached_paths:
                         print("\n\tChecking path types...")
                         for cached_path_index, p in enumerate(cached_paths[:]):
                             if (
                                 not os.path.exists(p)
                                 or not os.path.isdir(p)
                                 or p in download_folders
-                            ) and not test_mode:
+                            ):
                                 continue
 
                             # Skip any paths that don't contain the file type or extension
@@ -6024,14 +6037,8 @@ def check_for_existing_series(
                                     )
                                     continue
 
-                            successful_series_name = (
-                                (
-                                    replace_underscore_in_name(
-                                        remove_punctuation(os.path.basename(p))
-                                    )
-                                )
-                                .strip()
-                                .lower()
+                            successful_series_name = clean_string(
+                                os.path.basename(p), skip_bracket=True
                             )
 
                             successful_similarity_score = (
@@ -6068,7 +6075,7 @@ def check_for_existing_series(
                                 if done:
                                     if test_mode:
                                         return done
-                                    if p not in cached_paths and not test_mode:
+                                    if p not in cached_paths:
                                         cache_path(p)
                                     if (
                                         len(volumes) > 1
@@ -6124,6 +6131,15 @@ def check_for_existing_series(
                             reorganized = False
 
                             for root, dirs, files in scandir.walk(path):
+                                if (
+                                    test_mode
+                                    and cached_paths
+                                    and root in cached_paths
+                                    and root not in paths
+                                    and root not in download_folders
+                                ):
+                                    continue
+
                                 if not dirs and (
                                     test_mode or not match_through_identifiers
                                 ):
@@ -6155,6 +6171,9 @@ def check_for_existing_series(
                                     )
                                     reorganized = True
 
+                                    # Move paths matching the first three words to the top of the list
+                                    dirs = move_strings_to_top(file.series_name, dirs)
+
                                 clean_two = clean_and_sort(root, files, dirs)
                                 files, dirs = clean_two[0], clean_two[1]
                                 file_objects = upgrade_to_file_class(files, root)
@@ -6181,18 +6200,9 @@ def check_for_existing_series(
                                             break
 
                                         existing_series_folder_from_library = (
-                                            (
-                                                replace_underscore_in_name(
-                                                    remove_punctuation(
-                                                        remove_bracketed_info_from_name(
-                                                            inner_dir
-                                                        )
-                                                    )
-                                                )
-                                            )
-                                            .strip()
-                                            .lower()
+                                            clean_string(inner_dir)
                                         )
+
                                         similarity_score = (
                                             1
                                             if (
@@ -6256,7 +6266,6 @@ def check_for_existing_series(
                                             break
                                         elif (
                                             match_through_image_similarity
-                                            and file.file_type == "volume"
                                             and not test_mode
                                             and alternative_match_allowed(
                                                 inner_dir,
@@ -6605,8 +6614,8 @@ def rename_dirs_in_download_folder(paths_to_process=download_folders):
                 for v in volumes[1:]
                 if v.series_name.lower() == first_volume.series_name.lower()
                 or similar(
-                    remove_punctuation(v.series_name),
-                    remove_punctuation(first_volume.series_name),
+                    clean_string(v.series_name),
+                    clean_string(first_volume.series_name),
                 )
                 >= required_similarity_score
             ]
@@ -6868,20 +6877,13 @@ def rename_dirs_in_download_folder(paths_to_process=download_folders):
                 continue
 
             try:
-                if (
-                    watchdog_toggle
-                    and download_folders
-                    and any(x for x in download_folders if root.startswith(x))
-                ):
-                    files, dirs = clean_and_sort(
-                        root,
-                        files,
-                        dirs,
-                        just_these_files=transferred_files,
-                        just_these_dirs=transferred_dirs,
-                    )
-                else:
-                    files, dirs = clean_and_sort(root, files, dirs)
+                files, dirs = process_files_and_folders(
+                    root,
+                    files,
+                    dirs,
+                    just_these_files=transferred_files,
+                    just_these_dirs=transferred_dirs,
+                )
 
                 volumes = upgrade_to_volume_class(
                     upgrade_to_file_class(files, root), root
@@ -7034,6 +7036,7 @@ def isint(x):
 
 
 # check if zip file contains ComicInfo.xml
+@lru_cache(maxsize=None)
 def contains_comic_info(zip_file):
     result = False
     try:
@@ -7120,21 +7123,15 @@ def rename_files_in_download_folders(
                 if test_mode:
                     dirs = []
                     files = only_these_files
-                if (
-                    watchdog_toggle
-                    and download_folders
-                    and any(x for x in download_folders if root.startswith(x))
-                ):
-                    files, dirs = clean_and_sort(
-                        root,
-                        files,
-                        dirs,
-                        just_these_files=transferred_files,
-                        just_these_dirs=transferred_dirs,
-                        test_mode=test_mode,
-                    )
-                else:
-                    files, dirs = clean_and_sort(root, files, dirs, test_mode=test_mode)
+
+                files, dirs = process_files_and_folders(
+                    root,
+                    files,
+                    dirs,
+                    just_these_files=transferred_files,
+                    just_these_dirs=transferred_dirs,
+                    test_mode=test_mode,
+                )
 
                 if not files:
                     continue
@@ -7758,21 +7755,14 @@ def delete_chapters_from_downloads():
             if os.path.exists(path):
                 os.chdir(path)
                 for root, dirs, files in scandir.walk(path):
-                    if (
-                        watchdog_toggle
-                        and download_folders
-                        and any(x for x in download_folders if root.startswith(x))
-                    ):
-                        files, dirs = clean_and_sort(
-                            root,
-                            files,
-                            dirs,
-                            chapters=True,
-                            just_these_files=transferred_files,
-                            just_these_dirs=transferred_dirs,
-                        )
-                    else:
-                        files, dirs = clean_and_sort(root, files, dirs, chapters=True)
+                    files, dirs = process_files_and_folders(
+                        root,
+                        files,
+                        dirs,
+                        chapters=True,
+                        just_these_files=transferred_files,
+                        just_these_dirs=transferred_dirs,
+                    )
 
                     for file in files:
                         if (
@@ -7823,22 +7813,13 @@ def delete_chapters_from_downloads():
                                 )
                                 remove_file(os.path.join(root, file))
                 for root, dirs, files in scandir.walk(path):
-                    clean_two = None
-                    if (
-                        watchdog_toggle
-                        and download_folders
-                        and any(x for x in download_folders if root.startswith(x))
-                    ):
-                        clean_two = clean_and_sort(
-                            root,
-                            files,
-                            dirs,
-                            just_these_files=transferred_files,
-                            just_these_dirs=transferred_dirs,
-                        )
-                    else:
-                        clean_two = clean_and_sort(root, files, dirs)
-                    files, dirs = clean_two[0], clean_two[1]
+                    files, dirs = process_files_and_folders(
+                        root,
+                        files,
+                        dirs,
+                        just_these_files=transferred_files,
+                        just_these_dirs=transferred_dirs,
+                    )
                     for folder in dirs:
                         check_and_delete_empty_folder(os.path.join(root, folder))
             else:
@@ -7866,7 +7847,12 @@ def get_novel_cover_path(file):
 
 
 # Finds and extracts the internal cover from a manga or novel file.
-def find_and_extract_cover(file, return_data_only=False, silent=False):
+def find_and_extract_cover(
+    file,
+    return_data_only=False,
+    silent=False,
+    blank_image_check=compare_detected_cover_to_blank_images,
+):
     # Helper function to filter and sort files in the zip archive
     def filter_and_sort_files(zip_list):
         return sorted(
@@ -7981,7 +7967,7 @@ def find_and_extract_cover(file, return_data_only=False, silent=False):
                 ):
                     # Check if the image is blank
                     if (
-                        compare_detected_cover_to_blank_images
+                        blank_image_check
                         and blank_white_image_path
                         and blank_black_image_path
                     ):
@@ -8003,7 +7989,7 @@ def find_and_extract_cover(file, return_data_only=False, silent=False):
             image_data = get_image_data(test_file)
 
             # Check if the user has enabled the option to compare detected covers to blank images
-            if compare_detected_cover_to_blank_images:
+            if blank_image_check:
                 if not is_blank_image(image_data):
                     default_cover_path = test_file
                     break
@@ -8032,7 +8018,7 @@ def get_highest_release(releases, is_chapter_directory=False):
         )
         if contains_empty_or_tuple_index_number:
             for item in releases:
-                if item == "" or item == [] or item == None:
+                if item == "" or item == [] or item is None:
                     continue
 
                 number = item
@@ -8040,8 +8026,9 @@ def get_highest_release(releases, is_chapter_directory=False):
                     if highest_index_number == "" or number > highest_index_number:
                         highest_index_number = number
                 elif isinstance(number, (tuple, list)):
-                    if highest_index_number == "" or max(number) > highest_index_number:
-                        highest_index_number = max(number)
+                    max_number = max(number)
+                    if highest_index_number == "" or max_number > highest_index_number:
+                        highest_index_number = max_number
         else:
             highest_index_number = max(releases)
 
@@ -8059,8 +8046,7 @@ def print_execution_time(start_time, function_name):
 
 # Extracts the covers out from our manga and novel files.
 def extract_covers(paths_to_process=paths):
-    global checked_series
-    global root_modification_times
+    global checked_series, root_modification_times
     print("\nLooking for covers to extract...")
 
     # Only volume defined paths in the paths_with_types list
@@ -8071,7 +8057,12 @@ def extract_covers(paths_to_process=paths):
     # contains cleaned basenames of folders that have been moved
     moved_folder_names = (
         [
-            remove_punctuation(os.path.basename(x).lower(), disable_lang=True).strip()
+            clean_string(
+                os.path.basename(x),
+                skip_bracket=True,
+                skip_underscore=True,
+                disable_lang=True,
+            )
             for x in moved_folders
         ]
         if moved_folders and copy_existing_volume_covers_toggle
@@ -8080,11 +8071,9 @@ def extract_covers(paths_to_process=paths):
 
     # Iterate over each path
     for path in paths_to_process:
-        # Check if the path exists
         if not os.path.exists(path):
-            # Print an error message for an invalid or empty path
             print(f"\nERROR: {path} is an invalid path.\n")
-            continue  # Move to the next iteration
+            continue
 
         checked_series = []
         os.chdir(path)
@@ -8093,9 +8082,12 @@ def extract_covers(paths_to_process=paths):
         for root, dirs, files in scandir.walk(path):
             if watchdog_toggle:
                 if not moved_folder_names or (
-                    remove_punctuation(
-                        os.path.basename(root).lower(), disable_lang=True
-                    ).strip()
+                    clean_string(
+                        os.path.basename(root),
+                        skip_bracket=True,
+                        skip_underscore=True,
+                        disable_lang=True,
+                    )
                     not in moved_folder_names
                 ):
                     root_mod_time = get_modification_date(root)
@@ -8110,162 +8102,147 @@ def extract_covers(paths_to_process=paths):
                         # Store the modification time for the root
                         root_modification_times[root] = root_mod_time
 
-            # Clean and sort the files and directories
-            if (
-                watchdog_toggle
-                and download_folders
-                and any(x for x in download_folders if root.startswith(x))
-            ):
-                files, dirs = clean_and_sort(
-                    root,
-                    files,
-                    dirs,
-                    just_these_files=transferred_files,
-                    just_these_dirs=transferred_dirs,
-                )
-            else:
-                files, dirs = clean_and_sort(root, files, dirs)
+            files, dirs = process_files_and_folders(
+                root,
+                files,
+                dirs,
+                just_these_files=transferred_files,
+                just_these_dirs=transferred_dirs,
+            )
 
             global folder_accessor
 
             print(f"\nRoot: {root}")
             print(f"Files: {files}")
 
-            if files:
-                # Upgrade files to file classes
-                file_objects = upgrade_to_file_class(files, root, clean=False)
+            if not files:
+                continue
 
-                # Upgrade file objects to a volume classes
-                volume_objects = upgrade_to_volume_class(
-                    file_objects,
-                    skip_release_year=True,
-                    skip_fixed_volume=True,
-                    skip_release_group=True,
-                    skip_extras=True,
-                    skip_publisher=True,
-                    skip_premium_content=True,
-                    skip_subtitle=True,
-                    skip_multi_volume=True,
+            # Upgrade files to file classes
+            file_objects = upgrade_to_file_class(files, root, clean=False)
+
+            # Upgrade file objects to a volume classes
+            volume_objects = upgrade_to_volume_class(
+                file_objects,
+                skip_release_year=True,
+                skip_release_group=True,
+                skip_extras=True,
+                skip_publisher=True,
+                skip_premium_content=True,
+                skip_subtitle=True,
+                skip_multi_volume=True,
+            )
+
+            # Create a folder accessor object
+            folder_accessor = create_folder_obj(root, dirs, volume_objects)
+
+            # Get the series cover
+            series_cover_path = next(
+                (
+                    os.path.join(folder_accessor.root, f"cover{ext}")
+                    for ext in image_extensions
+                    if os.path.exists(os.path.join(folder_accessor.root, f"cover{ext}"))
+                ),
+                None,
+            )
+
+            # Set the directory type
+            is_chapter_directory = (
+                True if folder_accessor.files[0].file_type == "chapter" else False
+            )
+
+            # Check if all the series_name values are the same for all volumes
+            same_series_name = False
+            if folder_accessor.files:
+                compare_series = clean_string(
+                    folder_accessor.files[0].series_name, skip_bracket=True
+                )
+                file_count = len(folder_accessor.files)
+                required_count = int(file_count * 0.9)
+                same_series_name = (
+                    sum(
+                        clean_string(x.series_name, skip_bracket=True) == compare_series
+                        for x in folder_accessor.files
+                    )
+                    >= required_count
                 )
 
-                # Create a folder accessor object
-                folder_accessor = create_folder_obj(root, dirs, volume_objects)
+            # Used when filtering the series_folders of each paths_with_types
+            # by the first letter of a cleaned up name
+            clean_basename = None
 
-                # Get the series cover
-                series_cover_path = next(
-                    (
-                        os.path.join(folder_accessor.root, f"cover{ext}")
-                        for ext in image_extensions
-                        if os.path.exists(
-                            os.path.join(folder_accessor.root, f"cover{ext}")
-                        )
-                    ),
-                    None,
-                )
-
-                # Set the directory type
-                is_chapter_directory = (
-                    True if folder_accessor.files[0].file_type == "chapter" else False
-                )
-
-                # Check if all the series_name values are the same for all volumes
-                same_series_name = all(
-                    x.series_name == folder_accessor.files[0].series_name
-                    for x in folder_accessor.files
-                )
-
-                # Used when filtering the series_folders of each paths_with_types
-                # by the first letter of a cleaned up name
-                clean_basename = None
-
-                if copy_existing_volume_covers_toggle and is_chapter_directory:
-                    # Set the value of volume_paths
-                    if not volume_paths and paths_with_types:
-                        volume_paths = [
-                            x
-                            for x in paths_with_types
-                            if "volume" in x.path_formats
-                            and folder_accessor.files[0].extension in x.path_extensions
+            if copy_existing_volume_covers_toggle and is_chapter_directory:
+                # Set the value of volume_paths
+                if not volume_paths and paths_with_types:
+                    volume_paths = [
+                        x
+                        for x in paths_with_types
+                        if "volume" in x.path_formats
+                        and folder_accessor.files[0].extension in x.path_extensions
+                    ]
+                    for v_path in volume_paths:
+                        # Get all the folders in v_path.path
+                        volume_series_folders = [
+                            x for x in os.listdir(v_path.path) if not x.startswith(".")
                         ]
-                        if volume_paths:
-                            for v_path in volume_paths:
-                                # Get all the folders in v_path.path
-                                volume_series_folders = [
-                                    x
-                                    for x in os.listdir(v_path.path)
-                                    if not x.startswith(".")
-                                ]
-                                v_path.series_folders = volume_series_folders
+                        v_path.series_folders = volume_series_folders
 
-                    clean_basename = (
-                        replace_underscore_in_name(
-                            remove_punctuation(
-                                remove_bracketed_info_from_name(
-                                    os.path.basename(folder_accessor.root)
-                                )
-                            )
-                        )
-                        .lower()
-                        .strip()
-                    )
+                clean_basename = clean_string(os.path.basename(folder_accessor.root))
 
-                # Get the highest volume number and part number
-                highest_index_number = (
-                    get_highest_release(
-                        tuple(
-                            [
-                                item.index_number
-                                if not isinstance(item.index_number, list)
-                                else tuple(item.index_number)
-                                for item in folder_accessor.files
-                            ]
-                        ),
-                        is_chapter_directory=is_chapter_directory,
-                    )
-                    if not is_chapter_directory
-                    else ""
+            # Get the highest volume number and part number
+            highest_index_number = (
+                get_highest_release(
+                    tuple(
+                        [
+                            item.index_number
+                            if not isinstance(item.index_number, list)
+                            else tuple(item.index_number)
+                            for item in folder_accessor.files
+                        ]
+                    ),
+                    is_chapter_directory=is_chapter_directory,
                 )
+                if not is_chapter_directory
+                else ""
+            )
 
-                if highest_index_number:
-                    print(f"\n\t\tHighest Index Number: {highest_index_number}")
+            if highest_index_number:
+                print(f"\n\t\tHighest Index Number: {highest_index_number}")
 
-                # Check if it contains multiple volume ones
-                contains_multiple_volume_ones = False
-                if not use_latest_volume_cover_as_series_cover or is_chapter_directory:
-                    volume_ones_counter = 0
-
-                    for file in folder_accessor.files:
-                        if not file.is_one_shot and not file.volume_part:
-                            if file.index_number == 1:
-                                volume_ones_counter += 1
-                                if volume_ones_counter > 1:
-                                    contains_multiple_volume_ones = True
-                                    break
-                            elif (
-                                isinstance(file.index_number, list)
-                                and 1 in file.index_number
-                            ):
-                                volume_ones_counter += 1
-                                if volume_ones_counter > 1:
-                                    contains_multiple_volume_ones = True
-                                    break
-
-                # Process cover extraction for each file
-                [
-                    process_cover_extraction(
-                        file,
-                        contains_multiple_volume_ones,
-                        highest_index_number,
-                        is_chapter_directory,
-                        series_cover_path,
-                        volume_paths,
-                        clean_basename,
-                        same_series_name,
-                    )
+            # Check if it contains multiple volume ones
+            contains_multiple_volume_ones = False
+            if not use_latest_volume_cover_as_series_cover or is_chapter_directory:
+                volume_ones_counter = sum(
+                    1
                     for file in folder_accessor.files
-                    if file.file_type == "volume"
-                    or (file.file_type == "chapter" and extract_chapter_covers)
-                ]
+                    if not file.is_one_shot
+                    and not file.volume_part
+                    and (
+                        file.index_number == 1
+                        or (
+                            isinstance(file.index_number, list)
+                            and 1 in file.index_number
+                        )
+                    )
+                )
+                contains_multiple_volume_ones = volume_ones_counter > 1
+
+            # Process cover extraction for each file
+            [
+                process_cover_extraction(
+                    file,
+                    contains_multiple_volume_ones,
+                    highest_index_number,
+                    is_chapter_directory,
+                    series_cover_path,
+                    volume_paths,
+                    clean_basename,
+                    same_series_name,
+                )
+                for file in folder_accessor.files
+                if file.file_type == "volume"
+                or (file.file_type == "chapter" and extract_chapter_covers)
+            ]
 
 
 # Converts the passed path of a .webp file to a .jpg file
@@ -8318,6 +8295,21 @@ def process_cover_extraction(
 ):
     global image_count
     update_stats(file)
+
+    def get_first_letter(clean_basename):
+        first_letter_match = re.search(r"^[A-Za-z]+", clean_basename)
+        return first_letter_match.group(0) if first_letter_match else None
+
+    def filter_series_by_first_letter(filtered_series, first_letter):
+        return [
+            x
+            for x in filtered_series
+            if re.search(
+                rf"^{re.escape(first_letter)}",
+                clean_string(x, disable_lang=True),
+                re.IGNORECASE,
+            )
+        ]
 
     try:
         has_cover = False
@@ -8386,14 +8378,7 @@ def process_cover_extraction(
             and (
                 (
                     use_latest_volume_cover_as_series_cover
-                    and highest_index_number != ""
-                    and (
-                        file.index_number == highest_index_number
-                        or (
-                            isinstance(file.index_number, list)
-                            and highest_index_number in file.index_number
-                        )
-                    )
+                    and is_same_index_number(file.index_number, highest_index_number)
                 )
                 or (
                     not use_latest_volume_cover_as_series_cover
@@ -8453,165 +8438,142 @@ def process_cover_extraction(
 
                 filtered_series = v_path.series_folders
 
-                # Get the first letter of file.basename
-                # and remove any that don't start with it
-                first_letter = re.search(r"^[A-Za-z]+", clean_basename)
-                if first_letter:
-                    first_letter = first_letter.group(0)
+                # Get the first letter of file.basename and remove any that don't start with it
+                first_letter = get_first_letter(clean_basename)
 
-                    # Filter filtered_series to only include folders that start with first_set_of_letters
-                    filtered_series = [
-                        x
-                        for x in filtered_series
-                        if re.search(
-                            rf"^{first_letter}",
-                            replace_underscore_in_name(
-                                remove_punctuation(
-                                    remove_bracketed_info_from_name(x),
-                                    disable_lang=True,
-                                )
-                            )
-                            .lower()
-                            .strip(),
-                            re.IGNORECASE,
-                        )
-                    ]
-                else:
-                    pass
+                # Filter filtered_series to only include folders that start with first_set_of_letters
+                filtered_series = (
+                    filter_series_by_first_letter(filtered_series, first_letter)
+                    if first_letter
+                    else filtered_series
+                )
 
                 for folder in filtered_series:
                     folder_path = os.path.join(v_path.path, folder)
-                    clean_folder = (
-                        replace_underscore_in_name(
-                            remove_punctuation(
-                                remove_bracketed_info_from_name(folder),
-                                disable_lang=True,
-                            )
-                        )
-                        .lower()
-                        .strip()
-                    )
-                    if clean_folder == clean_basename or (
-                        similar(clean_folder, clean_basename)
+                    clean_folder = clean_string(folder, disable_lang=True)
+
+                    if not (
+                        clean_folder == clean_basename
+                        or similar(clean_folder, clean_basename)
                         >= required_similarity_score
                     ):
-                        volumes = upgrade_to_file_class(
-                            [
-                                f
-                                for f in os.listdir(folder_path)
-                                if os.path.isfile(os.path.join(folder_path, f))
-                            ],
-                            folder_path,
+                        continue
+
+                    volumes = upgrade_to_file_class(
+                        [
+                            f
+                            for f in os.listdir(folder_path)
+                            if os.path.isfile(os.path.join(folder_path, f))
+                        ],
+                        folder_path,
+                    )
+
+                    if not volumes:
+                        continue
+
+                    volume_one = [
+                        x
+                        for x in volumes
+                        if x.volume_number == 1
+                        or (
+                            isinstance(file.volume_number, list)
+                            and 1 in file.volume_number
                         )
-                        if volumes:
-                            volume_one = [
-                                x
-                                for x in volumes
-                                if x.volume_number == 1
-                                or (
-                                    isinstance(file.volume_number, list)
-                                    and 1 in file.volume_number
-                                )
-                            ]
-                            if volume_one and len(volume_one) == 1:
-                                volume_one = volume_one[0]
+                    ]
 
-                                # find the image cover
-                                cover_path = next(
-                                    (
-                                        f"{volume_one.extensionless_path}{extension}"
-                                        for extension in image_extensions
-                                        if os.path.isfile(
-                                            f"{volume_one.extensionless_path}{extension}"
-                                        )
-                                    ),
-                                    None,
-                                )
+                    if not volume_one or len(volume_one) > 1:
+                        continue
 
-                                volume_one_modification_date = (
-                                    get_modification_date(cover_path)
-                                    if cover_path
-                                    else None
-                                )
-                                if series_cover_path:
-                                    cover_modification_date = (
-                                        get_modification_date(series_cover_path)
-                                        if series_cover_path
-                                        else None
-                                    )
-                                    if (
-                                        cover_modification_date
-                                        and volume_one_modification_date
-                                    ):
-                                        if (
-                                            cover_modification_date
-                                            == volume_one_modification_date
-                                        ):
-                                            checked_series.append(file.root)
-                                            return
+                    volume_one = volume_one[0]
 
-                                        cover_hash = (
-                                            get_file_hash(series_cover_path)
-                                            if series_cover_path
-                                            else None
-                                        )
-                                        volume_one_hash = (
-                                            get_file_hash(cover_path)
-                                            if series_cover_path
-                                            else None
-                                        )
-                                        if (cover_hash and volume_one_hash) and (
-                                            cover_hash != volume_one_hash
-                                        ):
-                                            print(
-                                                "\t\tCurrent series cover does not match the appropriate volume cover."
-                                            )
-                                            print(
-                                                "\t\tRemoving current series cover..."
-                                            )
-                                            remove_file(series_cover_path, silent=True)
-                                            if not os.path.isfile(series_cover_path):
-                                                print(
-                                                    "\t\tSeries cover successfully removed.\n"
-                                                )
-                                                series_cover_path = None
-                                            else:
-                                                print(
-                                                    "\t\tSeries cover could not be removed.\n"
-                                                )
-                                            print("\t\tFound volume for series cover.")
-                                        else:
-                                            # set the modification date
-                                            set_modification_date(
-                                                series_cover_path,
-                                                volume_one_modification_date,
-                                            )
-                                if not series_cover_path and cover_path:
-                                    cover_path_extension = get_file_extension(
-                                        cover_path
-                                    )
-                                    # copy the file to the series cover folder
-                                    series_cover_path = os.path.join(
-                                        file.root, f"cover{cover_path_extension}"
-                                    )
-                                    shutil.copy(
-                                        cover_path,
-                                        series_cover_path,
-                                    )
-                                    if os.path.isfile(series_cover_path):
-                                        print(
-                                            "\t\tCopied volume one cover from volume library as series cover."
-                                        )
-                                        # set the modification date of the series cover to match the volume cover
-                                        set_modification_date(
-                                            series_cover_path,
-                                            volume_one_modification_date,
-                                        )
-                                        checked_series.append(file.root)
-                                        return
+                    # find the image cover
+                    cover_path = next(
+                        (
+                            f"{volume_one.extensionless_path}{extension}"
+                            for extension in image_extensions
+                            if os.path.isfile(
+                                f"{volume_one.extensionless_path}{extension}"
+                            )
+                        ),
+                        None,
+                    )
+
+                    volume_one_modification_date = (
+                        get_modification_date(cover_path) if cover_path else None
+                    )
+                    if series_cover_path:
+                        cover_modification_date = (
+                            get_modification_date(series_cover_path)
+                            if series_cover_path
+                            else None
+                        )
+
+                        if cover_modification_date and volume_one_modification_date:
+                            if cover_modification_date == volume_one_modification_date:
+                                checked_series.append(file.root)
+                                return
+
+                            cover_hash = (
+                                get_file_hash(series_cover_path)
+                                if series_cover_path
+                                else None
+                            )
+                            volume_one_hash = (
+                                get_file_hash(cover_path) if series_cover_path else None
+                            )
+
+                            if (
+                                cover_hash
+                                and volume_one_hash
+                                and cover_hash != volume_one_hash
+                            ):
+                                print(
+                                    "\t\tCurrent series cover does not match the appropriate volume cover."
+                                )
+                                print("\t\tRemoving current series cover...")
+
+                                remove_file(series_cover_path, silent=True)
+
+                                if not os.path.isfile(series_cover_path):
+                                    print("\t\tSeries cover successfully removed.\n")
+                                    series_cover_path = None
                                 else:
-                                    checked_series.append(file.root)
-                                    return
+                                    print("\t\tSeries cover could not be removed.\n")
+
+                                print("\t\tFound volume for series cover.")
+                            else:
+                                # set the modification date
+                                set_modification_date(
+                                    series_cover_path,
+                                    volume_one_modification_date,
+                                )
+
+                    if not series_cover_path and cover_path:
+                        cover_path_extension = get_file_extension(cover_path)
+                        # copy the file to the series cover folder
+                        series_cover_path = os.path.join(
+                            file.root, f"cover{cover_path_extension}"
+                        )
+
+                        shutil.copy(
+                            cover_path,
+                            series_cover_path,
+                        )
+
+                        if os.path.isfile(series_cover_path):
+                            print(
+                                "\t\tCopied volume one cover from volume library as series cover."
+                            )
+                            # set the modification date of the series cover to match the volume cover
+                            set_modification_date(
+                                series_cover_path,
+                                volume_one_modification_date,
+                            )
+                            checked_series.append(file.root)
+                            return
+                    else:
+                        checked_series.append(file.root)
+                        return
                 else:
                     checked_series.append(file.root)
 
@@ -8633,21 +8595,15 @@ def process_cover_extraction(
                     file.file_type == "volume"
                     and not is_chapter_directory
                     and use_latest_volume_cover_as_series_cover
-                    and highest_index_number != ""
-                    and (
-                        file.index_number == highest_index_number
-                        or (
-                            isinstance(file.index_number, list)
-                            and highest_index_number in file.index_number
-                        )
-                    )
+                    and is_same_index_number(file.index_number, highest_index_number)
                 )
             )
             and same_series_name
         ):
             if not printed:
-                print(f"\tFile: {file.name}")
+                print(f"\n\tFile: {file.name}")
                 printed = True
+
             print("\t\tMissing series cover.")
             print("\t\tFound volume for series cover.")
 
@@ -8706,27 +8662,15 @@ def delete_unacceptable_files():
                 if os.path.exists(path):
                     os.chdir(path)
                     for root, dirs, files in scandir.walk(path):
-                        if (
-                            watchdog_toggle
-                            and download_folders
-                            and any(x for x in download_folders if root.startswith(x))
-                        ):
-                            files, dirs = clean_and_sort(
-                                root,
-                                files,
-                                dirs,
-                                just_these_files=transferred_files,
-                                just_these_dirs=transferred_dirs,
-                                skip_remove_unaccepted_file_types=True,
-                                keep_images_in_just_these_files=True,
-                            )
-                        else:
-                            files, dirs = clean_and_sort(
-                                root,
-                                files,
-                                dirs,
-                                skip_remove_unaccepted_file_types=True,
-                            )
+                        files, dirs = process_files_and_folders(
+                            root,
+                            files,
+                            dirs,
+                            just_these_files=transferred_files,
+                            just_these_dirs=transferred_dirs,
+                            skip_remove_unaccepted_file_types=True,
+                            keep_images_in_just_these_files=True,
+                        )
                         for file in files:
                             file_path = os.path.join(root, file)
                             if os.path.isfile(file_path):
@@ -8774,22 +8718,13 @@ def delete_unacceptable_files():
                                         remove_file(file_path)
                                         break
                     for root, dirs, files in scandir.walk(path):
-                        clean_two = None
-                        if (
-                            watchdog_toggle
-                            and download_folders
-                            and any(x for x in download_folders if root.startswith(x))
-                        ):
-                            clean_two = clean_and_sort(
-                                root,
-                                files,
-                                dirs,
-                                just_these_files=transferred_files,
-                                just_these_dirs=transferred_dirs,
-                            )
-                        else:
-                            clean_two = clean_and_sort(root, files, dirs)
-                        files, dirs = clean_two[0], clean_two[1]
+                        files, dirs = process_files_and_folders(
+                            root,
+                            files,
+                            dirs,
+                            just_these_files=transferred_files,
+                            just_these_dirs=transferred_dirs,
+                        )
                         for folder in dirs:
                             check_and_delete_empty_folder(os.path.join(root, folder))
                 else:
@@ -8916,6 +8851,7 @@ def get_all_matching_books(books, book_type, title):
             )
         ):
             matching_books.append(book)
+
     # remove them from books
     for book in matching_books:
         books.remove(book)
@@ -8965,6 +8901,16 @@ def get_shortened_title(title):
     return shortened_title
 
 
+# Extracts the subtitle from a title that contains a dash or colon.
+# If replace is True, it removes the subtitle from the title.
+# Example: get_subtitle_from_dash("Series Name - Subtitle", replace=True) --> "Series Name"
+def get_subtitle_from_dash(title, replace=False):
+    has_match = re.search(r"((\s+(-)|:)\s+)", title)
+    if replace and has_match:
+        return re.sub(r"(.*)((\s+(-)|:)\s+)", "", title)
+    return has_match.group(0) if has_match else ""
+
+
 # Extracts the subtitle from a file.name
 # (year required in brackets at the end of the subtitle)
 # EX: Sword Art Online v13 - Alicization Dividing [2018].epub --> Alicization Dividing
@@ -8978,7 +8924,7 @@ def get_subtitle_from_title(file, publisher=None):
     ).strip()
 
     # First Search
-    dash_or_colon_search = re.search(r"((\s+(-)|:)\s+)", without_series_name)
+    dash_or_colon_search = get_subtitle_from_dash(without_series_name)
 
     # Second Search
     year_or_digital_search = re.search(
@@ -10484,6 +10430,7 @@ def prep_images_for_similarity(
         blank_image = blank_image[:, :, 0]
     elif len(blank_image.shape) == 2 and len(internal_cover.shape) == 3:
         internal_cover = internal_cover[:, :, 0]
+
     score = compare_images(blank_image, internal_cover, silent=silent)
     return score
 
@@ -10554,27 +10501,15 @@ def convert_to_cbz():
             if os.path.isdir(folder):
                 print(f"\t{folder}")
                 for root, dirs, files in scandir.walk(folder):
-                    if (
-                        watchdog_toggle
-                        and download_folders
-                        and any(x for x in download_folders if root.startswith(x))
-                    ):
-                        files, dirs = clean_and_sort(
-                            root,
-                            files,
-                            dirs,
-                            just_these_files=transferred_files,
-                            just_these_dirs=transferred_dirs,
-                            skip_remove_unaccepted_file_types=True,
-                            keep_images_in_just_these_files=True,
-                        )
-                    else:
-                        files, dirs = clean_and_sort(
-                            root,
-                            files,
-                            dirs,
-                            skip_remove_unaccepted_file_types=True,
-                        )
+                    files, dirs = process_files_and_folders(
+                        root,
+                        files,
+                        dirs,
+                        just_these_files=transferred_files,
+                        just_these_dirs=transferred_dirs,
+                        skip_remove_unaccepted_file_types=True,
+                        keep_images_in_just_these_files=True,
+                    )
 
                     for entry in files:
                         try:
@@ -10874,23 +10809,14 @@ def correct_file_extensions():
             if os.path.isdir(folder):
                 print(f"\t{folder}")
                 for root, dirs, files in scandir.walk(folder):
-                    if (
-                        watchdog_toggle
-                        and download_folders
-                        and any(x for x in download_folders if root.startswith(x))
-                    ):
-                        files, dirs = clean_and_sort(
-                            root,
-                            files,
-                            dirs,
-                            just_these_files=transferred_files,
-                            just_these_dirs=transferred_dirs,
-                            is_correct_extensions_feature=True,
-                        )
-                    else:
-                        files, dirs = clean_and_sort(
-                            root, files, dirs, is_correct_extensions_feature=True
-                        )
+                    files, dirs = process_files_and_folders(
+                        root,
+                        files,
+                        dirs,
+                        just_these_files=transferred_files,
+                        just_these_dirs=transferred_dirs,
+                        is_correct_extensions_feature=True,
+                    )
                     volumes = upgrade_to_file_class(
                         [f for f in files if os.path.isfile(os.path.join(root, f))],
                         root,
@@ -11012,6 +10938,9 @@ def main():
             ignore=paths + download_folders,
             check_paths=True,
         )
+
+        # get rid of non-valid paths
+        cached_paths = [x for x in cached_paths if os.path.isdir(x)]
 
     # Cache the paths if the user doesn't have a cached_paths.txt file
     if (
@@ -11187,6 +11116,9 @@ def main():
         if libraries_to_scan:
             for library_id in libraries_to_scan:
                 scan_komga_library(library_id)
+
+    # clear lru_cache for contains_comic_info()
+    contains_comic_info.cache_clear()
 
 
 if __name__ == "__main__":
