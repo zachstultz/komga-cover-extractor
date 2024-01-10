@@ -1,73 +1,83 @@
-# Komga Cover Extractor
-A python automation script that detects and extracts the cover from your zip, cbz, and epub files for each individual volume. 
-Then takes the cover from the first volume and copies that as a cover file for your overall collection.
+## Table of Contents
+1. [Introduction](#introduction)
+2. [Installation](#installation)
+3. [Usage](#usage)
+4. [Examples](#examples)
+5. [Future Goals](#future-goals)
+6. [Contributing](#contributing)
+7. [License](#license)
+8. [Support and Contact](#support-and-contact)
 
-Allowing the user to use local high-resolution covers within Komga instead of the compressed versions that Komga generates.
+### 2. Introduction
 
-Primary usage is with https://github.com/gotson/komga, **with volume-based releases**.
-
-**There is no compression of the cover by default, see usage at the bottom for compressing the covers.**
-
-## Cover Detection
-Detection is based on various scene releases, if none are detected, it will default to the first image. Which, unless you have scans from the internet, it will almost always be the cover.
-
-## Finished Result Example:
-![image](https://user-images.githubusercontent.com/8385256/152403016-90660098-0b04-4178-babd-87e56ff1b390.png)
-
-## Installation
-To use the Komga Cover Extractor, you have several options:
-
-1. **Docker (Recommended):** You can use the [Docker image available here](https://hub.docker.com/r/zachstultz/komga-cover-extractor), which simplifies the setup process.
-
-2. **Manual Installation:** If you prefer manual installation, follow these steps:
-   1. Clone the repository: `git clone https://github.com/zachstultz/komga-cover-extractor.git`
-   2. Install required Python packages: `pip3 install -r requirements.txt`
-   3. (OPTIONAL) If you intend to use advanced RAR features, you may need to install unrar:
-      - Linux: `sudo apt-get install unrar`
-      - MacOS: `brew install rar` (requires [brew](https://brew.sh/)) (untested)
-      - Windows: Install UnRAR.dll from [rarlab.com](https://www.rarlab.com/rar_add.htm) (untested)
-
-## Usage
-The Komga Cover Extractor provides several options for cover extraction. Here's how to use it:
-
-```
-usage: komga_cover_extractor.py [-h] [-p [PATHS [PATHS ...]]] [-wh [WEBHOOK [WEBHOOK ...]]] [-c COMPRESS] [-cq COMPRESS_QUALITY]
-
-Scans for covers in the zip, cbz, and epub files.
-
-optional arguments:
-  -h, --help            show this help message and exit
-  -p [PATHS [PATHS ...]], --paths [PATHS [PATHS ...]]
-                        The path/paths to be scanned for cover extraction.
-  -wh [WEBHOOK [WEBHOOK ...]], --webhook [WEBHOOK [WEBHOOK ...]]
-                        The optional Discord webhook URL for notifications about changes and errors.
-  -c COMPRESS, --compress COMPRESS
-                        Whether or not to compress the extracted cover images.
-  -cq COMPRESS_QUALITY, --compress_quality COMPRESS_QUALITY
-                        The quality of the compressed cover images.
+```markdown
+The Komga Cover Extractor is a Python automation script designed to enhance the user experience of Komga, a manga and light novel manager. This script automates the detection and extraction of covers from zip, cbz, and epub files, providing users with high-resolution local covers within Komga.
 ```
 
-## Examples
-Here are a couple of usage examples:
+### 3. Installation
+
+To use the Komga Cover Extractor, follow one of the options below:
+
+### Docker (Recommended)
+You can use the [Docker image available here](https://hub.docker.com/r/zachstultz/komga-cover-extractor), which simplifies the setup process.
+
+### Manual Installation
+If you prefer manual installation, follow these steps:
+1. Clone the repository: `git clone https://github.com/zachstultz/komga-cover-extractor.git`
+2. Install required Python packages: `pip3 install -r requirements.txt`
+3. (OPTIONAL) If you intend to use advanced RAR features, you may need to install unrar:
+   - Linux: `sudo apt-get install unrar`
+   - MacOS: `brew install rar` (requires [brew](https://brew.sh/)) (untested)
+   - Windows: Install UnRAR.dll from [rarlab.com](https://www.rarlab.com/rar_add.htm) (untested)
+
+### 4. Usage
+#### The Komga Cover Extractor provides several options for cover extraction. Here's how to use it:
+
+
+```bash
+python3 komga_cover_extractor.py [-h] [-p [PATHS [PATHS ...]]] -wh WEBHOOK1,WEBHOOK2,upto N [-c COMPRESS] [-cq COMPRESS_QUALITY]
+```
+
+- `-p` or `--paths`: The path/paths to be scanned for cover extraction.
+- `-wh` or `--webhook`: The optional Discord webhook URL for notifications about changes and errors.
+- `-c` or `--compress`: Whether or not to compress the extracted cover images.
+- `-cq` or `--compress_quality`: The quality of the compressed cover images.
+
+### 5. Examples
 
 - **With Compression:**
-  ```
+  ```bash
   python3 komga_cover_extractor.py -p "/path/to/manga" -p "/path/to/novels" -c "True" -cq "60"
   ```
-
+  
 - **Without Compression:**
-  ```
+  ```bash
   python3 komga_cover_extractor.py -p "/path/to/manga" -p "/path/to/novels"
   ```
+### 6. Future Goals
 
-## Future Goals
-Our development team has ambitious plans for the Komga Cover Extractor, which include:
+```markdown
+Our development team has ambitious plans for the Komga Cover Extractor, including:
 
-1. Transforming the script into a comprehensive manga/light novel manager with a wide range of features that include cover extraction but are not limited to it (in-progress).
+1. Transforming the script into a comprehensive manga/light novel manager with a wide range of features (in-progress).
 2. Modularizing volume/chapter keyword regexes across the script (in-progress).
 3. Improving documentation to make the tool even more user-friendly (in-progress).
+```
 
-For more information and updates, please refer to the [project's GitHub repository](https://github.com/zachstultz/komga-cover-extractor).
+### 7. Contributing
 
-Feel free to choose the installation method that suits your needs, and enjoy the benefits of using the Komga Cover Extractor!
+```markdown
+We welcome contributions! If you'd like to contribute to the Komga Cover Extractor, please follow our [Contribution Guidelines](CONTRIBUTING.md).
+```
 
+### 8. License
+
+```markdown
+This project is licensed under the [MIT License](LICENSE).
+```
+
+### 9. Support and Contact
+```markdown
+
+If you need help or want to report issues, please [create an issue](https://github.com/zachstultz/komga-cover-extractor/issues) on GitHub.
+```
