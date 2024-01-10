@@ -1,20 +1,20 @@
 ## Table of Contents
-1. [Introduction](#introduction)
-2. [Installation](#installation)
-3. [Usage](#usage)
-4. [Examples](#examples)
-5. [Future Goals](#future-goals)
-6. [Contributing](#contributing)
-7. [License](#license)
-8. [Support and Contact](#support-and-contact)
+1. [Introduction](#1-introduction)
+2. [Installation](#2-installation)
+3. [Usage](#3-usage)
+4. [Examples](#4-examples)
+5. [Future Goals](#5-future-goals)
+6. [Contributing](#6-contributing)
+7. [License](#7-license)
+8. [Support and Contact](#8-support-and-contact)
 
-### 2. Introduction
+### 1. Introduction
 
 ```markdown
 The Komga Cover Extractor is a Python automation script designed to enhance the user experience of Komga, a manga and light novel manager. This script automates the detection and extraction of covers from zip, cbz, and epub files, providing users with high-resolution local covers within Komga.
 ```
 
-### 3. Installation
+### 2. Installation
 
 To use the Komga Cover Extractor, follow one of the options below:
 
@@ -30,7 +30,7 @@ If you prefer manual installation, follow these steps:
    - MacOS: `brew install rar` (requires [brew](https://brew.sh/)) (untested)
    - Windows: Install UnRAR.dll from [rarlab.com](https://www.rarlab.com/rar_add.htm) (untested)
 
-### 4. Usage
+### 3. Usage
 #### The Komga Cover Extractor provides several options for cover extraction. Here's how to use it:
 
 
@@ -43,7 +43,7 @@ python3 komga_cover_extractor.py [-h] [-p [PATHS [PATHS ...]]] -wh WEBHOOK1,WEBH
 - `-c` or `--compress`: Whether or not to compress the extracted cover images.
 - `-cq` or `--compress_quality`: The quality of the compressed cover images.
 
-### 5. Examples
+### 4. Examples
 
 - **With Compression:**
   ```bash
@@ -54,7 +54,7 @@ python3 komga_cover_extractor.py [-h] [-p [PATHS [PATHS ...]]] -wh WEBHOOK1,WEBH
   ```bash
   python3 komga_cover_extractor.py -p "/path/to/manga" -p "/path/to/novels"
   ```
-### 6. Future Goals
+### 5. Future Goals
 
 ```markdown
 Our development team has ambitious plans for the Komga Cover Extractor, including:
@@ -64,19 +64,19 @@ Our development team has ambitious plans for the Komga Cover Extractor, includin
 3. Improving documentation to make the tool even more user-friendly (in-progress).
 ```
 
-### 7. Contributing
+### 6. Contributing
 
 ```markdown
 We welcome contributions! If you'd like to contribute to the Komga Cover Extractor, please follow our [Contribution Guidelines](CONTRIBUTING.md).
 ```
 
-### 8. License
+### 7. License
 
 ```markdown
 This project is licensed under the [MIT License](LICENSE).
 ```
 
-### 9. Support and Contact
+### 8. Support and Contact
 ```markdown
 
 If you need help or want to report issues, please [create an issue](https://github.com/zachstultz/komga-cover-extractor/issues) on GitHub.
