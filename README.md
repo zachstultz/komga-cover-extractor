@@ -66,9 +66,7 @@ Our development team has ambitious plans for the Komga Cover Extractor, includin
 
 ### 6. Contributing
 
-```markdown
-We welcome contributions! If you'd like to contribute to the Komga Cover Extractor, please follow our [Contribution Guidelines](CONTRIBUTING.md).
-```
+We welcome contributions! If you'd like to contribute to the Komga Cover Extractor, please follow our [Contribution Guidelines](CONTRIBUTING.md)
 
 ### 7. License
 
