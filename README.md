@@ -10,7 +10,7 @@
 
 ### 1. Introduction
 
-The Komga Cover Extractor is a Python automation script designed to enhance the user experience of Komga, a manga and light novel manager. This script automates the detection and extraction of covers from zip, cbz, and epub files, providing users with high-resolution local covers within Komga.
+Komga Cover Extractor is a Python automation script that automates the detection and extraction of covers from zip, cbz, and epub files, providing users with high-resolution local covers within Komga.
 
 ### 2. Installation
 
