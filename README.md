@@ -31,9 +31,6 @@ If you prefer manual installation, follow these steps:
    - Windows: Install UnRAR.dll from [rarlab.com](https://www.rarlab.com/rar_add.htm) (untested)
 
 ### 3. Usage
-#### The Komga Cover Extractor provides several options for cover extraction. Here's how to use it:
-
-
 ```bash
 python3 komga_cover_extractor.py [-h] [-p [PATHS [PATHS ...]]] -wh WEBHOOK1,WEBHOOK2,upto N [-c COMPRESS] [-cq COMPRESS_QUALITY]
 ```
@@ -57,8 +54,6 @@ python3 komga_cover_extractor.py [-h] [-p [PATHS [PATHS ...]]] -wh WEBHOOK1,WEBH
 ### 5. Future Goals
 
 ```markdown
-Our development team has ambitious plans for the Komga Cover Extractor, including:
-
 1. Transforming the script into a comprehensive manga/light novel manager with a wide range of features (in-progress).
 2. Modularizing volume/chapter keyword regexes across the script (in-progress).
 3. Improving documentation to make the tool even more user-friendly (in-progress).
