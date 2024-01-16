@@ -26,6 +26,9 @@ check_for_missing_volumes_toggle = False
 cache_each_root_for_each_path_in_paths_at_beginning_toggle = False
 # sends a scan request to each komga library after check_for_existing_series is done, if something got added, requires komga settings at the bottom
 send_scan_request_to_komga_libraries_toggle = False
+# unchecks any qbitorrents that are not an upgrade to the existing library
+# requires: qbittorrent settings at the bottom and check_for_existing_series_toggle = True
+uncheck_non_qbit_upgrades_toggle = False
 ################################################################
 
 ########################### RENAMING/PROCESSING ###########################
@@ -202,4 +205,23 @@ rename_zip_to_cbz = True
 # extension types and library type ("volume" or "chapter")
 # Requires: --watchdog "True" and check_for_existing_series_toggle = True
 auto_classify_watchdog_paths = False
+
+# qBittorrent API credentials
+# Requires: uncheck_non_qbit_upgrades_toggle = True
+#           check_for_existing_series_toggle = True
+#
+# REQUIRED:
+qbittorrent_ip = ""  # EX: localhost
+qbittorrent_port = ""  # default is 8080
+qbittorrent_target_category = ""  # create a category in qbit and put it here
+# OPTIONAL:
+qbittorrent_username = ""  # leave blank if you don't require login
+qbittorrent_password = ""  # leave blank if you don't require login
+
+# Will remove unacceptable torrent titles in qbittorrent
+# if they contain an unacceptable keyword match.
+# Requires: delete_unacceptable_files_toggle = True
+#           check_for_existing_series_toggle = True
+#           uncheck_non_qbit_upgrades_toggle = True
+delete_unacceptable_torrent_titles_in_qbit = False
 ################################################################
