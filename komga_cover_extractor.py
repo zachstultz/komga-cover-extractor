@@ -22,6 +22,7 @@ from functools import lru_cache
 from posixpath import join
 from urllib.parse import urlparse
 
+import cProfile
 import cv2
 import filetype
 import numpy as np
@@ -32,7 +33,6 @@ import requests
 import scandir
 from bs4 import BeautifulSoup
 from discord_webhook import DiscordEmbed, DiscordWebhook
-from langdetect import detect
 from lxml import etree
 from PIL import Image
 from skimage.metrics import structural_similarity as ssim
@@ -43,8 +43,11 @@ from watchdog.observers import Observer
 
 from settings import *
 
+# Get all the variables in settings.py
+import settings as settings_file
+
 # Version of the script
-script_version = (2, 4, 25)
+script_version = (2, 5, 0)
 script_version_text = "v{}.{}.{}".format(*script_version)
 
 # Paths = existing library
@@ -127,7 +130,6 @@ if ROOT_DIR == "/app":
     in_docker = True
     script_version_text += "-docker"
 
-
 # The path location of the blank_white.jpg in the root of the script directory.
 blank_white_image_path = (
     os.path.join(ROOT_DIR, "blank_white.jpg")
@@ -191,6 +193,16 @@ root_modification_times = {}
 # Stores all the new series paths for series that were added to an existing library
 moved_folders = []
 
+# Profiles the execution - for dev use
+profile_code = False
+
+# get all of the non-callable variables
+settings = [
+    var
+    for var in dir(settings_file)
+    if not callable(getattr(settings_file, var)) and not var.startswith("__")
+]
+
 
 class LibraryType:
     def __init__(self, name, extensions, must_contain, must_not_contain):
@@ -218,7 +230,7 @@ library_types = [
         "light novel",  # name
         novel_extensions,  # extensions
         [
-            r"\[[^\]]*(Lucaz|Stick|Oak|Yen (Press|On)|J-Novel|Seven Seas|Vertical|One Peace Books|Cross Infinite|Sol Press|Hanashi Media|Kodansha|Tentai Books|SB Creative|Hobby Japan|Impress Corporation|KADOKAWA)[^\]]*\]|(faratnis|Officially Translated Light Novels)"
+            r"\[[^\]]*(Lucaz|Stick|Oak|Yen (Press|On)|J-Novel|Seven Seas|Vertical|One Peace Books|Cross Infinite|Sol Press|Hanashi Media|Kodansha|Tentai Books|SB Creative|Hobby Japan|Impress Corporation|KADOKAWA)[^\]]*\]|(faratnis)"
         ],  # must_contain
         [],  # must_not_contain
     ),
@@ -323,9 +335,13 @@ chapter_searches = [
     % (chapter_regex_keywords, exclusion_keywords_regex, manga_extensions_regex),
     r"((\b((\.)|)(\s+)?(%s)([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?(#([0-9]+)(([-_.])([0-9]+)|)+)?\b)((\s+(-)|:)\s+).*?(?=(\s+)?[\(\[\{](\d{4}|Digital)[\)\]\}]))"
     % exclusion_keywords_regex,
-    r"(?<!([A-Za-z]|(%s)(\s+)?))(((%s)([-_. ]+)?([0-9]+))|\s+([0-9]+)(\.[0-9]+)?(x\d+((\.\d+)+)?)?(\s+|#\d+|%s))"
+    r"(?<![A-Za-z]|%s)(((%s)([-_. ]+)?([0-9]+))|\s+([0-9]+)(\.[0-9]+)?(x\d+((\.\d+)+)?)?(\s+|#\d+|%s))"
     % (exclusion_keywords_joined, chapter_regex_keywords, manga_extensions_regex),
     r"^((#)?([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?(#([0-9]+)(([-_.])([0-9]+)|)+)?)$",
+]
+
+chapter_search_patterns_comp = [
+    re.compile(pattern, flags=re.IGNORECASE) for pattern in chapter_searches
 ]
 
 # Used in check_for_existing_series() when sending
@@ -430,6 +446,10 @@ komga_libraries = []
 # Will move new series that couldn't be matched to the library to the appropriate library.
 # requires: '--watchdog "True"' and check_for_existing_series_toggle = True
 move_new_series_to_library_toggle = False
+
+# Used in get_extra_from_group()
+publishers_joined = ""
+release_groups_joined = ""
 
 
 # Folder Class
@@ -913,7 +933,10 @@ class Handler(FileSystemEventHandler):
             except Exception as e:
                 send_message(f"Error with watchdog on_any_event(): {e}", error=True)
 
-            main()
+            if profile_code:
+                cProfile.run("main()", sort="cumtime")
+            else:
+                main()
             end_time = time.time()
             minute_keyword = ""
             second_keyword = ""
@@ -1467,15 +1490,6 @@ def parse_my_args():
     # Print all the settings from settings.py
     print("\nExternal Settings:")
 
-    # Get all the variables in settings.py
-    import settings as settings_file
-
-    # get all of the non-callable variables
-    settings = [
-        var
-        for var in dir(settings_file)
-        if not callable(getattr(settings_file, var)) and not var.startswith("__")
-    ]
     # print all of the variables
     sensitive_keywords = ["password", "email", "_ip", "token", "user"]
     ignored_settings = ["ranked_keywords", "unacceptable_keywords"]
@@ -1736,11 +1750,6 @@ def remove_hidden_folders(dirs):
     return [x for x in dirs if not x.startswith(".")]
 
 
-chapter_search_patterns_comp = [
-    re.compile(pattern, flags=re.IGNORECASE) for pattern in chapter_searches
-]
-
-
 # check if volume file name is a chapter
 @lru_cache(maxsize=None)
 def contains_chapter_keywords(file_name):
@@ -1846,7 +1855,7 @@ def clean_and_sort(
     skip_remove_unaccepted_file_types=False,
     skip_remove_hidden_folders=False,
     keep_images_in_just_these_files=False,
-    is_correct_extensions_feature=False,
+    is_correct_extensions_feature=[],
     test_mode=False,
 ):
     # Cache the root path
@@ -1886,7 +1895,7 @@ def clean_and_sort(
                 root,
                 file_extensions
                 if not is_correct_extensions_feature
-                else file_extensions + rar_extensions,
+                else is_correct_extensions_feature,
                 test_mode=test_mode,
             )
 
@@ -1929,7 +1938,7 @@ def process_files_and_folders(
     just_these_dirs=[],
     skip_remove_unaccepted_file_types=False,
     keep_images_in_just_these_files=False,
-    is_correct_extensions_feature=False,
+    is_correct_extensions_feature=[],
     test_mode=False,
 ):
     in_download_folders = (
@@ -1992,7 +2001,7 @@ def upgrade_to_file_class(
     files,
     root,
     skip_get_file_extension_from_header=True,
-    is_correct_extensions_feature=False,
+    is_correct_extensions_feature=[],
     test_mode=False,
     clean=True,
 ):
@@ -2199,14 +2208,9 @@ def set_modification_date(file_path, date):
 
 # Determies if two index_numbers are the same
 def is_same_index_number(index_one, index_two):
-    if (
-        index_one != ""
-        and index_two != ""
-        and (
-            index_one == index_two
-            or (isinstance(index_one, list) and index_two in index_one)
-            or (isinstance(index_two, list) and index_one in index_two)
-        )
+    if (index_one == index_two and index_one != "") or (
+        (isinstance(index_one, list) and index_two in index_one)
+        or (isinstance(index_two, list) and index_one in index_two)
     ):
         return True
     return False
@@ -2437,11 +2441,13 @@ def get_series_name_from_file_name_chapter(name, root, chapter_number="", second
     name = replace_underscore_in_name(name)
 
     regex_matched = False
-    for regex in chapter_searches:
-        search = re.search(regex, name, re.IGNORECASE)
+    for pattern in chapter_search_patterns_comp:
+        search = pattern.search(name)
         if search:
             regex_matched = True
-            name = re.sub(rf"{regex}(.*)", "", name, flags=re.IGNORECASE).strip()
+            name = re.sub(
+                rf"{pattern.pattern}(.*)", "", name, flags=re.IGNORECASE
+            ).strip()
             break
 
     if isinstance(chapter_number, list):
@@ -2618,8 +2624,8 @@ def remove_everything_but_volume_num(files, chapter=False):
 
             # With a chapter keyword, without, but before bracketed info, or without and with a manga extension or a novel exteion after the number
             # Series Name c001.extension or Series Name 001 (2021) (Digital) (Release).extension or Series Name 001.extension
-            for search in chapter_searches:
-                search_result = re.search(search, file, re.IGNORECASE)
+            for pattern in chapter_search_patterns_comp:
+                search_result = pattern.search(file)
                 if search_result:
                     result = search_result
                     break
@@ -2765,38 +2771,21 @@ def get_release_year(name, metadata=None):
 
 
 # Retrieves the release_group on the file name
-def get_extra_from_group(name, groups):
-    if not groups:
+def get_extra_from_group(name, groups, publisher_m=False, release_group_m=False):
+    if (
+        not groups
+        or (publisher_m and not publishers_joined)
+        or (release_group_m and not release_groups_joined)
+    ):
         return ""
 
-    # Define regular expressions for left and right brackets
-    left_brackets = r"(\(|\[|\{)"
-    right_brackets = r"(\)|\]|\})"
+    groups_joined = publishers_joined if publisher_m else release_groups_joined
 
-    # Compile a regular expression pattern for removing brackets
-    bracket_pattern = re.compile(rf"^{left_brackets}|{right_brackets}$")
-
-    # Combine all groups into a single regular expression pattern
-    combined_pattern = re.compile(
-        rf"{left_brackets}({'|'.join(map(re.escape, groups))}){right_brackets}",
-        re.IGNORECASE,
+    group_search = re.search(
+        rf"(?<=[\(\[\{{])({groups_joined})(?=[\)\]\}}])", name, re.IGNORECASE
     )
 
-    # Search for the combined pattern in the name
-    search = combined_pattern.search(name)
-
-    # If a match is found
-    if search:
-        result = search.group()
-
-        # Remove any brackets that the matched string starts with or ends with
-        result = bracket_pattern.sub("", result)
-
-        # Return the result after removing brackets
-        return result
-
-    # If no match is found, return an empty string
-    return ""
+    return group_search.group(0) if group_search else ""
 
 
 # Precompile the regular expressions
@@ -2906,7 +2895,9 @@ def upgrade_to_volume_class(
             if internal_metadata and not skip_publisher:
                 publisher.from_meta = get_publisher_from_meta(internal_metadata)
             if publishers:
-                publisher.from_name = get_extra_from_group(file.name, publishers)
+                publisher.from_name = get_extra_from_group(
+                    file.name, publishers, publisher_m=True
+                )
 
         file_obj = Volume(
             file.file_type,
@@ -2921,7 +2912,7 @@ def upgrade_to_volume_class(
             "",
             "",
             (
-                get_extra_from_group(file.name, release_groups)
+                get_extra_from_group(file.name, release_groups, release_group_m=True)
                 if not skip_release_group
                 else ""
             ),
@@ -3018,25 +3009,25 @@ compiled_searches = [
 
 
 # Retrieves the ranked keyword score and matching tags
-# for both releases.
-def get_keyword_scores(release1, release2):
-    tags1, score1 = [], 0.0
-    tags2, score2 = [], 0.0
+# for the passed releases.
+def get_keyword_scores(releases):
+    results = []
 
-    for keyword, compiled_search in zip(ranked_keywords, compiled_searches):
-        if keyword.file_type in ["both", release1.file_type]:
-            search = compiled_search.search(release1.name)
-            if search:
-                tags1.append(Keyword(search.group(0), keyword.score))
-                score1 += keyword.score
+    for release in releases:
+        tags, score = [], 0.0
 
-        if keyword.file_type in ["both", release2.file_type]:
-            search = compiled_search.search(release2.name)
-            if search:
-                tags2.append(Keyword(search.group(0), keyword.score))
-                score2 += keyword.score
+        for idx, (keyword, compiled_search) in enumerate(
+            zip(ranked_keywords, compiled_searches)
+        ):
+            if keyword.file_type in ["both", release.file_type]:
+                search = compiled_search.search(release.name)
+                if search:
+                    tags.append(Keyword(search.group(0), keyword.score))
+                    score += keyword.score
 
-    return RankedKeywordResult(score1, tags1), RankedKeywordResult(score2, tags2)
+        results.append(RankedKeywordResult(score, tags))
+
+    return results
 
 
 # > This class represents the result of an upgrade check
@@ -3056,9 +3047,16 @@ class UpgradeResult:
 
 # Checks if the downloaded release is an upgrade for the current release.
 def is_upgradeable(downloaded_release, current_release):
-    downloaded_release_result, current_release_result = get_keyword_scores(
-        downloaded_release, current_release
-    )
+    downloaded_release_result = None
+    current_release_result = None
+
+    if downloaded_release.name.lower() == current_release.name.lower():
+        results = get_keyword_scores([downloaded_release])
+        downloaded_release_result, current_release_result = results[0], results[0]
+    else:
+        results = get_keyword_scores([downloaded_release, current_release])
+        downloaded_release_result, current_release_result = results[0], results[1]
+
     upgrade_result = UpgradeResult(
         downloaded_release_result.total_score > current_release_result.total_score,
         downloaded_release_result,
@@ -3636,6 +3634,7 @@ def write_to_file(
     overwrite=False,
     check_for_dup=False,
     write_to=None,
+    can_write_log=log_to_file,
 ):
     write_status = False
     logs_dir_loc = write_to or LOGS_DIR
@@ -3648,7 +3647,7 @@ def write_to_file(
             send_message(str(e), error=True)
             return False
 
-    if log_to_file and logs_dir_loc:
+    if can_write_log and logs_dir_loc:
         # get rid of formatting
         message = re.sub("\t|\n", "", str(message), flags=re.IGNORECASE).strip()
         contains = False
@@ -4368,24 +4367,17 @@ def remove_s(s):
 
 # Returns a string without punctuation.
 @lru_cache(maxsize=None)
-def remove_punctuation(s, disable_lang=False):
+def remove_punctuation(s):
     s = re.sub(r":", " ", s)
     s = remove_dual_space(s)
-    language = ""
-    if not disable_lang and not s.isdigit():
-        language = detect_language(s)
-    if language and language != "en" and not disable_lang:
-        return remove_dual_space(
-            remove_s(re.sub(r"[^\w\s+]", " ", normalize_string_for_matching(s)))
-        )
-    else:
-        return convert_to_ascii(
-            unidecode(
-                remove_dual_space(
-                    remove_s(re.sub(r"[^\w\s+]", " ", normalize_string_for_matching(s)))
-                )
+
+    return convert_to_ascii(
+        unidecode(
+            remove_dual_space(
+                remove_s(re.sub(r"[^\w\s+]", " ", normalize_string_for_matching(s)))
             )
         )
+    )
 
 
 # Cleans the string by removing punctuation, bracketed info, and replacing underscores with periods.
@@ -4396,7 +4388,6 @@ def clean_string(
     skip_bracket=False,
     skip_punctuation=False,
     skip_underscore=False,
-    disable_lang=False,
 ):
     # Convert to lower and strip
     string = string.lower().strip()
@@ -4408,7 +4399,7 @@ def clean_string(
 
     # Remove punctuation
     string_without_punctuation = (
-        remove_punctuation(string_without_brackets, disable_lang=disable_lang)
+        remove_punctuation(string_without_brackets)
         if not skip_punctuation
         else string_without_brackets
     )
@@ -4580,19 +4571,6 @@ def create_folders_for_items_in_download_folder():
             send_message(str(e), error=True)
 
 
-# detect language of the passed string using langdetect
-@lru_cache(maxsize=None)
-def detect_language(s):
-    language = ""
-    if s and len(s) >= 5 and re.search(r"[\p{L}\p{M}]+", s):
-        try:
-            language = detect(s)
-        except Exception as e:
-            send_message(str(e), error=True)
-            return language
-    return language
-
-
 # convert string to acsii
 @lru_cache(maxsize=None)
 def convert_to_ascii(s):
@@ -4686,20 +4664,6 @@ def check_upgrade(
 ):
     global moved_files, messages_to_send, grouped_notifications
 
-    existing_dir = os.path.join(existing_root, dir)
-
-    clean_existing = clean_and_sort(existing_dir, os.listdir(existing_dir))[0]
-    clean_existing = upgrade_to_volume_class(
-        upgrade_to_file_class(
-            [
-                f
-                for f in clean_existing
-                if os.path.isfile(os.path.join(existing_dir, f))
-            ],
-            existing_dir,
-        )
-    )
-
     def get_percent_and_print(existing_files, file, file_type=None):
         percent_dl = 0
         percent_existing = 0
@@ -4732,6 +4696,17 @@ def check_upgrade(
             f"\t\tExisting Folder {file_type.capitalize()} Percent: {percent_existing}%"
         )
         return percent_dl, percent_existing
+
+    existing_dir = os.path.join(existing_root, dir)
+
+    clean_existing = [
+        entry.name for entry in os.scandir(existing_dir) if entry.is_file()
+    ]
+
+    clean_existing = upgrade_to_file_class(
+        clean_existing,
+        existing_dir,
+    )
 
     print(f"\tRequired Folder Matching Percent: {required_matching_percentage}%")
 
@@ -4767,6 +4742,16 @@ def check_upgrade(
     )
 
     if (matching_manga or matching_novel) and (matching_chapter or matching_volume):
+        clean_existing = upgrade_to_volume_class(
+            clean_existing,
+            skip_release_year=True,
+            skip_release_group=True,
+            skip_extras=True,
+            skip_publisher=True,
+            skip_premium_content=True,
+            skip_subtitle=True,
+        )
+
         if test_mode:
             return clean_existing
 
@@ -5445,6 +5430,9 @@ def organize_array_list_by_first_letter(
         )
         return array_list
 
+    if position_to_insert_at < 0 or position_to_insert_at >= len(array_list):
+        return array_list
+
     first_letter_of_file_name = string[0].lower()
     items_to_move = []
 
@@ -5962,7 +5950,7 @@ def check_for_existing_series(
                             if done:
                                 continue
 
-                    if cached_paths and not test_mode:
+                    if cached_paths:
                         if exclude:
                             cached_paths = organize_array_list_by_first_letter(
                                 cached_paths, file.name, 1, exclude
@@ -5977,11 +5965,7 @@ def check_for_existing_series(
                     )
 
                     # organize the cached paths
-                    if (
-                        cached_paths
-                        and file.name != downloaded_file_series_name
-                        and not test_mode
-                    ):
+                    if cached_paths and file.name != downloaded_file_series_name:
                         if exclude:
                             cached_paths = organize_array_list_by_first_letter(
                                 cached_paths,
@@ -8061,7 +8045,6 @@ def extract_covers(paths_to_process=paths):
                 os.path.basename(x),
                 skip_bracket=True,
                 skip_underscore=True,
-                disable_lang=True,
             )
             for x in moved_folders
         ]
@@ -8086,7 +8069,6 @@ def extract_covers(paths_to_process=paths):
                         os.path.basename(root),
                         skip_bracket=True,
                         skip_underscore=True,
-                        disable_lang=True,
                     )
                     not in moved_folder_names
                 ):
@@ -8306,7 +8288,7 @@ def process_cover_extraction(
             for x in filtered_series
             if re.search(
                 rf"^{re.escape(first_letter)}",
-                clean_string(x, disable_lang=True),
+                clean_string(x),
                 re.IGNORECASE,
             )
         ]
@@ -8450,7 +8432,7 @@ def process_cover_extraction(
 
                 for folder in filtered_series:
                     folder_path = os.path.join(v_path.path, folder)
-                    clean_folder = clean_string(folder, disable_lang=True)
+                    clean_folder = clean_string(folder)
 
                     if not (
                         clean_folder == clean_basename
@@ -9903,7 +9885,9 @@ def check_for_new_volumes_on_bookwalker():
 
 
 # caches all roots encountered when walking paths
-def cache_existing_library_paths():
+def cache_existing_library_paths(
+    paths=paths, download_folders=download_folders, cached_paths=cached_paths
+):
     paths_cached = []
     print("\nCaching paths recursively...")
     for path in paths:
@@ -9932,6 +9916,7 @@ def cache_existing_library_paths():
         print("\nRoot paths that were recursively cached:")
         for path in paths_cached:
             print(f"\t{path}")
+    return cached_paths
 
 
 # Sends scan requests to komga for all passed-in libraries
@@ -10815,13 +10800,13 @@ def correct_file_extensions():
                         dirs,
                         just_these_files=transferred_files,
                         just_these_dirs=transferred_dirs,
-                        is_correct_extensions_feature=True,
+                        is_correct_extensions_feature=file_extensions + rar_extensions,
                     )
                     volumes = upgrade_to_file_class(
                         [f for f in files if os.path.isfile(os.path.join(root, f))],
                         root,
                         skip_get_file_extension_from_header=False,
-                        is_correct_extensions_feature=True,
+                        is_correct_extensions_feature=file_extensions + rar_extensions,
                     )
                     if volumes:
                         for volume in volumes:
@@ -10908,6 +10893,8 @@ def main():
     global transferred_files
     global transferred_dirs
     global komga_libraries
+    global publishers_joined
+    global release_groups_joined
 
     processed_files = []
     moved_files = []
@@ -10961,6 +10948,7 @@ def main():
         release_groups_read = get_lines_from_file(release_groups_path)
         if release_groups_read:
             release_groups = release_groups_read
+            release_groups_joined = "|".join(map(re.escape, release_groups))
             print(
                 f"\tLoaded {len(release_groups)} release groups from release_groups.txt"
             )
@@ -10970,6 +10958,7 @@ def main():
         publishers_read = get_lines_from_file(publishers_path)
         if publishers_read:
             publishers = publishers_read
+            publishers_joined = "|".join(map(re.escape, publishers))
             print(f"\tLoaded {len(publishers)} publishers from publishers.txt")
 
     # Correct any incorrect file extensions
@@ -11121,12 +11110,51 @@ def main():
     contains_comic_info.cache_clear()
 
 
+# Checks that the user has the required settings in settings.py
+# Will become obselete once I figure out an automated way of
+# parsing and updating the user's settings.py file.
+def check_required_settings():
+    required_settings = {
+        "uncheck_non_qbit_upgrades_toggle": (2, 5, 0),
+        "qbittorrent_ip": (2, 5, 0),
+        "qbittorrent_port": (2, 5, 0),
+        "qbittorrent_username": (2, 5, 0),
+        "qbittorrent_password": (2, 5, 0),
+        "delete_unacceptable_torrent_titles_in_qbit": (2, 5, 0),
+    }
+
+    missing_settings = [
+        setting
+        for setting, version in required_settings.items()
+        if script_version == version and setting not in settings
+    ]
+
+    if missing_settings:
+        send_discord_message(
+            f"\nMissing settings in settings.py: \n\t{','.join(missing_settings)}\nPlease update your settings.py file.",
+        )
+
+        print("\nMissing settings in settings.py:")
+        for setting in missing_settings:
+            print(f"\t{setting}")
+        print("Please update your settings.py file.\n")
+        exit()
+
+
 if __name__ == "__main__":
     parse_my_args()  # parses the user's arguments
+
+    if settings:
+        check_required_settings()
+
     if watchdog_toggle and download_folders:
         while True:
             print("\nWatchdog is enabled, watching for changes...")
             watch = Watcher()
             watch.run()
     else:
-        main()
+        if profile_code:
+            # run with cprofile and sort by cumulative time
+            cProfile.run("main()", sort="cumtime")
+        else:
+            main()
