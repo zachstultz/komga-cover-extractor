@@ -47,7 +47,7 @@ from settings import *
 import settings as settings_file
 
 # Version of the script
-script_version = (2, 5, 0)
+script_version = (2, 5, 1)
 script_version_text = "v{}.{}.{}".format(*script_version)
 
 # Paths = existing library
@@ -194,7 +194,7 @@ root_modification_times = {}
 moved_folders = []
 
 # Profiles the execution - for dev use
-profile_code = False
+profile_code = ""
 
 # get all of the non-callable variables
 settings = [
@@ -204,6 +204,7 @@ settings = [
 ]
 
 
+# Library Type class
 class LibraryType:
     def __init__(self, name, extensions, must_contain, must_not_contain):
         self.name = name
@@ -211,7 +212,7 @@ class LibraryType:
         self.must_contain = must_contain
         self.must_not_contain = must_not_contain
 
-    # to string
+    # Convert the object to a string representation
     def __str__(self):
         return f"LibraryType(name={self.name}, extensions={self.extensions}, must_contain={self.must_contain}, must_not_contain={self.must_not_contain})"
 
@@ -340,6 +341,7 @@ chapter_searches = [
     r"^((#)?([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?(#([0-9]+)(([-_.])([0-9]+)|)+)?)$",
 ]
 
+# pre-compile the chapter_searches
 chapter_search_patterns_comp = [
     re.compile(pattern, flags=re.IGNORECASE) for pattern in chapter_searches
 ]
@@ -763,8 +765,7 @@ class Handler(FileSystemEventHandler):
             global grouped_notifications
 
             try:
-                global transferred_files
-                global transferred_dirs
+                global transferred_files, transferred_dirs
 
                 extension = get_file_extension(event.src_path)
                 base_name = os.path.basename(event.src_path)
@@ -933,10 +934,11 @@ class Handler(FileSystemEventHandler):
             except Exception as e:
                 send_message(f"Error with watchdog on_any_event(): {e}", error=True)
 
-            if profile_code:
-                cProfile.run("main()", sort="cumtime")
+            if profile_code == "main()":
+                cProfile.run(profile_code, sort="cumtime")
             else:
                 main()
+
             end_time = time.time()
             minute_keyword = ""
             second_keyword = ""
@@ -1058,6 +1060,7 @@ new_volume_webhook = None
 def process_path(path, paths_with_types, paths, is_download_folders=False):
     COMMON_EXTENSION_THRESHOLD = 0.3  # 30%
 
+    # Attempts to automatically classify files based on certain thresholds and criteria.
     def process_auto_classification():
         nonlocal path_formats, path_extensions, path_library_types
 
@@ -1399,16 +1402,15 @@ def parse_my_args():
     print(f"\twatchdog: {watchdog_toggle}")
 
     if watchdog_toggle:
+        global watchdog_discover_new_files_check_interval, watchdog_file_transferred_check_interval
         if parser.watchdog_discover_new_files_check_interval:
             if parser.watchdog_discover_new_files_check_interval.isdigit():
-                global watchdog_discover_new_files_check_interval
                 watchdog_discover_new_files_check_interval = int(
                     parser.watchdog_discover_new_files_check_interval
                 )
 
         if parser.watchdog_file_transferred_check_interval:
             if parser.watchdog_file_transferred_check_interval.isdigit():
-                global watchdog_file_transferred_check_interval
                 watchdog_file_transferred_check_interval = int(
                     parser.watchdog_file_transferred_check_interval
                 )
@@ -1670,8 +1672,7 @@ def send_discord_message(
     image=None,
     image_local=None,
 ):
-    global grouped_notifications
-    global webhook_obj
+    global grouped_notifications, webhook_obj
 
     sent_status = False
     hook = None
@@ -2003,7 +2004,7 @@ def upgrade_to_file_class(
     skip_get_file_extension_from_header=True,
     is_correct_extensions_feature=[],
     test_mode=False,
-    clean=True,
+    clean=False,
 ):
     if not files:
         return []
@@ -2051,9 +2052,7 @@ def upgrade_to_file_class(
                 for file in files
             ],
             [
-                remove_everything_but_volume_num([file], chapter=True)
-                if file_type == "chapter"
-                else remove_everything_but_volume_num([file])
+                get_release_number([file], chapter=file_type == "chapter")
                 for file, file_type in zip(
                     files,
                     [
@@ -2154,6 +2153,7 @@ def is_volume_one(volume_name):
 
 # Checks for volume keywords and chapter keywords.
 # If neither are present, the volume is assumed to be a one-shot volume.
+@lru_cache(maxsize=None)
 def is_one_shot(file_name, root=None, skip_folder_check=False, test_mode=False):
     files = []
 
@@ -2207,13 +2207,53 @@ def set_modification_date(file_path, date):
 
 
 # Determies if two index_numbers are the same
-def is_same_index_number(index_one, index_two):
+def is_same_index_number(index_one, index_two, allow_array_match=False):
     if (index_one == index_two and index_one != "") or (
-        (isinstance(index_one, list) and index_two in index_one)
-        or (isinstance(index_two, list) and index_one in index_two)
+        allow_array_match
+        and (
+            (isinstance(index_one, list) and index_two in index_one)
+            or (isinstance(index_two, list) and index_one in index_two)
+        )
     ):
         return True
     return False
+
+
+# Gets the hash of the passed file and returns it as a string
+def get_file_hash(file, is_internal=False, internal_file_name=None):
+    try:
+        BUF_SIZE = 65536  # 64KB buffer size (adjust as needed)
+        hash_obj = hashlib.sha256()
+
+        if is_internal:
+            with zipfile.ZipFile(file) as zip:
+                with zip.open(internal_file_name) as internal_file:
+                    while True:
+                        data = internal_file.read(BUF_SIZE)
+                        if not data:
+                            break
+                        hash_obj.update(data)
+        else:
+            with open(file, "rb") as f:
+                while True:
+                    data = f.read(BUF_SIZE)
+                    if not data:
+                        break
+                    hash_obj.update(data)
+
+        return hash_obj.hexdigest()
+    except FileNotFoundError as e:
+        # Handle file not found error
+        send_message(f"\n\t\t\tError: File not found - {e}", error=True)
+        return None
+    except KeyError as e:
+        # Handle file not found in the zip error
+        send_message(f"\n\t\t\tError: File not found in the zip - {e}", error=True)
+        return None
+    except Exception as e:
+        # Handle other exceptions
+        send_message(f"\n\t\t\tError: {e}", error=True)
+        return None
 
 
 # Moves the image into a folder if said image exists. Also checks for a cover/poster image and moves that.
@@ -2251,7 +2291,9 @@ def move_images(
                 elif (
                     use_latest_volume_cover_as_series_cover
                     and file.file_type == "volume"
-                    and is_same_index_number(file.index_number, highest_index_num)
+                    and is_same_index_number(
+                        file.index_number, highest_index_num, allow_array_match=True
+                    )
                 ):
                     # get the cover image in the folder
                     existing_cover_image_file_path = [
@@ -2431,6 +2473,7 @@ def chapter_file_name_cleaning(
     return file_name
 
 
+# Retrieves the series name from the file name and chapter number
 def get_series_name_from_file_name_chapter(name, root, chapter_number="", second=False):
     name = remove_dual_space(re.sub(r"_extra", " ", name, flags=re.IGNORECASE)).strip()
 
@@ -2473,7 +2516,7 @@ def get_series_name_from_file_name_chapter(name, root, chapter_number="", second
         )
         and (os.path.basename(root) not in str(paths) or not paths)
     ):
-        root_number = remove_everything_but_volume_num([os.path.basename(root)])
+        root_number = get_release_number([os.path.basename(root)])
 
         # Get series name
         result = get_series_name_from_file_name_chapter(
@@ -2489,6 +2532,7 @@ def get_series_name_from_file_name_chapter(name, root, chapter_number="", second
     return result
 
 
+# Calculates the percentage of files in a folder that match a specified extension or file type.
 def get_percent_for_folder(files, extensions=None, file_type=None):
     if not files:
         return 0
@@ -2551,10 +2595,7 @@ def get_min_and_max_numbers(string):
     numbers_search = numbers_search.split(" ")
 
     # convert each string in the list to either an integer or a float using the set_num_as_float_or_int function
-    numbers_search = [set_num_as_float_or_int(num) for num in numbers_search]
-
-    # remove any empty items from the list
-    numbers_search = [num for num in numbers_search if num != None and num != ""]
+    numbers_search = [set_num_as_float_or_int(num) for num in numbers_search if num]
 
     # if the resulting list is not empty, filter it further
     if numbers_search:
@@ -2562,26 +2603,19 @@ def get_min_and_max_numbers(string):
         lowest_number = min(numbers_search)
 
         # get highest number in list
-        highest_number = max(numbers_search)
+        highest_number = max(numbers_search) if len(numbers_search) > 1 else None
 
-        # get rid of highest_number
-        if lowest_number == highest_number:
-            highest_number = None
-
-        # discard any numbers inbetween the lowest and highest number
-        if lowest_number != None and highest_number != None:
-            numbers = [lowest_number, highest_number]
-        elif lowest_number and not highest_number:
-            numbers = [lowest_number]
-        elif highest_number and not lowest_number:
-            numbers = [highest_number]
+        # discard any numbers in between the lowest and highest number
+        numbers = [lowest_number]
+        if highest_number:
+            numbers.append(highest_number)
 
     # return the resulting list of numbers
     return numbers
 
 
-# Finds the volume number and strips out everything except that number
-def remove_everything_but_volume_num(files, chapter=False):
+# Finds the volume/chapter number(s) in the file name.
+def get_release_number(files, chapter=False):
     results = []
     is_multi_volume = False
     keywords = volume_regex_keywords if not chapter else chapter_regex_keywords
@@ -2843,6 +2877,7 @@ def get_file_part(file, chapter=False, series_name=None, subtitle=None):
 
 # Retrieves the publisher from the passed in metadata
 def get_publisher_from_meta(metadata):
+    # Cleans the publisher name
     def clean_publisher_name(name):
         name = titlecase(name)
         name = remove_dual_space(name)
@@ -2859,6 +2894,7 @@ def get_publisher_from_meta(metadata):
             publisher = re.sub(r"LLC", "", publisher).strip()
             publisher = re.sub(r":", " - ", publisher).strip()
             publisher = remove_dual_space(publisher)
+
     return publisher
 
 
@@ -3351,7 +3387,7 @@ def replace_file(old_file, new_file, highest_index_num=""):
     return result
 
 
-# execute command with subprocess and reutrn the output
+# Executes a command and prints the output to the console.
 def execute_command(command):
     process = None
     try:
@@ -3372,8 +3408,7 @@ def execute_command(command):
 def remove_duplicate_releases_from_download(
     original_releases, downloaded_releases, image_similarity_match=False
 ):
-    global moved_files
-    global grouped_notifications
+    global moved_files, grouped_notifications
 
     # Extracts and formats file tags information
     def get_file_tags_info(result):
@@ -3569,6 +3604,7 @@ def remove_duplicate_releases_from_download(
     return new_original_releases, new_downloaded_releases
 
 
+# Checks if the given folder is empty and deletes it if it meets the conditions.
 def check_and_delete_empty_folder(folder):
     # Check if the folder exists
     if not os.path.exists(folder):
@@ -3959,8 +3995,7 @@ def check_for_premium_content(file_path, extension):
 
 # Rebuilds the file name by cleaning up, adding, and moving some parts around.
 def reorganize_and_rename(files, dir):
-    global transferred_files
-    global grouped_notifications
+    global transferred_files, grouped_notifications
 
     modifiers = {
         ext: "[%s]"
@@ -4652,6 +4687,7 @@ class NewReleaseNotification:
         self.volume_obj = volume_obj
 
 
+# Determines if the downloaded file is an upgrade or not to the existing library.
 def check_upgrade(
     existing_root,
     dir,
@@ -4664,6 +4700,7 @@ def check_upgrade(
 ):
     global moved_files, messages_to_send, grouped_notifications
 
+    # Gets the percentage of files that match a file_type or extension in a folder.
     def get_percent_and_print(existing_files, file, file_type=None):
         percent_dl = 0
         percent_existing = 0
@@ -4706,6 +4743,7 @@ def check_upgrade(
     clean_existing = upgrade_to_file_class(
         clean_existing,
         existing_dir,
+        clean=True,
     )
 
     print(f"\tRequired Folder Matching Percent: {required_matching_percentage}%")
@@ -4999,7 +5037,8 @@ def remove_duplicates(items):
     return list(dict.fromkeys(items))
 
 
-# Return the zip comment for the passed zip file
+# Return the zip comment for the passed zip file (cached)
+# Used on existing library files.
 @lru_cache(maxsize=None)
 def get_zip_comment_cache(zip_file):
     comment = ""
@@ -5017,6 +5056,8 @@ def get_zip_comment_cache(zip_file):
     return comment
 
 
+# Return the zip comment for the passed zip file (no cache)
+# Used on downloaded files. (more likely to change, hence no cache)
 def get_zip_comment(zip_file):
     comment = ""
     try:
@@ -5357,55 +5398,6 @@ def check_for_duplicate_volumes(paths_to_search=[]):
         send_message(f"\n\t\tError: {e}", error=True)
 
 
-# Gets the hash of the passed file and returns it as a string
-def get_file_hash(file):
-    try:
-        BUF_SIZE = 65536  # 64KB buffer size (adjust as needed)
-        hash_obj = hashlib.sha256()
-
-        with open(file, "rb") as f:
-            while True:
-                data = f.read(BUF_SIZE)
-                if not data:
-                    break
-                hash_obj.update(data)
-
-        return hash_obj.hexdigest()
-    except FileNotFoundError as e:
-        # Handle file not found error
-        send_message(f"\n\t\t\tError: File not found - {e}", error=True)
-        return None
-    except Exception as e:
-        # Handle other exceptions
-        send_message(f"\n\t\t\tError: {e}", error=True)
-        return None
-
-
-# Retrieves the internal file within the passed zip file.
-def get_internal_file_hash(zip_file, file_name):
-    try:
-        BUF_SIZE = 65536  # 64KB buffer size (adjust as needed)
-        hash_obj = hashlib.sha256()
-
-        with zipfile.ZipFile(zip_file) as zip:
-            with zip.open(file_name) as file:
-                while True:
-                    data = file.read(BUF_SIZE)
-                    if not data:
-                        break
-                    hash_obj.update(data)
-
-        return hash_obj.hexdigest()
-    except KeyError as e:
-        # Handle file not found in the zip error
-        send_message(f"\n\t\t\tError: File not found in the zip - {e}", error=True)
-        return None
-    except Exception as e:
-        # Handle other exceptions
-        send_message(f"\n\t\t\tError: {e}", error=True)
-        return None
-
-
 # Regex out underscore from passed string and return it
 @lru_cache(maxsize=None)
 def replace_underscore_in_name(name):
@@ -5527,6 +5519,7 @@ def find_consecutive_items(arr1, arr2, count=3):
     return False
 
 
+# Counts the occurrence of each word in a list of strings.
 def count_words(strings_list):
     word_count = {}
 
@@ -5571,10 +5564,7 @@ def check_for_existing_series(
     test_paths_with_types=paths_with_types,
     test_cached_paths=cached_paths,
 ):
-    global cached_paths
-    global cached_identifier_results
-    global messages_to_send
-    global grouped_notifications
+    global cached_paths, cached_identifier_results, messages_to_send, grouped_notifications
 
     # Groups messages by their series
     def group_similar_series(messages_to_send):
@@ -5702,7 +5692,9 @@ def check_for_existing_series(
             matching_volumes = [
                 volume
                 for volume in img_volumes
-                if is_same_index_number(volume.index_number, file.index_number)
+                if is_same_index_number(
+                    volume.index_number, file.index_number, allow_array_match=True
+                )
             ]
 
             if (len(img_volumes) - len(matching_volumes)) <= 10:
@@ -5720,6 +5712,7 @@ def check_for_existing_series(
                     if os.path.isfile(join(file_root, f))
                 ],
                 file_root,
+                clean=True,
             )
         )
         if not img_volumes:
@@ -5774,17 +5767,15 @@ def check_for_existing_series(
         return 0, None
 
     if test_mode:
+        global download_folders, paths, paths_with_types, cached_paths
+
         if test_download_folders:
-            global download_folders
             download_folders = test_download_folders
         if test_paths:
-            global paths
             paths = test_paths
         if test_paths_with_types:
-            global paths_with_types
             paths_with_types = test_paths_with_types
         if test_cached_paths:
-            global cached_paths
             cached_paths = test_cached_paths
 
     cached_image_similarity_results = []
@@ -6158,8 +6149,7 @@ def check_for_existing_series(
                                     # Move paths matching the first three words to the top of the list
                                     dirs = move_strings_to_top(file.series_name, dirs)
 
-                                clean_two = clean_and_sort(root, files, dirs)
-                                files, dirs = clean_two[0], clean_two[1]
+                                files, dirs = clean_and_sort(root, files, dirs)
                                 file_objects = upgrade_to_file_class(files, root)
 
                                 global folder_accessor
@@ -6569,7 +6559,9 @@ def get_series_name(dir):
 def rename_dirs_in_download_folder(paths_to_process=download_folders):
     global grouped_notifications
 
+    # Processes the passed folder
     def process_folder(download_folder):
+        # Renames the root folder based on the volumes
         def rename_based_on_volumes(root):
             global transferred_dirs, transferred_files
             nonlocal matching, volume_one, volume_one_series_name, volumes
@@ -6813,7 +6805,9 @@ def rename_dirs_in_download_folder(paths_to_process=download_folders):
                     folder_accessor_two = create_folder_obj(
                         root,
                         dirs,
-                        upgrade_to_file_class(remove_hidden_files(files), root),
+                        upgrade_to_file_class(
+                            remove_hidden_files(files), root, clean=True
+                        ),
                     )
 
                     for file in folder_accessor_two.files:
@@ -7000,6 +6994,7 @@ def get_extras(file_name, chapter=False, series_name="", subtitle=""):
     return premium_items + non_premium_items
 
 
+# Check if the input value can be converted to a float
 def isfloat(x):
     try:
         a = float(x)
@@ -7009,6 +7004,7 @@ def isfloat(x):
         return True
 
 
+# Check if the input value can be converted to an integer
 def isint(x):
     try:
         a = float(x)
@@ -7097,8 +7093,7 @@ def parse_html_tags(html):
 def rename_files_in_download_folders(
     only_these_files=[], download_folders=download_folders, test_mode=False
 ):
-    global transferred_files
-    global grouped_notifications
+    global transferred_files, grouped_notifications
 
     print("\nSearching for files to rename...")
     for path in download_folders:
@@ -8031,6 +8026,87 @@ def print_execution_time(start_time, function_name):
 # Extracts the covers out from our manga and novel files.
 def extract_covers(paths_to_process=paths):
     global checked_series, root_modification_times
+
+    # Finds the series cover image in the given folder
+    def find_series_cover(folder_accessor, image_extensions):
+        result = next(
+            (
+                os.path.join(folder_accessor.root, f"cover{ext}")
+                for ext in image_extensions
+                if os.path.exists(os.path.join(folder_accessor.root, f"cover{ext}"))
+            ),
+            None,
+        )
+        return result
+
+    # Checks if the folder contains files with the same series name
+    def check_same_series_name(files, required_percent=0.9):
+        result = False
+
+        if files:
+            compare_series = clean_string(files[0].series_name, skip_bracket=True)
+            file_count = len(files)
+            required_count = int(file_count * required_percent)
+            result = (
+                sum(
+                    clean_string(x.series_name, skip_bracket=True) == compare_series
+                    for x in files
+                )
+                >= required_count
+            )
+        return result
+
+    # Processes the volume paths based on the given parameters
+    def process_volume_paths(
+        files,
+        root,
+        copy_existing_volume_covers_toggle,
+        is_chapter_directory,
+        volume_paths,
+        paths_with_types,
+    ):
+        base_name = None
+
+        if copy_existing_volume_covers_toggle and is_chapter_directory:
+            # Set the value of volume_paths
+            if not volume_paths and paths_with_types:
+                volume_paths = [
+                    x
+                    for x in paths_with_types
+                    if "volume" in x.path_formats
+                    and files[0].extension in x.path_extensions
+                ]
+                for v_path in volume_paths:
+                    # Get all the folders in v_path.path
+                    volume_series_folders = [
+                        x for x in os.listdir(v_path.path) if not x.startswith(".")
+                    ]
+                    v_path.series_folders = volume_series_folders
+
+            base_name = clean_string(os.path.basename(root))
+
+        return base_name, volume_paths
+
+    # Checks if the folder contains multiple volume ones
+    def check_contains_multiple_volume_ones(
+        files, use_latest_volume_cover_as_series_cover, is_chapter_directory
+    ):
+        result = False
+
+        if not use_latest_volume_cover_as_series_cover or is_chapter_directory:
+            volume_ones = sum(
+                1
+                for file in files
+                if not file.is_one_shot
+                and not file.volume_part
+                and (
+                    file.index_number == 1
+                    or (isinstance(file.index_number, list) and 1 in file.index_number)
+                )
+            )
+            result = volume_ones > 1
+        return result
+
     print("\nLooking for covers to extract...")
 
     # Only volume defined paths in the paths_with_types list
@@ -8101,7 +8177,7 @@ def extract_covers(paths_to_process=paths):
                 continue
 
             # Upgrade files to file classes
-            file_objects = upgrade_to_file_class(files, root, clean=False)
+            file_objects = upgrade_to_file_class(files, root)
 
             # Upgrade file objects to a volume classes
             volume_objects = upgrade_to_volume_class(
@@ -8119,14 +8195,7 @@ def extract_covers(paths_to_process=paths):
             folder_accessor = create_folder_obj(root, dirs, volume_objects)
 
             # Get the series cover
-            series_cover_path = next(
-                (
-                    os.path.join(folder_accessor.root, f"cover{ext}")
-                    for ext in image_extensions
-                    if os.path.exists(os.path.join(folder_accessor.root, f"cover{ext}"))
-                ),
-                None,
-            )
+            series_cover_path = find_series_cover(folder_accessor, image_extensions)
 
             # Set the directory type
             is_chapter_directory = (
@@ -8134,42 +8203,18 @@ def extract_covers(paths_to_process=paths):
             )
 
             # Check if all the series_name values are the same for all volumes
-            same_series_name = False
-            if folder_accessor.files:
-                compare_series = clean_string(
-                    folder_accessor.files[0].series_name, skip_bracket=True
-                )
-                file_count = len(folder_accessor.files)
-                required_count = int(file_count * 0.9)
-                same_series_name = (
-                    sum(
-                        clean_string(x.series_name, skip_bracket=True) == compare_series
-                        for x in folder_accessor.files
-                    )
-                    >= required_count
-                )
+            same_series_name = check_same_series_name(folder_accessor.files)
 
             # Used when filtering the series_folders of each paths_with_types
             # by the first letter of a cleaned up name
-            clean_basename = None
-
-            if copy_existing_volume_covers_toggle and is_chapter_directory:
-                # Set the value of volume_paths
-                if not volume_paths and paths_with_types:
-                    volume_paths = [
-                        x
-                        for x in paths_with_types
-                        if "volume" in x.path_formats
-                        and folder_accessor.files[0].extension in x.path_extensions
-                    ]
-                    for v_path in volume_paths:
-                        # Get all the folders in v_path.path
-                        volume_series_folders = [
-                            x for x in os.listdir(v_path.path) if not x.startswith(".")
-                        ]
-                        v_path.series_folders = volume_series_folders
-
-                clean_basename = clean_string(os.path.basename(folder_accessor.root))
+            clean_basename, volume_paths = process_volume_paths(
+                folder_accessor.files,
+                folder_accessor.root,
+                copy_existing_volume_covers_toggle,
+                is_chapter_directory,
+                volume_paths,
+                paths_with_types,
+            )
 
             # Get the highest volume number and part number
             highest_index_number = (
@@ -8192,22 +8237,11 @@ def extract_covers(paths_to_process=paths):
                 print(f"\n\t\tHighest Index Number: {highest_index_number}")
 
             # Check if it contains multiple volume ones
-            contains_multiple_volume_ones = False
-            if not use_latest_volume_cover_as_series_cover or is_chapter_directory:
-                volume_ones_counter = sum(
-                    1
-                    for file in folder_accessor.files
-                    if not file.is_one_shot
-                    and not file.volume_part
-                    and (
-                        file.index_number == 1
-                        or (
-                            isinstance(file.index_number, list)
-                            and 1 in file.index_number
-                        )
-                    )
-                )
-                contains_multiple_volume_ones = volume_ones_counter > 1
+            contains_multiple_volume_ones = check_contains_multiple_volume_ones(
+                folder_accessor.files,
+                use_latest_volume_cover_as_series_cover,
+                is_chapter_directory,
+            )
 
             # Process cover extraction for each file
             [
@@ -8265,6 +8299,7 @@ def get_modification_date(path):
     return os.path.getmtime(path)
 
 
+# Handles the processing of cover extraction for a file.
 def process_cover_extraction(
     file,
     contains_multiple_volume_ones,
@@ -8278,19 +8313,20 @@ def process_cover_extraction(
     global image_count
     update_stats(file)
 
-    def get_first_letter(clean_basename):
-        first_letter_match = re.search(r"^[A-Za-z]+", clean_basename)
-        return first_letter_match.group(0) if first_letter_match else None
+    # Gets the first word in the string.
+    def get_first_word(input_string):
+        words = input_string.split()
+        if words:
+            return words[0]
+        else:
+            return None
 
-    def filter_series_by_first_letter(filtered_series, first_letter):
+    # Filters a list of series folders by the first word of a string.
+    def filter_series_by_first_word(filtered_series, first_word):
         return [
-            x
-            for x in filtered_series
-            if re.search(
-                rf"^{re.escape(first_letter)}",
-                clean_string(x),
-                re.IGNORECASE,
-            )
+            folder
+            for folder in filtered_series
+            if folder.lower().startswith(first_word)
         ]
 
     try:
@@ -8360,7 +8396,9 @@ def process_cover_extraction(
             and (
                 (
                     use_latest_volume_cover_as_series_cover
-                    and is_same_index_number(file.index_number, highest_index_number)
+                    and is_same_index_number(
+                        file.index_number, highest_index_number, allow_array_match=True
+                    )
                 )
                 or (
                     not use_latest_volume_cover_as_series_cover
@@ -8420,15 +8458,15 @@ def process_cover_extraction(
 
                 filtered_series = v_path.series_folders
 
-                # Get the first letter of file.basename and remove any that don't start with it
-                first_letter = get_first_letter(clean_basename)
+                first_word = get_first_word(
+                    clean_basename
+                )  # the first word of file.basename
 
-                # Filter filtered_series to only include folders that start with first_set_of_letters
                 filtered_series = (
-                    filter_series_by_first_letter(filtered_series, first_letter)
-                    if first_letter
+                    filter_series_by_first_word(filtered_series, first_word)
+                    if first_word
                     else filtered_series
-                )
+                )  # series that start with first_word
 
                 for folder in filtered_series:
                     folder_path = os.path.join(v_path.path, folder)
@@ -8444,29 +8482,37 @@ def process_cover_extraction(
                     volumes = upgrade_to_file_class(
                         [
                             f
-                            for f in os.listdir(folder_path)
-                            if os.path.isfile(os.path.join(folder_path, f))
+                            for f in [
+                                entry.name
+                                for entry in os.scandir(folder_path)
+                                if entry.is_file()
+                            ]
                         ],
                         folder_path,
+                        clean=True,
                     )
 
                     if not volumes:
                         continue
 
-                    volume_one = [
-                        x
-                        for x in volumes
-                        if x.volume_number == 1
-                        or (
-                            isinstance(file.volume_number, list)
-                            and 1 in file.volume_number
-                        )
-                    ]
+                    # sort the volumes by name
+                    volumes = sorted(volumes, key=lambda x: x.name)
 
-                    if not volume_one or len(volume_one) > 1:
+                    volume_one = next(
+                        (
+                            x
+                            for x in volumes
+                            if x.volume_number == 1
+                            or (
+                                isinstance(x.volume_number, list)
+                                and 1 in x.volume_number
+                            )
+                        ),
+                        None,
+                    )
+
+                    if not volume_one:
                         continue
-
-                    volume_one = volume_one[0]
 
                     # find the image cover
                     cover_path = next(
@@ -8483,6 +8529,7 @@ def process_cover_extraction(
                     volume_one_modification_date = (
                         get_modification_date(cover_path) if cover_path else None
                     )
+
                     if series_cover_path:
                         cover_modification_date = (
                             get_modification_date(series_cover_path)
@@ -8577,7 +8624,9 @@ def process_cover_extraction(
                     file.file_type == "volume"
                     and not is_chapter_directory
                     and use_latest_volume_cover_as_series_cover
-                    and is_same_index_number(file.index_number, highest_index_number)
+                    and is_same_index_number(
+                        file.index_number, highest_index_number, allow_array_match=True
+                    )
                 )
             )
             and same_series_name
@@ -8613,6 +8662,7 @@ def process_cover_extraction(
         )
 
 
+# Prints the collected stats about the paths/files that were processed.
 def print_stats():
     print("\nFor all paths.")
     if file_counters:
@@ -8810,9 +8860,11 @@ def scrape_url(url, strainer=None, headers=None, cookies=None, proxy=None):
         return None
 
 
+# Groups all books with a matching title and book_type.
 def get_all_matching_books(books, book_type, title):
     matching_books = []
     short_title = get_shortened_title(title)
+
     for book in books:
         short_title_two = get_shortened_title(book.title)
         if book.book_type == book_type and (
@@ -8844,6 +8896,7 @@ def get_all_matching_books(books, book_type, title):
 # combine series in series_list that have the same title and book_type
 def combine_series(series_list):
     combined_series = []
+
     for series in series_list:
         # Sort books by volume number
         series.books.sort(
@@ -8994,6 +9047,7 @@ def get_subtitle_from_title(file, publisher=None):
     return subtitle
 
 
+# Searches bookwalker with the user inputted query and returns the results.
 def search_bookwalker(
     query,
     type,
@@ -9325,7 +9379,7 @@ def search_bookwalker(
                             no_volume_number.append(title)
                         continue
                 else:
-                    volume_number = remove_everything_but_volume_num([title])
+                    volume_number = get_release_number([title])
 
                 if not contains_volume_keyword:
                     title = re.sub(
@@ -9565,6 +9619,7 @@ def search_bookwalker(
 def check_for_new_volumes_on_bookwalker():
     global discord_embed_limit
 
+    # Prints info about the item
     def print_item_info(item):
         print(f"\t\t{item.title}")
         print(f"\t\tType: {item.book_type}")
@@ -9572,6 +9627,7 @@ def check_for_new_volumes_on_bookwalker():
         print(f"\t\tDate: {item.date}")
         print(f"\t\tURL: {item.url}\n")
 
+    # Writes info about the item to a file
     def log_item_info(item, file_name):
         message = f"{item.date} | {item.title} | Volume {set_num_as_float_or_int(item.volume_number)} | {item.book_type} | {item.url}"
         write_to_file(
@@ -9581,6 +9637,7 @@ def check_for_new_volumes_on_bookwalker():
             overwrite=False,
         )
 
+    # Creates a Discord embed for the item
     def create_embed(item, color, webhook_index):
         global grouped_notifications
 
@@ -9632,6 +9689,7 @@ def check_for_new_volumes_on_bookwalker():
                 passed_webhook=bookwalker_webhook_urls[webhook_index],
             )
 
+    # Processes the items
     def process_items(items, file_name, color, webhook_index):
         if not items:
             return
@@ -9650,6 +9708,7 @@ def check_for_new_volumes_on_bookwalker():
                     passed_webhook=bookwalker_webhook_urls[webhook_index],
                 )
 
+    # Gets the volume type based on the extensions in the folder
     def determine_volume_type(volumes):
         if get_percent_for_folder([f.name for f in volumes], manga_extensions) >= 70:
             return "m"
@@ -9711,6 +9770,7 @@ def check_for_new_volumes_on_bookwalker():
             ]
         return bookwalker_volumes
 
+    # Writes info about the missing volumes to a log file.
     def log_missing_volumes(series, volumes, bookwalker_volumes):
         write_to_file(
             "bookwalker_missing_volumes.txt",
@@ -9719,6 +9779,7 @@ def check_for_new_volumes_on_bookwalker():
             check_for_dup=True,
         )
 
+    # Prints info about the new/upcoming releases
     def print_new_upcoming_releases(bookwalker_volumes, released, pre_orders):
         # Sort them by volume_number
         bookwalker_volumes = sorted(
@@ -9746,6 +9807,9 @@ def check_for_new_volumes_on_bookwalker():
             else:
                 print(f"\t\t\tURL: {vol.url}")
 
+    # Sorts and logs the releases and pre-orders
+    #  - released is sorted by date in ascending order
+    #  - pre_orders is sorted by date in descending order
     def sort_and_log_releases_and_pre_orders(released, pre_orders):
         pre_orders.sort(
             key=lambda x: datetime.strptime(x.date, "%Y-%m-%d"), reverse=True
@@ -10053,10 +10117,8 @@ def get_komga_libraries(first_run=True):
 
 # Generates a list of all release groups or publishers.
 def generate_rename_lists():
-    global release_groups
-    global publishers
-    global skipped_release_group_files
-    global skipped_publisher_files
+    global release_groups, publishers, skipped_release_group_files, skipped_publisher_files
+
     skipped_files = []
     log_file_name = None
     skipped_file_name = None
@@ -10126,6 +10188,7 @@ def generate_rename_lists():
                                             upgrade_to_file_class(
                                                 [f for f in skipped_files],
                                                 root,
+                                                clean=True,
                                             )
                                         )
                                     if skipped_file_volumes:
@@ -10375,6 +10438,7 @@ class Image_Result:
         self.image_source = image_source
 
 
+# Compares two images and returns the ssim score of the two images similarity.
 def prep_images_for_similarity(
     blank_image_path, internal_cover_data, both_cover_data=False, silent=False
 ):
@@ -10477,8 +10541,7 @@ def compress(temp_dir, cbz_filename):
 
 # Converts supported archives to CBZ.
 def convert_to_cbz():
-    global transferred_files
-    global grouped_notifications
+    global transferred_files, grouped_notifications
 
     if download_folders:
         print("\nLooking for archives to convert to CBZ...")
@@ -10655,8 +10718,8 @@ def convert_to_cbz():
                                 with zipfile.ZipFile(repacked_file) as zip:
                                     for file in zip.namelist():
                                         if get_file_extension(file):
-                                            hash = get_internal_file_hash(
-                                                repacked_file, file
+                                            hash = get_file_hash(
+                                                repacked_file, True, file
                                             )
                                             if hash and hash not in hashes:
                                                 print(
@@ -10785,8 +10848,7 @@ def convert_to_cbz():
 # Goes through each file in download_folders and checks for an incorrect file extension
 # based on the file header. If the file extension is incorrect, it will rename the file.
 def correct_file_extensions():
-    global transferred_files
-    global grouped_notifications
+    global transferred_files, grouped_notifications
 
     if download_folders:
         print("\nChecking for incorrect file extensions...")
@@ -11065,7 +11127,11 @@ def main():
                 if paths_to_trigger:
                     extract_covers(paths_to_process=paths_to_trigger)
             else:
-                extract_covers()
+                if profile_code == "extract_covers()":
+                    cProfile.run(profile_code, sort="cumtime")
+                    exit()
+                else:
+                    extract_covers()
                 print_stats()
 
     # Check for missing volumes in the library (local solution)
@@ -11153,8 +11219,9 @@ if __name__ == "__main__":
             watch = Watcher()
             watch.run()
     else:
-        if profile_code:
+        if profile_code == "main()":
             # run with cprofile and sort by cumulative time
-            cProfile.run("main()", sort="cumtime")
+            cProfile.run(profile_code, sort="cumtime")
+            exit()
         else:
             main()
