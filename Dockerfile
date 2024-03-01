@@ -16,7 +16,6 @@ ENV PYTHONUNBUFFERED 1
 
 # Add non-free to sources.list
 RUN echo "deb http://deb.debian.org/debian bullseye non-free" >> /etc/apt/sources.list
-RUN apt-get update
 
 # Set ownership to appuser and switch to "appuser"
 RUN groupmod -o -g "$PGID" appuser && usermod -o -u "$PUID" appuser
@@ -29,13 +28,14 @@ RUN umask "$UMASK"
 COPY --chown=appuser:appuser . .
 
 # Install necessary packages and requirements for the main script
-RUN apt-get install -y unrar tzdata nano
+RUN apt-get update
+RUN apt-get install -y unrar tzdata nano rclone
 RUN pip3 install --no-cache-dir -r requirements.txt
 
 # Install the requirements for the qbit_torrent_unchecker addon
 RUN pip3 install --no-cache-dir -r /app/addons/qbit_torrent_unchecker/requirements.txt
 
-# Install the optional addon feature manga_isbn if true
+# # Install the optional addon feature manga_isbn if true
 ARG MANGA_ISBN
 RUN if [ "$MANGA_ISBN" = "true" ]; then \
     apt-get update && \
