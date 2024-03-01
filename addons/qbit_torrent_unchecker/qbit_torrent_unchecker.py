@@ -3,7 +3,6 @@ import os
 import sys
 
 from qbittorrentapi import Client
-import concurrent.futures
 import regex as re
 import argparse
 
@@ -35,24 +34,24 @@ torrent_check_sleep_time = 30
 cached_paths_toggle = True
 
 # Profiles the execution
-profile_code = False
+profile_code = ""
 
 
 # An alternative to send_message() in the main script
 def send_message_alt(
     message,
     error=False,
-    log=log_to_file,
+    log=True,
     error_file_name=f"{log_file_name}_errors.txt",
     changes_file_name=f"{log_file_name}_changes.txt",
 ):
     print(message)
     if error:
         if log:
-            write_to_file(error_file_name, message, can_write_log=True)
+            write_to_file(error_file_name, message, can_write_log=log)
     else:
         if log:
-            write_to_file(changes_file_name, message, can_write_log=True)
+            write_to_file(changes_file_name, message, can_write_log=log)
 
 
 parser = argparse.ArgumentParser(
@@ -222,7 +221,7 @@ def check_upgrade_or_new(volume, existing_files):
 
             message = (
                 f"\n\tDownload: {volume.name}"
-                f"\n\t\tis {'an' if upgrade_status else 'not an'} upgrade to:"
+                f"\n\t\tis {'an' if upgrade_status else 'not an'} upgrade to: "
                 f"\n\tExisting: {existing_file.name}"
             )
 
@@ -258,9 +257,7 @@ def has_unacceptable_keywords(torrent):
 # Processes file names, removing excluded files
 def process_file_names(files, files_to_exclude):
     file_names = [
-        unidecode(os.path.basename(file.name))
-        for file in files
-        if file not in files_to_exclude
+        os.path.basename(file.name) for file in files if file not in files_to_exclude
     ]
     return file_names
 
@@ -519,15 +516,22 @@ def main():
         "\nWatching for new torrents... (QBit Unchecker)",
     )
 
+    qb = None
+
     while True:
         try:
             # Connect to qBittorrent
-            qb = connect_to_qbittorrent(
-                qbittorrent_ip,
-                qbittorrent_port,
-                qbittorrent_username,
-                qbittorrent_password,
-            )
+            if not qb:
+                qb = connect_to_qbittorrent(
+                    qbittorrent_ip,
+                    qbittorrent_port,
+                    qbittorrent_username,
+                    qbittorrent_password,
+                )
+                if qb and qb.is_logged_in:
+                    send_message_alt(
+                        "\tConnected to qBittorrent",
+                    )
 
             # Abort if we can't connect to qBittorrent
             if not qb or not qb.is_logged_in:
@@ -537,30 +541,29 @@ def main():
                 )
                 return None
 
-            if qb:
-                torrents = get_torrents(qb)
-                filtered_torrents = filter_torrents(torrents)
+            torrents = get_torrents(qb)
+            filtered_torrents = filter_torrents(torrents)
 
-                if filtered_torrents:
-                    send_message_alt(
-                        f"\tTorrents found: {len(filtered_torrents)}",
-                    )
+            if filtered_torrents:
+                send_message_alt(
+                    f"\tTorrents found: {len(filtered_torrents)}",
+                )
 
-                    # sort torrents by number of files, lowest to highest
-                    filtered_torrents.sort(key=lambda x: len(x.files.data))
+                # sort torrents by number of files, lowest to highest
+                filtered_torrents.sort(key=lambda x: len(x.files.data))
 
-                    for torrent in filtered_torrents:
-                        try:
-                            send_message_alt(
-                                f"\t\tChecking torrent: '{torrent.name}'",
-                            )
-                            process_torrent(torrent, qb)
-                        except Exception as e:
-                            send_message_alt(
-                                f"Error processing torrent '{torrent.name}': {e}",
-                                error=True,
-                            )
-                time.sleep(torrent_check_sleep_time)  # Adjust the interval as needed
+                for torrent in filtered_torrents:
+                    try:
+                        send_message_alt(
+                            f"\t\tChecking torrent: '{torrent.name}'",
+                        )
+                        process_torrent(torrent, qb)
+                    except Exception as e:
+                        send_message_alt(
+                            f"Error processing torrent '{torrent.name}': {e}",
+                            error=True,
+                        )
+            time.sleep(torrent_check_sleep_time)  # Adjust the interval as needed
         except Exception as e:
             send_message_alt(
                 f"Error: {e}",
@@ -572,8 +575,8 @@ def main():
 
 if __name__ == "__main__":
     try:
-        if profile_code:
-            cProfile.run("main()", sort="cumtime")
+        if profile_code == "main()":
+            cProfile.run(profile_code, sort="cumtime")
         else:
             main()
     except Exception as e:
