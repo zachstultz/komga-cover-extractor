@@ -47,7 +47,7 @@ from settings import *
 import settings as settings_file
 
 # Version of the script
-script_version = (2, 5, 2)
+script_version = (2, 5, 3)
 script_version_text = "v{}.{}.{}".format(*script_version)
 
 # Paths = existing library
