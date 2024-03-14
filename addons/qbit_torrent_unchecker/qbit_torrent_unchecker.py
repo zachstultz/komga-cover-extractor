@@ -475,22 +475,16 @@ def login_to_qbittorrent(ip, port, username, password):
 def connect_to_qbittorrent(
     qbittorrent_ip, qbittorrent_port, qbittorrent_username, qbittorrent_password
 ):
-    # Retry connection for up to 5 times
-    for i in range(5):
-        qb = login_to_qbittorrent(
-            qbittorrent_ip,
-            qbittorrent_port,
-            qbittorrent_username,
-            qbittorrent_password,
-        )
-        if qb and qb.is_logged_in:
-            return qb
-        else:
-            send_message_alt(
-                f"\tCould not connect to qBittorrent, retrying in 60 seconds...",
-            )
-            time.sleep(qbit_sleep_time)
-    return None
+    qb = login_to_qbittorrent(
+        qbittorrent_ip,
+        qbittorrent_port,
+        qbittorrent_username,
+        qbittorrent_password,
+    )
+    if qb and qb.is_logged_in:
+        return qb
+    else:
+        return None
 
 
 def main():
@@ -521,25 +515,23 @@ def main():
     while True:
         try:
             # Connect to qBittorrent
-            if not qb:
-                qb = connect_to_qbittorrent(
-                    qbittorrent_ip,
-                    qbittorrent_port,
-                    qbittorrent_username,
-                    qbittorrent_password,
-                )
-                if qb and qb.is_logged_in:
-                    send_message_alt(
-                        "\tConnected to qBittorrent",
-                    )
-
-            # Abort if we can't connect to qBittorrent
             if not qb or not qb.is_logged_in:
-                send_message_alt(
-                    "\tCould not connect to qBittorrent, exiting...",
-                    error=True,
-                )
-                return None
+                while not qb or not qb.is_logged_in:
+                    qb = connect_to_qbittorrent(
+                        qbittorrent_ip,
+                        qbittorrent_port,
+                        qbittorrent_username,
+                        qbittorrent_password,
+                    )
+                    if qb and qb.is_logged_in:
+                        send_message_alt(
+                            "\tConnected to qBittorrent",
+                        )
+                    else:
+                        send_message_alt(
+                            f"\tFailed to connect to qBittorrent, retrying in {qbit_sleep_time} seconds...",
+                        )
+                        time.sleep(qbit_sleep_time)
 
             torrents = get_torrents(qb)
             filtered_torrents = filter_torrents(torrents)
@@ -566,11 +558,9 @@ def main():
             time.sleep(torrent_check_sleep_time)  # Adjust the interval as needed
         except Exception as e:
             send_message_alt(
-                f"Error: {e}",
+                f"\tError: {e}",
                 error=True,
             )
-            print("Retrying in 60 seconds...")
-            time.sleep(60)
 
 
 if __name__ == "__main__":
