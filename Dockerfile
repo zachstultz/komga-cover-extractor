@@ -1,5 +1,16 @@
 # Use a specific version of the Python image
-FROM python:3.11.4-slim-bookworm
+FROM python:3.11.4-slim-bookworm as build
+
+RUN apt-get update && apt-get install -y build-essential curl unrar-free tzdata nano rclone
+
+ENV VIRTUAL_ENV=/opt/venv \
+    PATH="/opt/venv/bin:$PATH"
+    ADD https://astral.sh/uv/install.sh /install.sh
+    RUN chmod -R 655 /install.sh && /install.sh && rm /install.sh
+    COPY ./requirements.txt .
+    RUN /root/.cargo/bin/uv venv /opt/venv && \
+        /root/.cargo/bin/uv pip install --no-cache -r requirements.txt 
+
 
 # Set the working directory to /app
 WORKDIR /app
@@ -27,14 +38,11 @@ RUN umask "$UMASK"
 # Copy the current directory contents into the container at /app
 COPY --chown=appuser:appuser . .
 
-# Install necessary packages and requirements for the main script
-RUN apt-get update
-RUN apt-get install -y unrar tzdata nano rclone
-RUN pip3 install --no-cache-dir -r requirements.txt
-
 # Install the requirements for the qbit_torrent_unchecker addon
-RUN pip3 install --no-cache-dir -r /app/addons/qbit_torrent_unchecker/requirements.txt
+RUN /root/.cargo/bin/uv pip install --no-cache -r /app/addons/qbit_torrent_unchecker/requirements.txt
 
+FROM python:3.11.4-slim-bookworm
+COPY --from=build /opt/venv /opt/venv
 # # Install the optional addon feature manga_isbn if true
 ARG MANGA_ISBN
 RUN if [ "$MANGA_ISBN" = "true" ]; then \
