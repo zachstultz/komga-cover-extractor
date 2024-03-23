@@ -22,7 +22,7 @@ RUN /root/.cargo/bin/uv venv /opt/venv && \
 FROM python:3.11.4-slim-bookworm
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    unrar-free tzdata nano rclone \
+    unrar-free tzdata nano \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /opt/venv /opt/venv
