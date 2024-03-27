@@ -47,7 +47,7 @@ from settings import *
 import settings as settings_file
 
 # Version of the script
-script_version = (2, 5, 3)
+script_version = (2, 5, 4)
 script_version_text = "v{}.{}.{}".format(*script_version)
 
 # Paths = existing library
@@ -128,7 +128,7 @@ in_docker = False
 # If the ROOT_DIR is /app, then it's running in docker.
 if ROOT_DIR == "/app":
     in_docker = True
-    script_version_text += "-d"
+    script_version_text += " • Docker"
 
 # The path location of the blank_white.jpg in the root of the script directory.
 blank_white_image_path = (
@@ -291,7 +291,7 @@ exclusion_keywords = [
     r"(\s)Extra(\s)",
     r"(\s)- Special(\s)",
     r"(\s)Side Story(\s)",
-    r"(\s)S(\s)",
+    # r"(\s)S(\s)",
     r"(\s)Act(\s)",
     r"(\s)Special Episode(\s)",
     r"(\s)Ep(\s)",
@@ -301,7 +301,16 @@ exclusion_keywords = [
     r"(\s)PT(\s)",
     r",",
     r"(\s)×",
+    r"\d\s-\s",
+    r"No.",
+    r"No.(\s)",
+    r"Bonus(\s)",
+    r"(\]|\}|\)) -",
+    r"Zom(\s)",
 ]
+
+subtitle_exclusion_keywords = [r"-(\s)", r"-", r"-\s[A-Za-z]+\s"]
+
 
 # Volume Regex Keywords to be used throughout the script
 volume_regex_keywords = "(?<![A-Za-z])" + "|(?<![A-Za-z])".join(volume_keywords)
@@ -309,8 +318,14 @@ volume_regex_keywords = "(?<![A-Za-z])" + "|(?<![A-Za-z])".join(volume_keywords)
 # Exclusion keywords joined by just |
 exclusion_keywords_joined = "|".join(exclusion_keywords)
 
+# Subtitle exclusion keywords joined by just |
+subtitle_exclusion_keywords_joined = "|".join(subtitle_exclusion_keywords)
+
 # Put the exclusion_keywords_joined inside of (?<!%s)
 exclusion_keywords_regex = r"(?<!%s)" % exclusion_keywords_joined
+
+# Put the subtitle_exclusion_keywords_joined inside of (?<!%s)
+subtitle_exclusion_keywords_regex = r"(?<!%s)" % subtitle_exclusion_keywords_joined
 
 # Chapter Regex Keywords to be used throughout the script
 chapter_regex_keywords = r"(?<![A-Za-z])" + (r"|(?<![A-Za-z])").join(chapter_keywords)
@@ -330,13 +345,14 @@ image_extensions_regex = "|".join(image_extensions).replace(".", "\.")
 # IMPORTANT: Any change of order or swapping of regexes, requires change in full_chapter_match_attempt_allowed alternative logic!
 chapter_searches = [
     r"(?<!\d)\s-\s*(#)?([0-9]+)([-_.][0-9]+)*(x[0-9]+)?\s*-\s",
-    r"\b(%s)(\.)?\s*([0-9]+)([-_.][0-9]+)*(x[0-9]+)?\b" % chapter_regex_keywords,
-    r"((\b(%s)?(\.)?\s*(%s)([0-9]+)([-_.][0-9]+)*(x[0-9]+)?(#[0-9]+([-_.][0-9]+)*)?\b)\s*((\[[^\]]*\]|\([^\)]*\)|\{[^}]*\})|((?<!\w(\s))|(?<!\w))(%s)(?!\w)))"
-    % (chapter_regex_keywords, exclusion_keywords_regex, manga_extensions_regex),
-    r"(\b(\.)?\s*(%s)([0-9]+)([-_.][0-9]+)*((x|#)([0-9]+)([-_.][0-9]+)*)*\b)((\s+-|:)\s+).*?(?=\s*[\(\[\{](\d{4}|Digital)[\)\]\}])"
-    % exclusion_keywords_regex,
-    r"(?<![A-Za-z]|%s)(((%s)([-_. ]+)?([0-9]+))|\s+([0-9]+)(\.[0-9]+)?(x\d+((\.\d+)+)?)?(\s+|#\d+|%s))"
+    r"\b(%s)(\.)?\s*([0-9]+)([-_.][0-9]+)*(x[0-9]+)?\b(?<!\s([0-9]+)([-_.][0-9]+)*(x[0-9]+)?\s.*)"
+    % chapter_regex_keywords,
+    r"(?<![A-Za-z]|%s)(((%s)([-_. ]+)?([0-9]+)([-_.][0-9]+)*(x[0-9]+)?)|\s+([0-9]+)(\.[0-9]+)?(x\d+((\.\d+)+)?)?(\s+|#\d+|%s))"
     % (exclusion_keywords_joined, chapter_regex_keywords, manga_extensions_regex),
+    r"((?<!^)\b(\.)?\s*(%s)([0-9]+)([-_.][0-9]+)*((x|#)([0-9]+)([-_.][0-9]+)*)*\b)((\s+-|:)\s+).*?(?=\s*[\(\[\{](\d{4}|Digital)[\)\]\}])"
+    % exclusion_keywords_regex,
+    r"((\b(%s)?(\.)?\s*(%s)([0-9]+)([-_.][0-9]+)*(x[0-9]+)?(#[0-9]+([-_.][0-9]+)*)?\b)\s*((\[[^\]]*\]|\([^\)]*\)|\{[^}]*\})|((?<!\w(\s))|(?<!\w))(%s)(?!\w)))"
+    % (chapter_regex_keywords, exclusion_keywords_regex, file_extensions_regex),
     r"^((#)?([0-9]+)([-_.][0-9]+)*((x|#)([0-9]+)([-_.][0-9]+)*)*)$",
 ]
 
@@ -365,10 +381,10 @@ sleep_timer = 10
 sleep_timer_bk = 2
 
 # The fill values for the chapter and volume files when renaming.
-# VOLUME
+# # VOLUME
 zfill_volume_int_value = 2  # 01
 zfill_volume_float_value = 4  # 01.0
-# CHAPTER
+# # CHAPTER
 zfill_chapter_int_value = 3  # 001
 zfill_chapter_float_value = 5  # 001.0
 
@@ -643,7 +659,7 @@ def send_message(
     changes_file_name="changes.txt",
 ):
     print(message)
-    if discord != False:
+    if discord:
         send_discord_message(message)
     if error:
         errors.append(message)
@@ -656,7 +672,7 @@ def send_message(
 
 
 # Checks if the file is fully transferred by checking the file size
-def check_if_file_is_transferred_by_size(file_path):
+def is_file_transferred(file_path):
     # Check if the file path exists and is a file
     if not os.path.isfile(file_path):
         return False
@@ -683,7 +699,7 @@ def check_if_file_is_transferred_by_size(file_path):
         return True
 
     except Exception as e:
-        send_message(f"ERROR in check_if_file_is_transferred_by_size(): {e}")
+        send_message(f"ERROR in is_file_transferred(): {e}")
         return False
 
 
@@ -716,7 +732,7 @@ def get_all_folders_recursively_in_dir(dir_path):
 
 
 # Recursively gets all the files in a directory
-def get_all_files_recursively_in_dir(dir_path):
+def get_all_files_in_directory(dir_path):
     results = []
     for root, dirs, files in scandir.walk(dir_path):
         files = remove_hidden_files(files)
@@ -825,25 +841,23 @@ class Handler(FileSystemEventHandler):
 
                 send_message("\nStarting Execution (WATCHDOG)", discord=False)
 
-                embed = [
-                    handle_fields(
-                        DiscordEmbed(
-                            title="Starting Execution (WATCHDOG)",
-                            color=purple_color,
-                        ),
-                        [
-                            {
-                                "name": "File Found",
-                                "value": f"```{event.src_path}```",
-                                "inline": False,
-                            }
-                        ],
-                    )
-                ]
+                embed = handle_fields(
+                    DiscordEmbed(
+                        title="Starting Execution (WATCHDOG)",
+                        color=purple_color,
+                    ),
+                    [
+                        {
+                            "name": "File Found",
+                            "value": f"```{event.src_path}```",
+                            "inline": False,
+                        }
+                    ],
+                )
 
                 send_discord_message(
                     None,
-                    [Embed(embed[0], None)],
+                    [Embed(embed, None)],
                 )
 
                 print(f"\n\tFile Found: {event.src_path}\n")
@@ -872,7 +886,7 @@ class Handler(FileSystemEventHandler):
                             print("\t\t-already transferred")
                             continue
 
-                        is_transferred = check_if_file_is_transferred_by_size(file)
+                        is_transferred = is_file_transferred(file)
 
                         if is_transferred:
                             print("\t\t-fully transferred")
@@ -979,25 +993,23 @@ class Handler(FileSystemEventHandler):
             )
 
             # Discord Message
-            embed = [
-                handle_fields(
-                    DiscordEmbed(
-                        title="Finished Execution (WATCHDOG)",
-                        color=purple_color,
-                    ),
-                    [
-                        {
-                            "name": "Execution Time",
-                            "value": f"```{execution_time_message}```",
-                            "inline": False,
-                        }
-                    ],
-                )
-            ]
+            embed = handle_fields(
+                DiscordEmbed(
+                    title="Finished Execution (WATCHDOG)",
+                    color=purple_color,
+                ),
+                [
+                    {
+                        "name": "Execution Time",
+                        "value": f"```{execution_time_message}```",
+                        "inline": False,
+                    }
+                ],
+            )
 
             # Add it to the queue
             grouped_notifications = add_to_grouped_notifications(
-                grouped_notifications, Embed(embed[0], None)
+                grouped_notifications, Embed(embed, None)
             )
 
             # Send any remaining queued notifications to Discord
@@ -1066,7 +1078,7 @@ def process_path(path, paths_with_types, paths, is_download_folders=False):
         CHAPTER_THRESHOLD = 0.9  # 90%
         VOLUME_THRESHOLD = 0.9  # 90%
 
-        files = get_all_files_recursively_in_dir(path_str)
+        files = get_all_files_in_directory(path_str)
 
         if files:
             print("\t\t\t- attempting auto-classification...")
@@ -1462,7 +1474,7 @@ def parse_my_args():
 
     if parser.compress_quality:
         global image_quality
-        image_quality = set_num_as_float_or_int(parser.compress_quality)
+        image_quality = float(parser.compress_quality)
     print(f"\tcompress_quality: {image_quality}")
 
     if parser.bookwalker_webhook_urls is not None:
@@ -1776,7 +1788,7 @@ def contains_chapter_keywords(file_name):
     found = False
     for pattern in chapter_search_patterns_comp:
         result = pattern.search(file_name_clean)
-        if result and not re.search(r"^((\(|\{|\[)\d{4}(\]|\}|\)))$", result.group(0)):
+        if result and not re.search(r"^((\(|\{|\[)\d{4}(\]|\}|\)))$", result.group()):
             found = True
             break
 
@@ -1808,6 +1820,38 @@ volume_regex = re.compile(
     ),
     re.IGNORECASE,
 )
+
+
+# Removes bracketed content from the string, alongwith any whitespace.
+# As long as the bracketed content is not immediately preceded or followed by a dash.
+@lru_cache(maxsize=None)
+def remove_bracketed_info_from_name(string):
+    # Avoid a string that is only a bracket
+    # Probably a series name
+    # EX: [(OSHI NO KO)]
+    if re.search(r"^[\(\[\{].*[\)\]\}]$", string):
+        return string
+
+    # Remove all grouped brackets as long as they aren't surrounded by dashes,
+    # letters, or square brackets.
+    # Regex 1: ([\[\{\(]((\d{4}))[\]\}\)]) - FOR YEAR
+    # Regex 2: (((?<!-|[A-Za-z]\s|\[)(\[[^\]]*\]|\([^\)]*\)|\{[^}]*\})(?!-|\s*[A-Za-z]|\]))(\s+)?)+ - FOR EVERYTHING ELSE
+    string = re.sub(
+        r"((((?<!-|[A-Za-z]\s|\[)(\[[^\]]*\]|\([^\)]*\)|\{[^}]*\})(?!-|\s*[A-Za-z]|\]))(\s+)?)+|([\[\{\(]((\d{4}))[\]\}\)]))",
+        "",
+        string,
+    ).strip()
+
+    # Remove ending bracket against the extension
+    # EX: test (digital).cbz -> test .cbz
+    string = re.sub(r"(\[[^\]]*\]|\([^\)]*\)|\{[^}]*\})(\.\w+$)", r"\2", string).strip()
+
+    # Remove any space before the extension from having removed bracketed content
+    # EX: test .cbz -> test.cbz
+    string = re.sub(r"\s\.(\w+)$", r".\1", string).strip()
+
+    # Return the modified string
+    return string
 
 
 # Checks if the passed string contains volume keywords
@@ -2063,7 +2107,7 @@ def upgrade_to_file_class(
                 for file in files
             ],
             [
-                get_release_number_cache([file], chapter=file_type == "chapter")
+                get_release_number_cache(file, chapter=file_type == "chapter")
                 for file, file_type in zip(
                     files,
                     [
@@ -2360,7 +2404,17 @@ def move_images(
 # Removes the volume number and anything to the right of it, and strips it.
 @lru_cache(maxsize=None)
 def get_series_name_from_file_name(name, root, test_mode=False, second=False):
+    # Remove starting brackets
+    # EX: "[WN] Series Name" -> "Series Name"
+    if re.search(r"^(\[[^\]]*\]|\([^\)]*\)|\{[^}]*\})+(\s+[A-Za-z]{2})", name):
+        # remove the brackets only
+        name = re.sub(r"^(\[[^\]]*\]|\([^\)]*\)|\{[^}]*\})+\s+", "", name).strip()
+
+    # remove _extra
     name = remove_dual_space(re.sub(r"_extra", " ", name, flags=re.IGNORECASE)).strip()
+
+    # replace underscores
+    name = replace_underscore_in_name(name)
 
     # name = remove_bracketed_info_from_name(name)
     if is_one_shot(name, root, test_mode=test_mode):
@@ -2373,14 +2427,14 @@ def get_series_name_from_file_name(name, root, test_mode=False, second=False):
         ).strip()
     else:
         if re.search(
-            r"(\b|\s)((\s|)-(\s|)|)(Part|)(\[|\(|\{)?(%s)(\.|)([-_. ]|)([0-9]+)(\b|\s).*"
+            r"(\b|\s)(?<![A-Za-z])((\s|)-(\s|)|)(Part|)(\[|\(|\{)?(%s)(\.|)([-_. ]|)([0-9]+)(\b|\s).*"
             % volume_regex_keywords,
             name,
             flags=re.IGNORECASE,
         ):
             name = (
                 re.sub(
-                    r"(\b|\s)((\s|)-(\s|)|)(Part|)(\[|\(|\{)?(%s)(\.|)([-_. ]|)([0-9]+)(\b|\s).*"
+                    r"(\b|\s)(?<![A-Za-z])((\s|)-(\s|)|)(Part|)(\[|\(|\{)?(%s)(\.|)([-_. ]|)([0-9]+)(\b|\s).*"
                     % volume_regex_keywords,
                     "",
                     name,
@@ -2399,6 +2453,14 @@ def get_series_name_from_file_name(name, root, test_mode=False, second=False):
     # Remove a trailing comma at the end of the name
     name = re.sub(r"(,)$", "", name).strip()
 
+    # remove the file extension if still remaining
+    name = re.sub(r"(%s)$" % file_extensions_regex, "", name).strip()
+
+    # Remove "- Complete" from the end
+    # "Series Name - Complete" -> "Series Name"
+    # EX File: Series Name - Complete v01 [Premium] [Publisher].epub
+    name = re.sub(r"(-|:)\s*Complete$", "", name).strip()
+
     # Default to the root folder name if we have nothing left
     # As long as it's not in our download folders or paths
     if (
@@ -2411,7 +2473,7 @@ def get_series_name_from_file_name(name, root, test_mode=False, second=False):
         and (os.path.basename(root) not in str(paths) or not paths)
     ):
         # Get the series namne from the root folder
-        # EX: "Kindaichi 37-sai no Jikenbo -v01-v12-"" --> "Kindaichi 37-sai no Jikenbo"
+        # EX: "Kindaichi 37-sai no Jikenbo -v01-v12-"" -> "Kindaichi 37-sai no Jikenbo"
         name = get_series_name_from_file_name(
             os.path.basename(root), root, test_mode=test_mode, second=True
         )
@@ -2431,18 +2493,25 @@ def chapter_file_name_cleaning(
     file_name = remove_bracketed_info_from_name(file_name)
 
     # Remove any single brackets at the end of the file_name
-    # EX: "Death Note - Bonus Chapter (" --> "Death Note - Bonus Chapter"
+    # EX: "Death Note - Bonus Chapter (" -> "Death Note - Bonus Chapter"
     file_name = re.sub(r"(\s(([\(\[\{])|([\)\]\}])))$", "", file_name).strip()
 
-    # EX: "006.3 - One Piece" --> "One Piece"
-    if regex_matched != 3:
+    # EX: "006.3 - One Piece" -> "One Piece"
+    if regex_matched != 2:
         file_name = re.sub(
             r"(^([0-9]+)(([-_.])([0-9]+)|)+(\s+)?([-_]+)(\s+))", "", file_name
         ).strip()
 
+    # Remove number and dash at the end
+    # EX: "Series Name 54 -" -> "Series Name"
+    if regex_matched != 0:
+        file_name = re.sub(
+            r"(#)?([0-9]+)([-_.][0-9]+)*((x|#)([0-9]+)([-_.][0-9]+)*)*\s*-$", "", file_name
+        ).strip()
+
     # Remove - at the end of the file_name
-    # EX: " One Piece -" --> "One Piece"
-    file_name = re.sub(r"(-\s*)$", "", file_name).strip()
+    # EX: " One Piece -" -> "One Piece"
+    file_name = re.sub(r"(?<![A-Za-z])(-\s*)$", "", file_name).strip()
 
     # Return if we have nothing but a digit left, if not skip
     if re.sub(r"(#)", "", file_name).isdigit() and not skip:
@@ -2451,13 +2520,13 @@ def chapter_file_name_cleaning(
         return ""
 
     # if chapter_number and it's at the end of the file_name, remove it
-    # EX: "One Piece 001" --> "One Piece"
+    # EX: "One Piece 001" -> "One Piece"
     if not regex_matched:
         if chapter_number != "" and re.search(
             r"-?(\s+)?((?<!({})(\s+)?)(\s+)?\b#?((0+)?({}|{}))#?$)".format(
                 chapter_regex_keywords,
                 chapter_number,
-                set_num_as_float_or_int(chapter_number),
+                chapter_number,
             ),
             file_name,
         ):
@@ -2465,7 +2534,7 @@ def chapter_file_name_cleaning(
                 r"-?(\s+)?((?<!({})(\s+)?)(\s+)?\b#?((0+)?({}|{}))#?$)".format(
                     chapter_regex_keywords,
                     chapter_number,
-                    set_num_as_float_or_int(chapter_number),
+                    chapter_number,
                 ),
                 "",
                 file_name,
@@ -2478,8 +2547,8 @@ def chapter_file_name_cleaning(
         )
 
     # Remove any subtitle
-    # EX: "Solo Leveling 179.1 - Epilogue 01 (2023) (Digital) (LuCaZ).cbz"
-    # "179.1 - Epilogue 01" --> "179.1"
+    # EX: "Series Name 179.1 - Epilogue 01 (2023) (Digital) (release_group).cbz"
+    # "179.1 - Epilogue 01" -> "179.1"
     if re.search(r"(^\d+)", file_name.strip()):
         file_name = re.sub(r"((\s+(-)|:)\s+).*$", "", file_name, re.IGNORECASE).strip()
 
@@ -2488,12 +2557,19 @@ def chapter_file_name_cleaning(
 
 # Retrieves the series name from the file name and chapter number
 def get_series_name_from_file_name_chapter(name, root, chapter_number="", second=False):
+    # Remove starting brackets
+    # EX: "[WN] Series Name" -> "Series Name"
+    if re.search(r"^(\[[^\]]*\]|\([^\)]*\)|\{[^}]*\})+(\s+[A-Za-z]{2})", name):
+        # remove the brackets only
+        name = re.sub(r"^(\[[^\]]*\]|\([^\)]*\)|\{[^}]*\})+\s+", "", name).strip()
+
+    # Remove dual space
     name = remove_dual_space(re.sub(r"_extra", " ", name, flags=re.IGNORECASE)).strip()
 
     # remove the file extension
     name = re.sub(r"(%s)$" % file_extensions_regex, "", name).strip()
 
-    # remove underscores
+    # replace underscores
     name = replace_underscore_in_name(name)
 
     regex_matched = False
@@ -2506,14 +2582,17 @@ def get_series_name_from_file_name_chapter(name, root, chapter_number="", second
             ).strip()
             break
 
-    if isinstance(chapter_number, list):
-        result = chapter_file_name_cleaning(
-            name, chapter_number[0], regex_matched=regex_matched
-        )
-    else:
-        result = chapter_file_name_cleaning(
-            name, chapter_number, regex_matched=regex_matched
-        )
+    result = ""
+
+    if name:
+        if isinstance(chapter_number, list):
+            result = chapter_file_name_cleaning(
+                name, chapter_number[0], regex_matched=regex_matched
+            )
+        else:
+            result = chapter_file_name_cleaning(
+                name, chapter_number, regex_matched=regex_matched
+            )
 
     # Remove a trailing comma at the end of the name
     result = re.sub(r"(,)$", "", result).strip()
@@ -2529,7 +2608,7 @@ def get_series_name_from_file_name_chapter(name, root, chapter_number="", second
         )
         and (os.path.basename(root) not in str(paths) or not paths)
     ):
-        root_number = get_release_number_cache([os.path.basename(root)])
+        root_number = get_release_number_cache(os.path.basename(root))
 
         # Get series name
         result = get_series_name_from_file_name_chapter(
@@ -2593,7 +2672,7 @@ def check_for_multi_volume_file(file_name, chapter=False):
 
 
 # Converts our list of numbers into an array of numbers, returning only the lowest and highest numbers in the list
-# EX "1, 2, 3" --> [1, 3]
+# EX "1, 2, 3" -> [1, 3]
 def get_min_and_max_numbers(string):
     # initialize an empty list to hold the numbers
     numbers = []
@@ -2629,155 +2708,158 @@ def get_min_and_max_numbers(string):
 
 # Finds the volume/chapter number(s) in the file name.
 @lru_cache(maxsize=None)
-def get_release_number(files, chapter=False):
+def get_release_number(file, chapter=False):
     results = []
     is_multi_volume = False
     keywords = volume_regex_keywords if not chapter else chapter_regex_keywords
+    result = None
 
-    for file in files[:]:
-        file = remove_dual_space(
-            re.sub(r"_extra", " ", file, flags=re.IGNORECASE)
-        ).strip()
+    file = remove_dual_space(re.sub(r"_extra", " ", file, flags=re.IGNORECASE)).strip()
+    file = replace_underscore_in_name(file)
 
-        result = None
-        file = replace_underscore_in_name(file)
-        is_multi_volume = check_for_multi_volume_file(file, chapter=chapter)
+    is_multi_volume = check_for_multi_volume_file(file, chapter=chapter)
 
-        if not chapter:
-            result = re.search(
-                r"\b({})((\.)|)(\s+)?([0-9]+)(([-_.])([0-9]+)|)+\b".format(keywords),
-                file,
+    if not chapter:
+        result = re.search(
+            r"\b({})((\.)|)(\s+)?([0-9]+)(([-_.])([0-9]+)|)+\b".format(keywords),
+            file,
+            re.IGNORECASE,
+        )
+    else:
+        if has_multiple_numbers(file):
+            if re.search(
+                r"((%s)(\.)?(\s+)?(#)?(([0-9]+)(([-_.])([0-9]+)|)+))$"
+                % exclusion_keywords_joined,
+                re.sub(r"(%s)" % file_extensions_regex, "", file),
                 re.IGNORECASE,
-            )
-        else:
-            if has_multiple_numbers(file):
-                if re.search(
+            ):
+                file = re.sub(
                     r"((%s)(\.)?(\s+)?(#)?(([0-9]+)(([-_.])([0-9]+)|)+))$"
                     % exclusion_keywords_joined,
+                    "",
                     re.sub(r"(%s)" % file_extensions_regex, "", file),
                     re.IGNORECASE,
-                ):
-                    file = re.sub(
-                        r"((%s)(\.)?(\s+)?(#)?(([0-9]+)(([-_.])([0-9]+)|)+))$"
-                        % exclusion_keywords_joined,
-                        "",
-                        re.sub(r"(%s)" % file_extensions_regex, "", file),
-                        re.IGNORECASE,
-                    ).strip()
-                    # remove - at the end of the string
-                    if not re.search(
-                        r"-(\s+)?(#)?([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?(\s+)?-", file
-                    ) and re.search(r"(-)$", file):
-                        file = re.sub(r"(-)$", "", file).strip()
-
-            # With a chapter keyword, without, but before bracketed info, or without and with a manga extension or a novel exteion after the number
-            # Series Name c001.extension or Series Name 001 (2021) (Digital) (Release).extension or Series Name 001.extension
-            for pattern in chapter_search_patterns_comp:
-                search_result = pattern.search(file)
-                if search_result:
-                    result = search_result
-                    break
-
-        if result:
-            try:
-                file = result.group() if hasattr(result, "group") else ""
-                if chapter:
-                    # Removes starting period
-                    # EX: "series_name. 031 (2023).cbz" --> "'. 031 (2023)"" --> "031 (2023)"
-                    file = re.sub(r"^(\s+)?(\.)", "", file, re.IGNORECASE).strip()
-
-                    # Remove any subtitle
-                    # EX: "Solo Leveling 179.1 - Epilogue 01 (2023) (Digital) (LuCaZ).cbz" -->
-                    # "" 179.1 - Epilogue 01"  --> "179.1"
-                    if re.search(r"(^\d+)", file.strip()):
-                        file = re.sub(
-                            r"((\s+(-)|:)\s+).*$", "", file, re.IGNORECASE
-                        ).strip()
-
-                    # Removes # from the number
-                    # EX: #001 --> 001
-                    file = re.sub(r"($#)", "", file, re.IGNORECASE).strip()
-
-                    # Removes # from bewteen the numbers
-                    # EX: 154#3 --> 154
-                    if re.search(r"(\d+#\d+)", file):
-                        file = re.sub(
-                            r"((#)([0-9]+)(([-_.])([0-9]+)|)+)", "", file
-                        ).strip()
-
-                    # removes part from chapter number
-                    # EX: 053x1 or c053x1 --> 053 or c053
-                    file = re.sub(r"(x[0-9]+)", "", file, re.IGNORECASE).strip()
-
-                    # removes the bracketed info from the end of the string, empty or not
-                    file = remove_bracketed_info_from_name(file)
-
-                    # Removes the - characters.extension from the end of the string, with
-                    # the dash and characters being optional
-                    # EX:  - prologue.extension or .extension
-                    file = re.sub(
-                        r"(((\s+)?-(\s+)?([A-Za-z]+))?(%s))" % file_extensions_regex,
-                        "",
-                        file,
-                        re.IGNORECASE,
-                    ).strip()
-
-                    # - #404 - --> #404
-                    file = re.sub(r"^- | -$", "", file).strip()
-
-                    # remove # at the beginning of the string
-                    # EX: #001 --> 001
-                    file = re.sub(r"^#", "", file).strip()
-
-                file = re.sub(
-                    r"\b({})(\.|)([-_. ])?".format(keywords),
-                    "",
-                    file,
-                    flags=re.IGNORECASE,
                 ).strip()
 
-                if re.search(
-                    r"\b[0-9]+({})[0-9]+\b".format(keywords),
-                    file,
-                    re.IGNORECASE,
-                ):
-                    file = (
-                        re.sub(
-                            r"({})".format(keywords),
-                            ".",
-                            file,
-                            flags=re.IGNORECASE,
-                        )
+                # remove - at the end of the string
+                if not re.search(
+                    r"-(\s+)?(#)?([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?(\s+)?-", file
+                ) and re.search(r"(-)$", file):
+                    file = re.sub(r"(-)$", "", file).strip()
+
+        # With a chapter keyword, without, but before bracketed info, or without and with a manga extension or a novel exteion after the number
+        # Series Name c001.extension or Series Name 001 (2021) (Digital) (Release).extension or Series Name 001.extension
+        for pattern in chapter_search_patterns_comp:
+            search_result = pattern.search(file)
+            if search_result:
+                result = search_result
+                break
+
+    if result:
+        try:
+            file = result.group() if hasattr(result, "group") else ""
+            if chapter:
+                # Removes starting period
+                # EX: "series_name. 031 (2023).cbz" -> "'. 031 (2023)"" -> "031 (2023)"
+                file = re.sub(r"^(\s+)?(\.)", "", file, re.IGNORECASE).strip()
+
+                # Remove any subtitle
+                # EX: "series_name 179.1 - Epilogue 01 (2023) (Digital) (release_group).cbz" ->
+                # "" 179.1 - Epilogue 01"  -> "179.1"
+                if re.search(r"(^\d+)", file.strip()):
+                    file = re.sub(
+                        r"((\s+(-)|:)\s+).*$", "", file, re.IGNORECASE
                     ).strip()
 
-                try:
-                    if is_multi_volume or re.search(
-                        r"([0-9]+(\.[0-9]+)?)([-_]([0-9]+(\.[0-9]+)?))+", file
-                    ):
-                        if not is_multi_volume:
-                            is_multi_volume = True
-                        multi_numbers = get_min_and_max_numbers(file)
-                        if multi_numbers:
-                            results.extend(
-                                float(volume_number) for volume_number in multi_numbers
+                # Removes # from the number
+                # EX: #001 -> 001
+                file = re.sub(r"($#)", "", file, re.IGNORECASE).strip()
+
+                # Removes # from bewteen the numbers
+                # EX: 154#3 -> 154
+                if re.search(r"(\d+#\d+)", file):
+                    file = re.sub(r"((#)([0-9]+)(([-_.])([0-9]+)|)+)", "", file).strip()
+
+                # removes part from chapter number
+                # EX: 053x1 or c053x1 -> 053 or c053
+                file = re.sub(r"(x[0-9]+)", "", file, re.IGNORECASE).strip()
+
+                # removes the bracketed info from the end of the string, empty or not
+                file = remove_bracketed_info_from_name(file)
+
+                # Removes the - characters.extension from the end of the string, with
+                # the dash and characters being optional
+                # EX:  - prologue.extension or .extension
+                file = re.sub(
+                    r"(((\s+)?-(\s+)?([A-Za-z]+))?(%s))" % file_extensions_regex,
+                    "",
+                    file,
+                    re.IGNORECASE,
+                ).strip()
+
+                # - #404 - -> #404
+                file = re.sub(r"^- | -$", "", file).strip()
+
+                # remove # at the beginning of the string
+                # EX: #001 -> 001
+                file = re.sub(r"^#", "", file).strip()
+
+            file = re.sub(
+                r"\b({})(\.|)([-_. ])?".format(keywords),
+                "",
+                file,
+                flags=re.IGNORECASE,
+            ).strip()
+
+            if re.search(
+                r"\b[0-9]+({})[0-9]+\b".format(keywords),
+                file,
+                re.IGNORECASE,
+            ):
+                file = (
+                    re.sub(
+                        r"({})".format(keywords),
+                        ".",
+                        file,
+                        flags=re.IGNORECASE,
+                    )
+                ).strip()
+
+            try:
+                if is_multi_volume or re.search(
+                    r"([0-9]+(\.[0-9]+)?)([-_]([0-9]+(\.[0-9]+)?))+", file
+                ):
+                    if not is_multi_volume:
+                        is_multi_volume = True
+                    multi_numbers = get_min_and_max_numbers(file)
+                    if multi_numbers:
+                        results.extend(
+                            (
+                                int(volume_number)
+                                if float(volume_number).is_integer()
+                                else float(volume_number)
                             )
-                            if len(multi_numbers) == 1:
-                                is_multi_volume = False
-                    else:
-                        results.append(float(file))
+                            for volume_number in multi_numbers
+                        )
+                        if len(multi_numbers) == 1:
+                            is_multi_volume = False
+                else:
+                    # Remove trailing ".0" so conversion doesn't fail
+                    if file.endswith("0") and re.search(r"\.0+$", file):
+                        file = re.sub(r"\.0+$", "", file)
+                    results = int(file) if float(file).is_integer() else float(file)
+            except ValueError as v:
+                send_message(f"Not a float: {file}: ERROR: {v}", error=True)
+        except AttributeError:
+            send_message(str(AttributeError.with_traceback), error=True)
 
-                except ValueError:
-                    send_message(f"Not a float: {file}", error=True)
-            except AttributeError:
-                send_message(str(AttributeError.with_traceback), error=True)
-
-    if is_multi_volume and results:
-        return tuple(results)
-    elif results and len(results) == len(files):
-        if chapter:
-            return results[0]
-        elif results[0] < 2000:
-            return results[0]
+    if results or results == 0:
+        if is_multi_volume:
+            return tuple(results)
+        elif chapter:
+            return results
+        elif results < 2000:
+            return results
         else:
             return ""
     else:
@@ -2785,8 +2867,8 @@ def get_release_number(files, chapter=False):
 
 
 # Allows get_release_number() to use a cache
-def get_release_number_cache(files, chapter=False):
-    result = get_release_number(tuple(files), chapter=chapter)
+def get_release_number_cache(file, chapter=False):
+    result = get_release_number(file, chapter=chapter)
     return list(result) if isinstance(result, tuple) else result
 
 
@@ -2799,7 +2881,7 @@ def get_release_year(name, metadata=None):
 
     match = re.search(volume_year_regex, name, re.IGNORECASE)
     if match:
-        result = int(re.sub(r"(\(|\[|\{)|(\)|\]|\})", "", match.group(0)))
+        result = int(re.sub(r"(\(|\[|\{)|(\)|\]|\})", "", match.group()))
 
     if metadata and not result:
         release_year_from_file = None
@@ -2810,7 +2892,7 @@ def get_release_year(name, metadata=None):
             release_year_from_file = metadata["dc:date"].strip()
             release_year_from_file = re.search(r"\d{4}", release_year_from_file)
             release_year_from_file = (
-                release_year_from_file.group(0) if release_year_from_file else None
+                release_year_from_file.group() if release_year_from_file else None
             )
 
         if release_year_from_file and release_year_from_file.isdigit():
@@ -2836,7 +2918,7 @@ def get_extra_from_group(name, groups, publisher_m=False, release_group_m=False)
         rf"(?<=[\(\[\{{])({groups_joined})(?=[\)\]\}}])", name, re.IGNORECASE
     )
 
-    return group_search.group(0) if group_search else ""
+    return group_search.group() if group_search else ""
 
 
 # Precompile the regular expressions
@@ -2869,26 +2951,19 @@ def get_file_part(file, chapter=False, series_name=None, subtitle=None):
         if search:
             result = search.group(1)
             result = re.sub(r"Part([-_. ]|)+", " ", result, flags=re.IGNORECASE).strip()
-            try:
-                return float(result)
-            except ValueError as ve:
-                send_message(
-                    f"Not a float: {result} for {file}\nERROR: {ve}",
-                    error=True,
-                )
-                result = ""
     else:
         search = rx_search_chapters.search(file)
         if search:
             part_search = re.search(
-                r"((x|#)([0-9]+)(([-_.])([0-9]+)|)+)", search.group(0), re.IGNORECASE
+                r"((x|#)([0-9]+)(([-_.])([0-9]+)|)+)", search.group(), re.IGNORECASE
             )
             if part_search:
                 # remove the x or # from the string
-                result = rx_remove_x_hash.sub("", part_search.group(0))
-                number = set_num_as_float_or_int(result)
-                if number != "":
-                    result = number
+                result = rx_remove_x_hash.sub("", part_search.group())
+
+    # Set the number as float or int
+    result = set_num_as_float_or_int(result)
+
     return result
 
 
@@ -2941,7 +3016,7 @@ def upgrade_to_volume_class(
         internal_metadata = None
         publisher = Publisher(None, None)
 
-        if not skip_release_year or not skip_publisher:
+        if (not skip_release_year or not skip_publisher) and file.file_type == "volume":
             internal_metadata = get_internal_metadata(file.path, file.extension)
 
         if add_publisher_name_to_file_name_when_renaming:
@@ -3075,7 +3150,7 @@ def get_keyword_scores(releases):
             if keyword.file_type in ["both", release.file_type]:
                 search = compiled_search.search(release.name)
                 if search:
-                    tags.append(Keyword(search.group(0), keyword.score))
+                    tags.append(Keyword(search.group(), keyword.score))
                     score += keyword.score
 
         results.append(RankedKeywordResult(score, tags))
@@ -3120,7 +3195,7 @@ def is_upgradeable(downloaded_release, current_release):
 
 # Deletes hidden files, used when checking if a folder is empty.
 def delete_hidden_files(files, root):
-    for file in files[:]:
+    for file in files:
         path = os.path.join(root, file)
         if (str(file)).startswith(".") and os.path.isfile(path):
             remove_file(path, silent=True)
@@ -3247,30 +3322,28 @@ def remove_file(full_file_path, silent=False):
         send_message(f"File removed: {full_file_path}", discord=False)
 
         # Create a Discord embed
-        embed = [
-            handle_fields(
-                DiscordEmbed(
-                    title="Removed File",
-                    color=red_color,
-                ),
-                fields=[
-                    {
-                        "name": "File",
-                        "value": f"```{os.path.basename(full_file_path)}```",
-                        "inline": False,
-                    },
-                    {
-                        "name": "Location",
-                        "value": f"```{os.path.dirname(full_file_path)}```",
-                        "inline": False,
-                    },
-                ],
-            )
-        ]
+        embed = handle_fields(
+            DiscordEmbed(
+                title="Removed File",
+                color=red_color,
+            ),
+            fields=[
+                {
+                    "name": "File",
+                    "value": f"```{os.path.basename(full_file_path)}```",
+                    "inline": False,
+                },
+                {
+                    "name": "Location",
+                    "value": f"```{os.path.dirname(full_file_path)}```",
+                    "inline": False,
+                },
+            ],
+        )
 
         # Add it to the group of notifications
         grouped_notifications = add_to_grouped_notifications(
-            grouped_notifications, Embed(embed[0], None)
+            grouped_notifications, Embed(embed, None)
         )
 
     # If the file is not an image, remove associated images
@@ -3299,28 +3372,26 @@ def move_file(
                         f"\t\tMoved File: {file.name} to {new_location}",
                         discord=False,
                     )
-                    embed = [
-                        handle_fields(
-                            DiscordEmbed(
-                                title="Moved File",
-                                color=grey_color,
-                            ),
-                            fields=[
-                                {
-                                    "name": "File",
-                                    "value": f"```{file.name}```",
-                                    "inline": False,
-                                },
-                                {
-                                    "name": "To",
-                                    "value": f"```{new_location}```",
-                                    "inline": False,
-                                },
-                            ],
-                        )
-                    ]
+                    embed = handle_fields(
+                        DiscordEmbed(
+                            title="Moved File",
+                            color=grey_color,
+                        ),
+                        fields=[
+                            {
+                                "name": "File",
+                                "value": f"```{file.name}```",
+                                "inline": False,
+                            },
+                            {
+                                "name": "To",
+                                "value": f"```{new_location}```",
+                                "inline": False,
+                            },
+                        ],
+                    )
                     grouped_notifications = add_to_grouped_notifications(
-                        grouped_notifications, Embed(embed[0], None)
+                        grouped_notifications, Embed(embed, None)
                     )
                 move_images(
                     file,
@@ -3361,28 +3432,26 @@ def replace_file(old_file, new_file, highest_index_num=""):
                         f"\t\tFile: {new_file.name} was moved to: {old_file.root}",
                         discord=False,
                     )
-                    embed = [
-                        handle_fields(
-                            DiscordEmbed(
-                                title="Moved File",
-                                color=grey_color,
-                            ),
-                            fields=[
-                                {
-                                    "name": "File",
-                                    "value": f"```{new_file.name}```",
-                                    "inline": False,
-                                },
-                                {
-                                    "name": "To",
-                                    "value": f"```{old_file.root}```",
-                                    "inline": False,
-                                },
-                            ],
-                        )
-                    ]
+                    embed = handle_fields(
+                        DiscordEmbed(
+                            title="Moved File",
+                            color=grey_color,
+                        ),
+                        fields=[
+                            {
+                                "name": "File",
+                                "value": f"```{new_file.name}```",
+                                "inline": False,
+                            },
+                            {
+                                "name": "To",
+                                "value": f"```{old_file.root}```",
+                                "inline": False,
+                            },
+                        ],
+                    )
                     grouped_notifications = add_to_grouped_notifications(
-                        grouped_notifications, Embed(embed[0], None)
+                        grouped_notifications, Embed(embed, None)
                     )
                 else:
                     send_message(
@@ -3569,17 +3638,15 @@ def remove_duplicate_releases_from_download(
                 discord=False,
             )
 
-            embed = [
-                handle_fields(
-                    DiscordEmbed(
-                        title=f"Upgrade Process ({status})",
-                        color=color,
-                    ),
-                    fields=fields,
-                )
-            ]
+            embed = handle_fields(
+                DiscordEmbed(
+                    title=f"Upgrade Process ({status})",
+                    color=color,
+                ),
+                fields=fields,
+            )
             grouped_notifications = add_to_grouped_notifications(
-                grouped_notifications, Embed(embed[0], None)
+                grouped_notifications, Embed(embed, None)
             )
 
             if upgrade_status.is_upgrade:
@@ -4058,18 +4125,18 @@ def reorganize_and_rename(files, dir):
                 number_string = ""
 
                 for number in numbers:
-                    if not isinstance(number, str) and number.is_integer():
-                        if number < 10 or file.file_type == "chapter" and number < 100:
-                            number_string += str(int(number)).zfill(zfill_int)
-                        else:
-                            number_string += str(int(number))
-                    elif isinstance(number, float):
-                        if number < 10 or file.file_type == "chapter" and number < 100:
-                            number_string += str(number).zfill(zfill_float)
+                    if isinstance(number, (int, float)):
+                        if number < 10 or (
+                            file.file_type == "chapter" and number < 100
+                        ):
+                            if isinstance(number, int):
+                                number_string += str(number).zfill(zfill_int)
+                            else:
+                                number_string += str(number).zfill(zfill_float)
                         else:
                             number_string += str(number)
-                    elif isinstance(number, str) and number == "-":
-                        number_string += "-"
+                    elif isinstance(number, str):
+                        number_string += number
 
                 rename += number_string
 
@@ -4087,21 +4154,16 @@ def reorganize_and_rename(files, dir):
                 if file.volume_year:
                     rename += f" {modifiers[file.extension] % file.volume_year}"
 
-                    for item in file.extras[:]:
-                        score = similar(
-                            item,
-                            str(file.volume_year),
-                        )
-                        if (
-                            score >= required_similarity_score
+                    file.extras = [
+                        item
+                        for item in file.extras
+                        if not (
+                            similar(item, str(file.volume_year))
+                            >= required_similarity_score
                             or re.search(r"([\[\(\{]\d{4}[\]\)\}])", item)
-                            or re.search(
-                                str(file.volume_year),
-                                item,
-                                re.IGNORECASE,
-                            )
-                        ):
-                            file.extras.remove(item)
+                            or re.search(str(file.volume_year), item, re.IGNORECASE)
+                        )
+                    ]
 
                 if (
                     file.publisher.from_meta or file.publisher.from_name
@@ -4140,17 +4202,12 @@ def reorganize_and_rename(files, dir):
                 if file.is_premium and search_and_add_premium_to_file_name:
                     rename += f" {modifiers[file.extension] % 'Premium'}"
 
-                    for item in file.extras[:]:
-                        score = similar(
-                            item,
-                            "Premium",
-                        )
-                        if score >= required_similarity_score or re.search(
-                            "Premium",
-                            item,
-                            re.IGNORECASE,
-                        ):
-                            file.extras.remove(item)
+                    file.extras = [
+                        item for item in file.extras if "premium" not in item.lower()
+                    ]
+
+                left_brackets = r"(\(|\[|\{)"
+                right_brackets = r"(\)|\]|\})"
 
                 if (
                     move_release_group_to_end_of_file_name
@@ -4159,21 +4216,21 @@ def reorganize_and_rename(files, dir):
                     and file.release_group != file.publisher.from_meta
                     and file.release_group != file.publisher.from_name
                 ):
-                    for item in file.extras[:]:
-                        # escape any regex characters
-                        item_escaped = re.escape(item)
-                        score = similar(
-                            re.sub(r"[\(\[\{\)\]\}]", "", item),
-                            file.release_group,
+                    file.extras = [
+                        item
+                        for item in file.extras
+                        if not (
+                            similar(
+                                re.sub(r"[\(\[\{\)\]\}]", "", item), file.release_group
+                            )
+                            >= release_group_similarity_score
+                            or re.search(
+                                rf"{left_brackets}{re.escape(item)}{right_brackets}",
+                                file.release_group,
+                                re.IGNORECASE,
+                            )
                         )
-                        left_brackets = r"(\(|\[|\{)"
-                        right_brackets = r"(\)|\]|\})"
-                        if score >= release_group_similarity_score or re.search(
-                            rf"{left_brackets}{item_escaped}{right_brackets}",
-                            file.release_group,
-                            re.IGNORECASE,
-                        ):
-                            file.extras.remove(item)
+                    ]
 
                 if file.extras:
                     extras_to_add = [
@@ -4245,29 +4302,27 @@ def reorganize_and_rename(files, dir):
                                 )
 
                                 if not mute_discord_rename_notifications:
-                                    embed = [
-                                        handle_fields(
-                                            DiscordEmbed(
-                                                title="Reorganized & Renamed File",
-                                                color=grey_color,
-                                            ),
-                                            fields=[
-                                                {
-                                                    "name": "From",
-                                                    "value": f"```{file.name}```",
-                                                    "inline": False,
-                                                },
-                                                {
-                                                    "name": "To",
-                                                    "value": f"```{rename}```",
-                                                    "inline": False,
-                                                },
-                                            ],
-                                        )
-                                    ]
+                                    embed = handle_fields(
+                                        DiscordEmbed(
+                                            title="Reorganized & Renamed File",
+                                            color=grey_color,
+                                        ),
+                                        fields=[
+                                            {
+                                                "name": "From",
+                                                "value": f"```{file.name}```",
+                                                "inline": False,
+                                            },
+                                            {
+                                                "name": "To",
+                                                "value": f"```{rename}```",
+                                                "inline": False,
+                                            },
+                                        ],
+                                    )
                                     grouped_notifications = (
                                         add_to_grouped_notifications(
-                                            grouped_notifications, Embed(embed[0], None)
+                                            grouped_notifications, Embed(embed, None)
                                         )
                                     )
                             else:
@@ -4599,7 +4654,7 @@ def create_folders_for_items_in_download_folder():
                                     )
                                     done = True
                                     break
-                    if not done:
+                    if not done and file.basename:
                         similarity_result = similar(file.name, file.basename)
                         write_to_file(
                             "changes.txt",
@@ -4639,7 +4694,7 @@ def convert_to_ascii(s):
 def array_to_string(array, separator=", "):
     if isinstance(array, list):
         return separator.join([str(x) for x in array])
-    elif isinstance(array, int) or isinstance(array, float) or isinstance(array, str):
+    elif isinstance(array, (int, float, str)):
         return separator.join([str(array)])
     else:
         return str(array)
@@ -4917,17 +4972,15 @@ def check_upgrade(
         send_message(f"\n\t\t{message}", discord=False)
 
         if len(fields) > 1:
-            embed = [
-                handle_fields(
-                    DiscordEmbed(
-                        title=title,
-                        color=grey_color,
-                    ),
-                    fields=fields,
+            embed = handle_fields(
+                DiscordEmbed(
+                    title=title,
+                    color=grey_color,
                 ),
-            ]
+                fields=fields,
+            )
             grouped_notifications = add_to_grouped_notifications(
-                grouped_notifications, Embed(embed[0], None)
+                grouped_notifications, Embed(embed, None)
             )
 
         clean_existing, download_dir_volumes = remove_duplicate_releases_from_download(
@@ -4939,7 +4992,7 @@ def check_upgrade(
         if download_dir_volumes:
             volume = download_dir_volumes[0]
 
-            if isinstance(volume.volume_number, (float, list)):
+            if isinstance(volume.volume_number, (float, int, list)):
                 send_message(
                     f"\t\t\t{volume.file_type.capitalize()} {array_to_string(volume.volume_number)}: {volume.name} does not exist in: {existing_dir}\n\t\t\tMoving: {volume.name} to {existing_dir}",
                     discord=False,
@@ -5014,15 +5067,13 @@ def check_upgrade(
                     volume.root = existing_dir
                     moved_files.append(volume.path)
 
-                embed = [
-                    handle_fields(
-                        DiscordEmbed(
-                            title=title,
-                            color=green_color,
-                        ),
-                        fields=fields,
+                embed = handle_fields(
+                    DiscordEmbed(
+                        title=title,
+                        color=green_color,
                     ),
-                ]
+                    fields=fields,
+                )
 
                 if new_volume_webhook:
                     if volume.file_type == "chapter":
@@ -5040,12 +5091,12 @@ def check_upgrade(
                     elif volume.file_type == "volume":
                         send_discord_message(
                             None,
-                            [Embed(embed[0], cover)],
+                            [Embed(embed, cover)],
                             passed_webhook=new_volume_webhook,
                         )
                 else:
                     grouped_notifications = add_to_grouped_notifications(
-                        grouped_notifications, Embed(embed[0], cover)
+                        grouped_notifications, Embed(embed, cover)
                     )
 
                 return True
@@ -5091,38 +5142,6 @@ def get_zip_comment(zip_file):
             f"\tFailed to get zip comment for: {zip_file} - Error: {e}", error=True
         )
     return comment
-
-
-# Removes bracketed content from the string, alongwith any whitespace.
-# As long as the bracketed content is not immediately preceded or followed by a dash.
-@lru_cache(maxsize=None)
-def remove_bracketed_info_from_name(string):
-    # Avoid a string that is only a bracket
-    # Probably a series name
-    # EX: [(OSHI NO KO)]
-    if re.search(r"^[\(\[\{].*[\)\]\}]$", string):
-        return string
-
-    # Remove all grouped brackets as long as they aren't surrounded by dashes,
-    # letters, or square brackets.
-    # Regex 1: ([\[\{\(]((\d{4}))[\]\}\)]) - FOR YEAR
-    # Regex 2: (((?<!-|[A-Za-z]\s|\[)(\[[^\]]*\]|\([^\)]*\)|\{[^}]*\})(?!-|\s*[A-Za-z]|\]))(\s+)?)+ - FOR EVERYTHING ELSE
-    string = re.sub(
-        r"((((?<!-|[A-Za-z]\s|\[)(\[[^\]]*\]|\([^\)]*\)|\{[^}]*\})(?!-|\s*[A-Za-z]|\]))(\s+)?)+|([\[\{\(]((\d{4}))[\]\}\)]))",
-        "",
-        string,
-    ).strip()
-
-    # Remove ending bracket against the extension
-    # EX: test (digital).cbz --> test .cbz
-    string = re.sub(r"(\[[^\]]*\]|\([^\)]*\)|\{[^}]*\})(\.\w+$)", r"\2", string).strip()
-
-    # Remove any space before the extension from having removed bracketed content
-    # EX: test .cbz --> test.cbz
-    string = re.sub(r"\s\.(\w+)$", r".\1", string).strip()
-
-    # Return the modified string
-    return string
 
 
 # Checks for any duplicate releases and deletes the lower ranking one.
@@ -5258,35 +5277,33 @@ def check_for_duplicate_volumes(paths_to_search=[]):
                                                     f"\n\n\t\t\tDeleting: {duplicate_file.name} inside of {duplicate_file.root}\n",
                                                     discord=False,
                                                 )
-                                                embed = [
-                                                    handle_fields(
-                                                        DiscordEmbed(
-                                                            title="Duplicate Download Release (Not Upgradeable)",
-                                                            color=yellow_color,
-                                                        ),
-                                                        fields=[
-                                                            {
-                                                                "name": "Location",
-                                                                "value": f"```{upgrade_file.root}```",
-                                                                "inline": False,
-                                                            },
-                                                            {
-                                                                "name": "Duplicate",
-                                                                "value": f"```{duplicate_file.name}```",
-                                                                "inline": False,
-                                                            },
-                                                            {
-                                                                "name": "has a lower score than",
-                                                                "value": f"```{upgrade_file.name}```",
-                                                                "inline": False,
-                                                            },
-                                                        ],
-                                                    )
-                                                ]
+                                                embed = handle_fields(
+                                                    DiscordEmbed(
+                                                        title="Duplicate Download Release (Not Upgradeable)",
+                                                        color=yellow_color,
+                                                    ),
+                                                    fields=[
+                                                        {
+                                                            "name": "Location",
+                                                            "value": f"```{upgrade_file.root}```",
+                                                            "inline": False,
+                                                        },
+                                                        {
+                                                            "name": "Duplicate",
+                                                            "value": f"```{duplicate_file.name}```",
+                                                            "inline": False,
+                                                        },
+                                                        {
+                                                            "name": "has a lower score than",
+                                                            "value": f"```{upgrade_file.name}```",
+                                                            "inline": False,
+                                                        },
+                                                    ],
+                                                )
                                                 grouped_notifications = (
                                                     add_to_grouped_notifications(
                                                         grouped_notifications,
-                                                        Embed(embed[0], None),
+                                                        Embed(embed, None),
                                                     )
                                                 )
                                                 user_input = (
@@ -5315,35 +5332,33 @@ def check_for_duplicate_volumes(paths_to_search=[]):
                                                 if (compare_hash and file_hash) and (
                                                     compare_hash == file_hash
                                                 ):
-                                                    embed = [
-                                                        handle_fields(
-                                                            DiscordEmbed(
-                                                                title="Duplicate Download Release (HASH MATCH)",
-                                                                color=yellow_color,
-                                                            ),
-                                                            fields=[
-                                                                {
-                                                                    "name": "Location",
-                                                                    "value": f"```{file.root}```",
-                                                                    "inline": False,
-                                                                },
-                                                                {
-                                                                    "name": "File Names",
-                                                                    "value": f"```{file.name}\n{compare_file.name}```",
-                                                                    "inline": False,
-                                                                },
-                                                                {
-                                                                    "name": "File Hashes",
-                                                                    "value": f"```{file_hash} {compare_hash}```",
-                                                                    "inline": False,
-                                                                },
-                                                            ],
-                                                        )
-                                                    ]
+                                                    embed = handle_fields(
+                                                        DiscordEmbed(
+                                                            title="Duplicate Download Release (HASH MATCH)",
+                                                            color=yellow_color,
+                                                        ),
+                                                        fields=[
+                                                            {
+                                                                "name": "Location",
+                                                                "value": f"```{file.root}```",
+                                                                "inline": False,
+                                                            },
+                                                            {
+                                                                "name": "File Names",
+                                                                "value": f"```{file.name}\n{compare_file.name}```",
+                                                                "inline": False,
+                                                            },
+                                                            {
+                                                                "name": "File Hashes",
+                                                                "value": f"```{file_hash} {compare_hash}```",
+                                                                "inline": False,
+                                                            },
+                                                        ],
+                                                    )
                                                     grouped_notifications = (
                                                         add_to_grouped_notifications(
                                                             grouped_notifications,
-                                                            Embed(embed[0], None),
+                                                            Embed(embed, None),
                                                         )
                                                     )
                                                     # Delete the compare file
@@ -5358,35 +5373,33 @@ def check_for_duplicate_volumes(paths_to_search=[]):
                                                         f"\n\t\t\t\t\tRanking scores are equal, REQUIRES MANUAL DECISION.",
                                                         discord=False,
                                                     )
-                                                    embed = [
-                                                        handle_fields(
-                                                            DiscordEmbed(
-                                                                title="Duplicate Download Release (REQUIRES MANUAL DECISION)",
-                                                                color=yellow_color,
-                                                            ),
-                                                            fields=[
-                                                                {
-                                                                    "name": "Location",
-                                                                    "value": f"```{compare_file.root}```",
-                                                                    "inline": False,
-                                                                },
-                                                                {
-                                                                    "name": "Duplicate",
-                                                                    "value": f"```{file.name}```",
-                                                                    "inline": False,
-                                                                },
-                                                                {
-                                                                    "name": "has an equal score to",
-                                                                    "value": f"```{compare_file.name}```",
-                                                                    "inline": False,
-                                                                },
-                                                            ],
-                                                        )
-                                                    ]
+                                                    embed = handle_fields(
+                                                        DiscordEmbed(
+                                                            title="Duplicate Download Release (REQUIRES MANUAL DECISION)",
+                                                            color=yellow_color,
+                                                        ),
+                                                        fields=[
+                                                            {
+                                                                "name": "Location",
+                                                                "value": f"```{compare_file.root}```",
+                                                                "inline": False,
+                                                            },
+                                                            {
+                                                                "name": "Duplicate",
+                                                                "value": f"```{file.name}```",
+                                                                "inline": False,
+                                                            },
+                                                            {
+                                                                "name": "has an equal score to",
+                                                                "value": f"```{compare_file.name}```",
+                                                                "inline": False,
+                                                            },
+                                                        ],
+                                                    )
                                                     grouped_notifications = (
                                                         add_to_grouped_notifications(
                                                             grouped_notifications,
-                                                            Embed(embed[0], None),
+                                                            Embed(embed, None),
                                                         )
                                                     )
                                                     print("\t\t\t\t\tSkipping...")
@@ -6446,26 +6459,24 @@ def check_for_existing_series(
                     cover = find_and_extract_cover(
                         message.volume_obj, return_data_only=True
                     )
-                    embed = [
-                        handle_fields(
-                            DiscordEmbed(
-                                title=message.title,
-                                color=message.color,
-                            ),
-                            fields=message.fields,
-                        )
-                    ]
+                    embed = handle_fields(
+                        DiscordEmbed(
+                            title=message.title,
+                            color=message.color,
+                        ),
+                        fields=message.fields,
+                    )
 
                     if new_volume_webhook:
                         series_notifications = add_to_grouped_notifications(
                             series_notifications,
-                            Embed(embed[0], cover),
+                            Embed(embed, cover),
                             webhook_to_use,
                         )
                     else:
                         grouped_notifications = add_to_grouped_notifications(
                             grouped_notifications,
-                            Embed(embed[0], cover),
+                            Embed(embed, cover),
                             webhook_to_use,
                         )
                     group_messages.remove(message)
@@ -6505,26 +6516,24 @@ def check_for_existing_series(
                             "inline": False,
                         },
                     ]
-                    embed = [
-                        handle_fields(
-                            DiscordEmbed(
-                                title=first_item.title,
-                                color=first_item.color,
-                            ),
-                            fields=new_fields,
-                        )
-                    ]
+                    embed = handle_fields(
+                        DiscordEmbed(
+                            title=first_item.title,
+                            color=first_item.color,
+                        ),
+                        fields=new_fields,
+                    )
 
                     if new_volume_webhook:
                         series_notifications = add_to_grouped_notifications(
                             series_notifications,
-                            Embed(embed[0], None),
+                            Embed(embed, None),
                             webhook_to_use,
                         )
                     else:
                         grouped_notifications = add_to_grouped_notifications(
                             grouped_notifications,
-                            Embed(embed[0], None),
+                            Embed(embed, None),
                             webhook_to_use,
                         )
 
@@ -6931,7 +6940,9 @@ def rename_dirs_in_download_folder(paths_to_process=download_folders):
 def get_extras(file_name, chapter=False, series_name="", subtitle=""):
     # Helper function to remove matching patterns from text
     def remove_matching(text, pattern):
-        return re.sub(re.escape(pattern), "", text, flags=re.IGNORECASE).strip()
+        return re.sub(
+            rf"\b{re.escape(pattern)}\b", "", text, flags=re.IGNORECASE
+        ).strip()
 
     # Helper function to extract unique patterns from text
     def extract_unique_patterns(text):
@@ -7001,7 +7012,7 @@ def get_extras(file_name, chapter=False, series_name="", subtitle=""):
     premium_items, non_premium_items = [], []
     modified = results.copy()
     for item in modified:
-        if "Premium" in item:
+        if "premium" in item.lower():
             premium_items.append(item)
         else:
             non_premium_items.append(item)
@@ -7107,7 +7118,7 @@ def parse_html_tags(html):
 
 
 # Renames files.
-def rename_files_in_download_folders(
+def rename_files(
     only_these_files=[], download_folders=download_folders, test_mode=False
 ):
     global transferred_files, grouped_notifications
@@ -7173,10 +7184,14 @@ def rename_files_in_download_folders(
                 no_keyword = False
                 preferred_naming_format = preferred_volume_renaming_format
                 keywords = volume_regex_keywords
+                zfill_int = zfill_volume_int_value
+                zfill_float = zfill_volume_float_value
 
                 if file.file_type == "chapter":
                     keywords = chapter_regex_keywords
                     preferred_naming_format = preferred_chapter_renaming_format
+                    zfill_int = zfill_chapter_int_value
+                    zfill_float = zfill_chapter_float_value
 
                 if only_these_files and file.name not in only_these_files:
                     continue
@@ -7186,9 +7201,18 @@ def rename_files_in_download_folders(
                     file_extensions_with_prefix = "".join(
                         [f"巻?{re.escape(x)}|" for x in file_extensions]
                     )[:-1]
+
+                    keyword_regex = (
+                        r"(\s+)?\-?(\s+)?((%s)%s)(\.\s?|\s?|)([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?(#([0-9]+)(([-_.])([0-9]+)|)+)?(\]|\)|\})?(\s|%s)"
+                        % (
+                            subtitle_exclusion_keywords_regex if file.subtitle else "",
+                            keywords,
+                            file_extensions_with_prefix,
+                        )
+                    )
+
                     result = re.search(
-                        r"(\s+)?\-?(\s+)?(%s)(\.\s?|\s?|)([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?(#([0-9]+)(([-_.])([0-9]+)|)+)?(\]|\)|\})?(\s|%s)"
-                        % (keywords, file_extensions_with_prefix),
+                        keyword_regex,
                         file.name,
                         re.IGNORECASE,
                     )
@@ -7221,13 +7245,14 @@ def rename_files_in_download_folders(
                                 ),
                                 chapter=True,
                                 file=file,
+                                subtitle=file.subtitle,
                             )
                             or (
                                 file.volume_number
                                 and (
-                                    extract_all_numbers_from_string(file.name).count(
-                                        set_num_as_float_or_int(file.volume_number)
-                                    )
+                                    extract_all_numbers_from_string(
+                                        file.name, subtitle=file.subtitle
+                                    ).count(file.volume_number)
                                     == 1
                                 )
                             )
@@ -7268,8 +7293,10 @@ def rename_files_in_download_folders(
 
                                 if result:
                                     chapter_num_search = None
-                                    converted_num = set_num_as_float_or_int(
-                                        file.volume_number
+                                    converted_num = (
+                                        set_num_as_float_or_int(file.volume_number)
+                                        if isinstance(file.volume_number, list)
+                                        else file.volume_number
                                     )
 
                                     if converted_num != "":
@@ -7304,10 +7331,11 @@ def rename_files_in_download_folders(
 
                                         if "-" in result:
                                             split = result.split("-")
-                                            count = 0
-                                            for s in split:
-                                                if set_num_as_float_or_int(s) != "":
-                                                    count += 1
+                                            count = sum(
+                                                1
+                                                for s in split
+                                                if set_num_as_float_or_int(s) != ""
+                                            )
                                             if count != len(split):
                                                 result = None
                                         elif set_num_as_float_or_int(result) == "":
@@ -7315,16 +7343,16 @@ def rename_files_in_download_folders(
                                 break
 
                     if result or (
-                        file.is_one_shot and add_volume_one_number_to_one_shots == True
+                        file.is_one_shot and add_volume_one_number_to_one_shots
                     ):
-                        if file.is_one_shot and file.file_type == "volume":
-                            result = f"{preferred_naming_format}01"
-                        elif file.is_one_shot and file.file_type == "chapter":
-                            result = f"{preferred_naming_format}001"
+                        if file.is_one_shot:
+                            result = (
+                                f"{preferred_naming_format}{str(1).zfill(zfill_int)}"
+                            )
                         elif not isinstance(result, str):
                             result = result.group().strip()
 
-                        # EX: "- c009" --> "c009"
+                        # EX: "- c009" -> "c009"
                         if re.search(r"^-", result):
                             result = re.sub(r"^-", " ", result).strip()
 
@@ -7338,7 +7366,7 @@ def rename_files_in_download_folders(
                         )
 
                         if keyword:
-                            keyword = keyword.group(0)
+                            keyword = keyword.group()
                             result = re.sub(
                                 rf"(-)(\s+)?{keyword}",
                                 keyword,
@@ -7416,26 +7444,18 @@ def rename_files_in_download_folders(
                             and (len(modified) == len(results) + len(volume_numbers))
                         ):
                             combined = ""
-                            zfill_int = zfill_volume_int_value
-                            zfill_float = zfill_volume_float_value
-
-                            if file.file_type == "chapter":
-                                zfill_int = zfill_chapter_int_value
-                                zfill_float = zfill_chapter_float_value
 
                             for item in modified:
-                                if type(item) == int:
+                                if isinstance(item, (int, float)):
                                     if item < 10 or (
                                         file.file_type == "chapter" and item < 100
                                     ):
-                                        item = str(item).zfill(zfill_int)
-                                    combined += str(item)
-                                elif type(item) == float:
-                                    if item < 10 or (
-                                        file.file_type == "chapter" and item < 100
-                                    ):
-                                        item = str(item).zfill(zfill_float)
-                                    combined += str(item)
+                                        if isinstance(item, int):
+                                            combined += str(item).zfill(zfill_int)
+                                        else:
+                                            combined += str(item).zfill(zfill_float)
+                                    else:
+                                        combined += str(item)
                                 elif isinstance(item, str):
                                     combined += item
 
@@ -7466,6 +7486,7 @@ def rename_files_in_download_folders(
                                     converted_value = ""
 
                                 converted_and_filled = None
+
                                 if converted_value != "":
                                     if isinstance(converted_value, (int, float)):
                                         if converted_value < 10 or (
@@ -7596,7 +7617,11 @@ def rename_files_in_download_folders(
                                         subtitle=file.subtitle,
                                     )
                                 )
-                                replacement += " ".join(extras)
+
+                                # Add the extras to the replacement
+                                replacement += " ".join([""] + extras)
+
+                                # Add the extension back
                                 replacement += file.extension
 
                             replacement = re.sub(r"([?])", "", replacement).strip()
@@ -7673,30 +7698,28 @@ def rename_files_in_download_folders(
                                                 if (
                                                     not mute_discord_rename_notifications
                                                 ):
-                                                    embed = [
-                                                        handle_fields(
-                                                            DiscordEmbed(
-                                                                title="Renamed File",
-                                                                color=grey_color,
-                                                            ),
-                                                            fields=[
-                                                                {
-                                                                    "name": "From",
-                                                                    "value": f"```{file.name}```",
-                                                                    "inline": False,
-                                                                },
-                                                                {
-                                                                    "name": "To",
-                                                                    "value": f"```{replacement}```",
-                                                                    "inline": False,
-                                                                },
-                                                            ],
-                                                        )
-                                                    ]
+                                                    embed = handle_fields(
+                                                        DiscordEmbed(
+                                                            title="Renamed File",
+                                                            color=grey_color,
+                                                        ),
+                                                        fields=[
+                                                            {
+                                                                "name": "From",
+                                                                "value": f"```{file.name}```",
+                                                                "inline": False,
+                                                            },
+                                                            {
+                                                                "name": "To",
+                                                                "value": f"```{replacement}```",
+                                                                "inline": False,
+                                                            },
+                                                        ],
+                                                    )
                                                     grouped_notifications = (
                                                         add_to_grouped_notifications(
                                                             grouped_notifications,
-                                                            Embed(embed[0], None),
+                                                            Embed(embed, None),
                                                         )
                                                     )
                                                 # Replaces the file object with an updated one with the replacement values
@@ -7805,37 +7828,35 @@ def delete_chapters_from_downloads():
                                 f"\n\t\tDeleting chapter release.",
                                 discord=False,
                             )
-                            embed = [
-                                handle_fields(
-                                    DiscordEmbed(
-                                        title="Chapter Release Found",
-                                        color=grey_color,
-                                    ),
-                                    fields=[
-                                        {
-                                            "name": "File",
-                                            "value": f"```{file}```",
-                                            "inline": False,
-                                        },
-                                        {
-                                            "name": "Location",
-                                            "value": f"```{root}```",
-                                            "inline": False,
-                                        },
-                                        {
-                                            "name": "Checks",
-                                            "value": "```"
-                                            + "Contains chapter keywords/lone numbers ✓\n"
-                                            + "Does not contain any volume keywords ✓\n"
-                                            + "Does not contain any exclusion keywords ✓"
-                                            + "```",
-                                            "inline": False,
-                                        },
-                                    ],
-                                )
-                            ]
+                            embed = handle_fields(
+                                DiscordEmbed(
+                                    title="Chapter Release Found",
+                                    color=grey_color,
+                                ),
+                                fields=[
+                                    {
+                                        "name": "File",
+                                        "value": f"```{file}```",
+                                        "inline": False,
+                                    },
+                                    {
+                                        "name": "Location",
+                                        "value": f"```{root}```",
+                                        "inline": False,
+                                    },
+                                    {
+                                        "name": "Checks",
+                                        "value": "```"
+                                        + "Contains chapter keywords/lone numbers ✓\n"
+                                        + "Does not contain any volume keywords ✓\n"
+                                        + "Does not contain any exclusion keywords ✓"
+                                        + "```",
+                                        "inline": False,
+                                    },
+                                ],
+                            )
                             grouped_notifications = add_to_grouped_notifications(
-                                grouped_notifications, Embed(embed[0], None)
+                                grouped_notifications, Embed(embed, None)
                             )
                             remove_file(os.path.join(root, file))
             for root, dirs, files in scandir.walk(path):
@@ -8214,6 +8235,8 @@ def extract_covers(paths_to_process=paths):
                 just_these_dirs=transferred_dirs,
             )
 
+            contains_subfolders = dirs
+
             global folder_accessor
 
             print(f"\nRoot: {root}")
@@ -8300,6 +8323,7 @@ def extract_covers(paths_to_process=paths):
                     volume_paths,
                     clean_basename,
                     same_series_name,
+                    contains_subfolders,
                 )
                 for file in folder_accessor.files
                 if file.file_type == "volume"
@@ -8355,6 +8379,7 @@ def process_cover_extraction(
     volume_paths,
     clean_basename,
     same_series_name,
+    contains_subfolders,
 ):
     global image_count
     update_stats(file)
@@ -8654,6 +8679,7 @@ def process_cover_extraction(
 
         if (
             not contains_multiple_volume_ones
+            and not contains_subfolders
             and not series_cover_path
             and file.root not in download_folders
             and has_cover
@@ -8723,7 +8749,7 @@ def print_stats():
                 print(f"\t{count} were {extension} files")
     print(f"\tof those we found that {image_count} had a cover image file.")
 
-    if len(errors) != 0:
+    if errors:
         print(f"\nErrors ({len(errors)}):")
         for error in errors:
             print(f"\t{error}")
@@ -8779,34 +8805,32 @@ def delete_unacceptable_files():
                                 f"\tUnacceptable: {unacceptable_keyword_search.group()} match found in {file}\n\t\tDeleting file from: {root}",
                                 discord=False,
                             )
-                            embed = [
-                                handle_fields(
-                                    DiscordEmbed(
-                                        title="Unacceptable Match Found",
-                                        color=yellow_color,
-                                    ),
-                                    fields=[
-                                        {
-                                            "name": "Found Regex/Keyword Match",
-                                            "value": f"```{unacceptable_keyword_search.group()}```",
-                                            "inline": False,
-                                        },
-                                        {
-                                            "name": "In",
-                                            "value": f"```{file}```",
-                                            "inline": False,
-                                        },
-                                        {
-                                            "name": "Location",
-                                            "value": f"```{root}```",
-                                            "inline": False,
-                                        },
-                                    ],
-                                )
-                            ]
+                            embed = handle_fields(
+                                DiscordEmbed(
+                                    title="Unacceptable Match Found",
+                                    color=yellow_color,
+                                ),
+                                fields=[
+                                    {
+                                        "name": "Found Regex/Keyword Match",
+                                        "value": f"```{unacceptable_keyword_search.group()}```",
+                                        "inline": False,
+                                    },
+                                    {
+                                        "name": "In",
+                                        "value": f"```{file}```",
+                                        "inline": False,
+                                    },
+                                    {
+                                        "name": "Location",
+                                        "value": f"```{root}```",
+                                        "inline": False,
+                                    },
+                                ],
+                            )
                             grouped_notifications = add_to_grouped_notifications(
                                 grouped_notifications,
-                                Embed(embed[0], None),
+                                Embed(embed, None),
                             )
                             remove_file(file_path)
                             break
@@ -8984,7 +9008,7 @@ def combine_series(series_list):
 
 
 # Gives the user a short version of the title, if a dash or colon is present.
-# EX: Series Name - Subtitle --> Series Name
+# EX: Series Name - Subtitle -> Series Name
 def get_shortened_title(title):
     shortened_title = ""
     if re.search(r"((\s+(-)|:)\s+)", title):
@@ -8994,17 +9018,17 @@ def get_shortened_title(title):
 
 # Extracts the subtitle from a title that contains a dash or colon.
 # If replace is True, it removes the subtitle from the title.
-# Example: get_subtitle_from_dash("Series Name - Subtitle", replace=True) --> "Series Name"
+# Example: get_subtitle_from_dash("Series Name - Subtitle", replace=True) -> "Series Name"
 def get_subtitle_from_dash(title, replace=False):
     has_match = re.search(r"((\s+(-)|:)\s+)", title)
     if replace and has_match:
         return re.sub(r"(.*)((\s+(-)|:)\s+)", "", title)
-    return has_match.group(0) if has_match else ""
+    return has_match.group() if has_match else ""
 
 
 # Extracts the subtitle from a file.name
 # (year required in brackets at the end of the subtitle)
-# EX: Sword Art Online v13 - Alicization Dividing [2018].epub --> Alicization Dividing
+# EX: Sword Art Online v13 - Alicization Dividing [2018].epub -> Alicization Dividing
 @lru_cache(maxsize=None)
 def get_subtitle_from_title(file, publisher=None):
     subtitle = ""
@@ -9047,7 +9071,7 @@ def get_subtitle_from_title(file, publisher=None):
         subtitle = re.sub(r"(.*)((\s+(-)|:)\s+)", "", without_series_name)
 
         # remove the file extension, using file.extension
-        # EX: series_name c001 (2021) (Digital) - Instincts.cbz --> Instincts.cbz
+        # EX: series_name c001 (2021) (Digital) - Instincts.cbz -> Instincts.cbz
         subtitle = re.sub(rf"\{file.extension}$", "", subtitle).strip()
 
         if not publisher_search:
@@ -9094,7 +9118,7 @@ def get_subtitle_from_title(file, publisher=None):
 
         # check that the subtitle isn't just the volume keyword and a number
         if file.volume_number and re.search(
-            rf"^({volume_regex_keywords})(\s+)?(0+)?{set_num_as_float_or_int(file.volume_number)}$",
+            rf"^({volume_regex_keywords})(\s+)?(0+)?{file.volume_number}$",
             subtitle.strip(),
             re.IGNORECASE,
         ):
@@ -9371,7 +9395,6 @@ def search_bookwalker(
                     continue
 
                 part = get_file_part(title)
-                part = set_num_as_float_or_int(part) if part else ""
 
                 if part and re.search(r"(\b(Part)([-_. ]+|)\d+(\.\d+)?)", title):
                     title = re.sub(r"(\b(Part)([-_. ]+|)\d+(\.\d+)?)", "", title)
@@ -9423,7 +9446,6 @@ def search_bookwalker(
                     if volume_number and not isinstance(volume_number, list):
                         if hasattr(volume_number, "group"):
                             volume_number = volume_number.group(1)
-                            volume_number = set_num_as_float_or_int(volume_number)
                         else:
                             if title not in no_volume_number:
                                 no_volume_number.append(title)
@@ -9435,7 +9457,9 @@ def search_bookwalker(
                             no_volume_number.append(title)
                         continue
                 else:
-                    volume_number = get_release_number_cache([title])
+                    volume_number = get_release_number_cache(title)
+
+                volume_number = set_num_as_float_or_int(volume_number)
 
                 if not contains_volume_keyword:
                     title = re.sub(
@@ -9595,7 +9619,7 @@ def search_bookwalker(
 
                     if date_match:
                         # Clean up the date string by removing non-alphanumeric characters
-                        date_match = re.sub(r"[^\s\w]", "", date_match.group(0))
+                        date_match = re.sub(r"[^\s\w]", "", date_match.group())
 
                         # Split the date into its components (month, day, year)
                         date_parts = date_match.split()
@@ -9679,13 +9703,13 @@ def check_for_new_volumes_on_bookwalker():
     def print_item_info(item):
         print(f"\t\t{item.title}")
         print(f"\t\tType: {item.book_type}")
-        print(f"\t\tVolume {set_num_as_float_or_int(item.volume_number)}")
+        print(f"\t\tVolume {item.volume_number}")
         print(f"\t\tDate: {item.date}")
         print(f"\t\tURL: {item.url}\n")
 
     # Writes info about the item to a file
     def log_item_info(item, file_name):
-        message = f"{item.date} | {item.title} | Volume {set_num_as_float_or_int(item.volume_number)} | {item.book_type} | {item.url}"
+        message = f"{item.date} | {item.title} | Volume {item.volume_number} | {item.book_type} | {item.url}"
         write_to_file(
             f"{file_name.lower().replace('-', '_')}.txt",
             message,
@@ -9697,29 +9721,27 @@ def check_for_new_volumes_on_bookwalker():
     def create_embed(item, color, webhook_index):
         global grouped_notifications
 
-        embed = [
-            handle_fields(
-                DiscordEmbed(
-                    title=f"{item.title} Volume {set_num_as_float_or_int(item.volume_number)}",
-                    color=color,
-                ),
-                fields=[
-                    {
-                        "name": "Type",
-                        "value": item.book_type,
-                        "inline": False,
-                    },
-                    {
-                        "name": "Release Date",
-                        "value": item.date,
-                        "inline": False,
-                    },
-                ],
+        embed = handle_fields(
+            DiscordEmbed(
+                title=f"{item.title} Volume {item.volume_number}",
+                color=color,
             ),
-        ]
+            fields=[
+                {
+                    "name": "Type",
+                    "value": item.book_type,
+                    "inline": False,
+                },
+                {
+                    "name": "Release Date",
+                    "value": item.date,
+                    "inline": False,
+                },
+            ],
+        )
 
         if item.description:
-            embed[0].fields.append(
+            embed.fields.append(
                 {
                     "name": "Description",
                     "value": unidecode(item.description),
@@ -9727,21 +9749,21 @@ def check_for_new_volumes_on_bookwalker():
                 }
             )
 
-        embed[0].url = item.url
+        embed.url = item.url
 
         if item.preview_image_url:
-            embed[0].set_image(url=item.preview_image_url)
-            embed[0].set_thumbnail(url=item.preview_image_url)
+            embed.set_image(url=item.preview_image_url)
+            embed.set_thumbnail(url=item.preview_image_url)
 
         if bookwalker_logo_url and item.url:
-            embed[0].set_author(
+            embed.set_author(
                 name="Bookwalker", url=item.url, icon_url=bookwalker_logo_url
             )
 
         if bookwalker_webhook_urls and len(bookwalker_webhook_urls) == 2:
             grouped_notifications = add_to_grouped_notifications(
                 grouped_notifications,
-                Embed(embed[0], None),
+                Embed(embed, None),
                 passed_webhook=bookwalker_webhook_urls[webhook_index],
             )
 
@@ -9852,7 +9874,7 @@ def check_for_new_volumes_on_bookwalker():
 
             print(f"\t\t\tTitle: {vol.original_title}")
 
-            print(f"\t\t\tVolume Number: {set_num_as_float_or_int(vol.volume_number)}")
+            print(f"\t\t\tVolume Number: {vol.volume_number}")
 
             if vol.part:
                 print(f"\t\t\tPart: {vol.part}")
@@ -10246,6 +10268,7 @@ def generate_rename_lists():
 
                     print(f"\n\tChecking: {file.name}")
                     found = False
+
                     if file.name not in skipped_files:
                         if skipped_files and not skipped_file_volumes:
                             skipped_file_volumes = upgrade_to_volume_class(
@@ -10261,31 +10284,33 @@ def generate_rename_lists():
                                     # sort alphabetically
                                     skipped_file.extras.sort()
                                     # remove any year from the extras
-                                    for extra in skipped_file.extras[:]:
-                                        if re.search(
+                                    skipped_file.extras = [
+                                        extra
+                                        for extra in skipped_file.extras
+                                        if not re.search(
                                             r"([\[\(\{]\d{4}[\]\)\}])",
                                             extra,
                                             re.IGNORECASE,
-                                        ):
-                                            skipped_file.extras.remove(extra)
-                                            break
+                                        )
+                                    ]
+
                                 if file.extras:
                                     # sort alphabetically
                                     file.extras.sort()
                                     # remove any year from the extras
-                                    for extra in file.extras[:]:
-                                        if re.search(
+                                    file.extras = [
+                                        extra
+                                        for extra in file.extras
+                                        if not re.search(
                                             r"([\[\(\{]\d{4}[\]\)\}])",
                                             extra,
                                             re.IGNORECASE,
-                                        ):
-                                            file.extras.remove(extra)
-                                            break
+                                        )
+                                    ]
+
                                 if (
                                     file.extras == skipped_file.extras
                                     and file.extension == skipped_file.extension
-                                    # and file.series_name
-                                    # == skipped_file.series_name
                                 ):
                                     print(
                                         f"\t\tSkipping: {file.name} because it has the same extras and extension as: {skipped_file.name} (in {skipped_file_name})"
@@ -10311,36 +10336,26 @@ def generate_rename_lists():
                                                 skipped_file_volume[0]
                                             )
                                     break
-                        if mode == "r":
-                            if release_groups and not found:
-                                for group in release_groups:
-                                    left_brackets = r"(\(|\[|\{)"
-                                    right_brackets = r"(\)|\]|\})"
-                                    group_escaped = re.escape(group)
+
+                        left_brackets = r"(\(|\[|\{)"
+                        right_brackets = r"(\)|\]|\})"
+                        groups_to_use = release_groups if mode == "r" else publishers
+
+                        if groups_to_use and not found:
+                            found = next(
+                                (
+                                    group
+                                    for group in groups_to_use
                                     if re.search(
-                                        rf"{left_brackets}{group_escaped}{right_brackets}",
+                                        rf"{left_brackets}{re.escape(group)}{right_brackets}",
                                         file.name,
                                         re.IGNORECASE,
-                                    ):
-                                        print(f'\t\tFound: "{group}", skipping file.')
-                                        found = True
-                                        break
-                        elif mode == "p":
-                            if publishers and not found:
-                                for publisher in publishers:
-                                    left_brackets = r"(\(|\[|\{)"
-                                    right_brackets = r"(\)|\]|\})"
-                                    publisher_escaped = re.escape(publisher)
-                                    if re.search(
-                                        rf"{left_brackets}{publisher_escaped}{right_brackets}",
-                                        file.name,
-                                        re.IGNORECASE,
-                                    ):
-                                        print(
-                                            f'\t\tFound: "{publisher}", skipping file.'
-                                        )
-                                        found = True
-                                        break
+                                    )
+                                ),
+                            )
+                            if found:
+                                print(f'\t\tFound: "{found}", skipping file.')
+
                         if not found:
                             # ask the user what the release group or publisher is, then write it to the file, add it to the list, and continue. IF the user inputs "none" then skip it.
                             # loop until the user inputs a valid response
@@ -10414,8 +10429,14 @@ def generate_rename_lists():
 
 
 # Checks if a string only contains one set of numbers
-def only_has_one_set_of_numbers(string, chapter=False, file=None):
+def only_has_one_set_of_numbers(string, chapter=False, file=None, subtitle=None):
     keywords = volume_regex_keywords if not chapter else chapter_regex_keywords + "|"
+
+    if subtitle:
+        string = re.sub(
+            rf"(-|:)\s*{re.escape(subtitle)}$", "", string, re.IGNORECASE
+        ).strip()
+
     result = False
     search = re.findall(
         r"\b(%s)(%s)?(([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?(#([0-9]+)(([-_.])([0-9]+)|)+)?(_extra)?)\b"
@@ -10436,17 +10457,23 @@ def has_multiple_numbers(file_name):
     if numbers:
         for number in numbers:
             for item in tuple(filter(None, set(number))):
+                converted_number = set_num_as_float_or_int(item)
                 if (
                     item
-                    and set_num_as_float_or_int(item) not in new_numbers
+                    and converted_number not in new_numbers
                     and not re.search(r"(^\.[0-9]+$)", item)
                 ):
-                    new_numbers.append(set_num_as_float_or_int(item))
+                    new_numbers.append(converted_number)
     return len(new_numbers) > 1
 
 
 # Extracts all the numbers from a string
-def extract_all_numbers_from_string(string):
+def extract_all_numbers_from_string(string, subtitle=None):
+    if subtitle:
+        string = re.sub(
+            rf"(-|:)\s*{re.escape(subtitle)}$", "", string, re.IGNORECASE
+        ).strip()
+
     numbers = re.findall(
         r"\b(%s)(([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?(#([0-9]+)(([-_.])([0-9]+)|)+)?)"
         % exclusion_keywords_regex,
@@ -10769,33 +10796,31 @@ def convert_to_cbz():
                                 f"\t\t\tConverted {source_file} to {repacked_file}",
                                 discord=False,
                             )
-                            embed = [
-                                handle_fields(
-                                    DiscordEmbed(
-                                        title="Converted to CBZ",
-                                        color=grey_color,
-                                    ),
-                                    fields=[
-                                        {
-                                            "name": "From",
-                                            "value": f"```{os.path.basename(source_file)}```",
-                                            "inline": False,
-                                        },
-                                        {
-                                            "name": "To",
-                                            "value": f"```{os.path.basename(repacked_file)}```",
-                                            "inline": False,
-                                        },
-                                        {
-                                            "name": "Location",
-                                            "value": f"```{os.path.dirname(repacked_file)}```",
-                                            "inline": False,
-                                        },
-                                    ],
-                                )
-                            ]
+                            embed = handle_fields(
+                                DiscordEmbed(
+                                    title="Converted to CBZ",
+                                    color=grey_color,
+                                ),
+                                fields=[
+                                    {
+                                        "name": "From",
+                                        "value": f"```{os.path.basename(source_file)}```",
+                                        "inline": False,
+                                    },
+                                    {
+                                        "name": "To",
+                                        "value": f"```{os.path.basename(repacked_file)}```",
+                                        "inline": False,
+                                    },
+                                    {
+                                        "name": "Location",
+                                        "value": f"```{os.path.dirname(repacked_file)}```",
+                                        "inline": False,
+                                    },
+                                ],
+                            )
                             grouped_notifications = add_to_grouped_notifications(
-                                grouped_notifications, Embed(embed[0], None)
+                                grouped_notifications, Embed(embed, None)
                             )
 
                             # remove the source file
@@ -10925,29 +10950,27 @@ def correct_file_extensions():
                         if rename_status:
                             print("\t\t\tRenamed successfully")
                             if not mute_discord_rename_notifications:
-                                embed = [
-                                    handle_fields(
-                                        DiscordEmbed(
-                                            title="Renamed File",
-                                            color=grey_color,
-                                        ),
-                                        fields=[
-                                            {
-                                                "name": "From",
-                                                "value": f"```{volume.name}```",
-                                                "inline": False,
-                                            },
-                                            {
-                                                "name": "To",
-                                                "value": f"```{volume.extensionless_name}{volume.header_extension}```",
-                                                "inline": False,
-                                            },
-                                        ],
-                                    )
-                                ]
+                                embed = handle_fields(
+                                    DiscordEmbed(
+                                        title="Renamed File",
+                                        color=grey_color,
+                                    ),
+                                    fields=[
+                                        {
+                                            "name": "From",
+                                            "value": f"```{volume.name}```",
+                                            "inline": False,
+                                        },
+                                        {
+                                            "name": "To",
+                                            "value": f"```{volume.extensionless_name}{volume.header_extension}```",
+                                            "inline": False,
+                                        },
+                                    ],
+                                )
                                 grouped_notifications = add_to_grouped_notifications(
                                     grouped_notifications,
-                                    Embed(embed[0], None),
+                                    Embed(embed, None),
                                 )
                                 if watchdog_toggle:
                                     if volume.path in transferred_files:
@@ -11088,7 +11111,7 @@ def main():
 
     # Rename the files in the download folders
     if rename_files_in_download_folders_toggle:
-        rename_files_in_download_folders()
+        rename_files()
 
     # Create folders for items in the download folder
     if create_folders_for_items_in_download_folder_toggle:
