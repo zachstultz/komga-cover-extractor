@@ -42,7 +42,7 @@ python3 komga_cover_extractor.py [-h] [-p [PATHS [PATHS ...]]] -wh WEBHOOK1,WEBH
 
 - **With Compression:**
   ```bash
-  python3 komga_cover_extractor.py -p "/path/to/manga" -p "/path/to/novels" -c "True" -cq "60"
+  python3 komga_cover_extractor.py -p "/path/to/manga" -p "/path/to/novels" -c "True" -cq "40"
   ```
   
 - **Without Compression:**
