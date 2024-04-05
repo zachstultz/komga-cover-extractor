@@ -46,7 +46,7 @@ from settings import *
 import settings as settings_file
 
 # Version of the script
-script_version = (2, 5, 5)
+script_version = (2, 5, 6)
 script_version_text = "v{}.{}.{}".format(*script_version)
 
 # Paths = existing library
@@ -1590,7 +1590,7 @@ def set_num_as_float_or_int(volume_number, silent=False):
 def compress_image(image_path, quality=60, to_jpg=False, raw_data=None):
     new_filename = None
     buffer = None
-    save_format = ""
+    save_format = "JPEG"
 
     # Load the image from the file or raw data
     image = Image.open(image_path if not raw_data else io.BytesIO(raw_data))
@@ -1599,18 +1599,18 @@ def compress_image(image_path, quality=60, to_jpg=False, raw_data=None):
     if image.mode in ("RGBA", "P"):
         image = image.convert("RGB")
 
+    filename, ext = os.path.splitext(image_path)
+
+    if ext == ".webp":
+        save_format = "WEBP"
+
     # Determine the new filename for the compressed image
     if not raw_data:
-        filename, ext = os.path.splitext(image_path)
         if to_jpg or ext.lower() == ".png":
             ext = ".jpg"
             if not to_jpg:
                 to_jpg = True
         new_filename = f"{filename}{ext}"
-        if ext == ".webp":
-            save_format = "WEBP"
-        else:
-            save_format = "JPEG"
 
     # Try to compress and save the image
     try:
