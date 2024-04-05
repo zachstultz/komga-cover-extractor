@@ -1,5 +1,4 @@
 import argparse
-import calendar
 import hashlib
 import io
 import os
@@ -47,7 +46,7 @@ from settings import *
 import settings as settings_file
 
 # Version of the script
-script_version = (2, 5, 4)
+script_version = (2, 5, 5)
 script_version_text = "v{}.{}.{}".format(*script_version)
 
 # Paths = existing library
@@ -70,7 +69,7 @@ compress_image_option = False
 
 # Default image compression value.
 # Pass in via cli
-image_quality = 60
+image_quality = 40
 
 # Stat-related variables
 image_count = 0
@@ -467,6 +466,10 @@ move_new_series_to_library_toggle = False
 # Used in get_extra_from_group()
 publishers_joined = ""
 release_groups_joined = ""
+
+# Outputs the covers as WebP format
+# instead of jpg format.
+output_covers_as_webp = False
 
 
 # Folder Class
@@ -1345,6 +1348,11 @@ def parse_my_args():
         help="The seconds to sleep between file size checks when determining if a file is fully transferred.",
         required=False,
     )
+    parser.add_argument(
+        "--output_covers_as_webp",
+        help="Outputs the covers as WebP format instead of jpg format.",
+        required=False,
+    )
 
     parser = parser.parse_args()
 
@@ -1441,6 +1449,11 @@ def parse_my_args():
             f"\t\twatchdog_file_transferred_check_interval: {watchdog_file_transferred_check_interval}"
         )
 
+    if parser.output_covers_as_webp:
+        global output_covers_as_webp
+        output_covers_as_webp = parse_bool_argument(parser.output_covers_as_webp)
+    print(f"\toutput_covers_as_webp: {output_covers_as_webp}")
+
     if not parser.paths and not parser.download_folders:
         print("No paths or download folders were passed to the script.")
         print("Exiting...")
@@ -1474,7 +1487,7 @@ def parse_my_args():
 
     if parser.compress_quality:
         global image_quality
-        image_quality = float(parser.compress_quality)
+        image_quality = int(parser.compress_quality)
     print(f"\tcompress_quality: {image_quality}")
 
     if parser.bookwalker_webhook_urls is not None:
@@ -1574,9 +1587,10 @@ def set_num_as_float_or_int(volume_number, silent=False):
 
 
 # Compresses an image and saves it to a file or returns the compressed image data.
-def compress_image(image_path, quality=75, to_jpg=False, raw_data=None):
+def compress_image(image_path, quality=60, to_jpg=False, raw_data=None):
     new_filename = None
     buffer = None
+    save_format = ""
 
     # Load the image from the file or raw data
     image = Image.open(image_path if not raw_data else io.BytesIO(raw_data))
@@ -1593,14 +1607,18 @@ def compress_image(image_path, quality=75, to_jpg=False, raw_data=None):
             if not to_jpg:
                 to_jpg = True
         new_filename = f"{filename}{ext}"
+        if ext == ".webp":
+            save_format = "WEBP"
+        else:
+            save_format = "JPEG"
 
     # Try to compress and save the image
     try:
         if not raw_data:
-            image.save(new_filename, quality=quality, optimize=True)
+            image.save(new_filename, format=save_format, quality=quality, optimize=True)
         else:
             buffer = io.BytesIO()
-            image.save(buffer, format="JPEG", quality=50)
+            image.save(buffer, format=save_format, quality=quality)
             return buffer.getvalue()
     except Exception as e:
         # Log the error and continue
@@ -1633,7 +1651,7 @@ def handle_fields(embed, fields):
             if len(field["name"]) > 256:
                 field["name"] = (
                     field["name"][:253] + "..."
-                    if not re.search(r"```$", field["name"])
+                    if not field["name"].endswith("```")
                     else field["name"][:-3][:250] + "...```"
                 )
 
@@ -1641,7 +1659,7 @@ def handle_fields(embed, fields):
             if len(field["value"]) > 1024:
                 field["value"] = (
                     field["value"][:1021] + "..."
-                    if not re.search(r"```$", field["value"])
+                    if not field["value"].endswith("```")
                     else field["value"][:-3][:1018] + "...```"
                 )
 
@@ -2506,7 +2524,9 @@ def chapter_file_name_cleaning(
     # EX: "Series Name 54 -" -> "Series Name"
     if regex_matched != 0:
         file_name = re.sub(
-            r"(#)?([0-9]+)([-_.][0-9]+)*((x|#)([0-9]+)([-_.][0-9]+)*)*\s*-$", "", file_name
+            r"(#)?([0-9]+)([-_.][0-9]+)*((x|#)([0-9]+)([-_.][0-9]+)*)*\s*-$",
+            "",
+            file_name,
         ).strip()
 
     # Remove - at the end of the file_name
@@ -2742,9 +2762,9 @@ def get_release_number(file, chapter=False):
                 ).strip()
 
                 # remove - at the end of the string
-                if not re.search(
+                if file.endswith("-") and not re.search(
                     r"-(\s+)?(#)?([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?(\s+)?-", file
-                ) and re.search(r"(-)$", file):
+                ):
                     file = re.sub(r"(-)$", "", file).strip()
 
         # With a chapter keyword, without, but before bracketed info, or without and with a manga extension or a novel exteion after the number
@@ -4158,10 +4178,10 @@ def reorganize_and_rename(files, dir):
                         item
                         for item in file.extras
                         if not (
-                            similar(item, str(file.volume_year))
+                            str(file.volume_year) in item
+                            or similar(item, str(file.volume_year))
                             >= required_similarity_score
                             or re.search(r"([\[\(\{]\d{4}[\]\)\}])", item)
-                            or re.search(str(file.volume_year), item, re.IGNORECASE)
                         )
                     ]
 
@@ -4734,11 +4754,14 @@ def check_internals_for_premium_content(file):
                     with zf.open(name) as file:
                         file_contents = file.read().decode("utf-8")
                         if base_name == "toc.xhtml":
-                            if re.search(
-                                r"(Bonus\s+((Color\s+)?Illustrations?|(Short\s+)?Stories))",
-                                file_contents,
-                                re.IGNORECASE,
-                            ) and re.search(r"J-Novel", file_contents, re.IGNORECASE):
+                            if (
+                                re.search(
+                                    r"(Bonus\s+((Color\s+)?Illustrations?|(Short\s+)?Stories))",
+                                    file_contents,
+                                    re.IGNORECASE,
+                                )
+                                and "j-novel" in file_contents.lower()
+                            ):
                                 bonus_content_found = True
                                 break
                         elif base_name == "copyright.xhtml":
@@ -5483,11 +5506,7 @@ class IdentifierResult:
 def get_identifiers(zip_comment):
     metadata = []
 
-    if re.search(
-        r"Identifiers",
-        zip_comment,
-        re.IGNORECASE,
-    ):
+    if "identifiers" in zip_comment.lower():
         # split on Identifiers: and only keep the second half
         identifiers = ((zip_comment.split("Identifiers:")[1]).strip()).split(",")
 
@@ -5497,15 +5516,7 @@ def get_identifiers(zip_comment):
         # remove any that are "NONE" - used to be the default vale for the identifier
         # in my isbn script for other reasons
         if identifiers:
-            metadata = [
-                x
-                for x in identifiers
-                if not re.search(
-                    r"NONE",
-                    x,
-                    re.IGNORECASE,
-                )
-            ]
+            metadata = [x for x in identifiers if "none" not in x.lower()]
     return metadata
 
 
@@ -6353,6 +6364,7 @@ def check_for_existing_series(
                                         existing_file_meta = get_identifiers(
                                             existing_file_zip_comment
                                         )
+
                                         if existing_file_meta:
                                             print(f"\t\t\t\t{existing_file_meta}")
                                             if any(
@@ -7004,7 +7016,7 @@ def get_extras(file_name, chapter=False, series_name="", subtitle=""):
             results.append(modified_result)
 
     # Check for and add keywords to the results
-    if re.search(rf"\bPremium\b", file_name, re.IGNORECASE):
+    if "premium" in file_name.lower():
         modified_keyword = modifiers[extension] % "Premium"
         if modified_keyword not in results:
             results.append(modified_keyword)
@@ -7353,7 +7365,7 @@ def rename_files(
                             result = result.group().strip()
 
                         # EX: "- c009" -> "c009"
-                        if re.search(r"^-", result):
+                        if result.startswith("-"):
                             result = re.sub(r"^-", " ", result).strip()
 
                         result = re.sub(
@@ -7888,6 +7900,22 @@ def get_novel_cover_path(file):
     return os.path.basename(novel_cover_path)
 
 
+# Regular expressions to match cover patterns
+cover_patterns = [
+    r"(cover\.([A-Za-z]+))$",
+    r"(\b(Cover([0-9]+|)|CoverDesign|page([-_. ]+)?cover)\b)",
+    r"(\b(p000|page_000)\b)",
+    r"((\s+)0+\.(.{2,}))",
+    r"(\bindex[-_. ]1[-_. ]1\b)",
+    r"(9([-_. :]+)?7([-_. :]+)?(8|9)(([-_. :]+)?[0-9]){10})",
+]
+
+# Pre-compiled regular expressions for cover patterns
+compiled_cover_patterns = [
+    re.compile(pattern, flags=re.IGNORECASE) for pattern in cover_patterns
+]
+
+
 # Finds and extracts the internal cover from a manga or novel file.
 def find_and_extract_cover(
     file,
@@ -7902,7 +7930,7 @@ def find_and_extract_cover(
                 x
                 for x in zip_list
                 if not x.endswith("/")
-                and re.search(r"\.", x)
+                and "." in x
                 and get_file_extension(x) in image_extensions
                 and not os.path.basename(x).startswith((".", "__"))
             ]
@@ -7923,12 +7951,16 @@ def find_and_extract_cover(
         image_extension = get_file_extension(os.path.basename(cover_path))
         if image_extension == ".jpeg":
             image_extension = ".jpg"
+
+        if output_covers_as_webp and image_extension != ".webp":
+            image_extension = ".webp"
+
         output_path = os.path.join(file.root, file.extensionless_name + image_extension)
 
         if not return_data_only:
             save_image_data(output_path, image_data)
             if compress_image_option:
-                result = compress_image(output_path)
+                result = compress_image(output_path, image_quality)
                 return result if result else output_path
             return output_path
         elif image_data:
@@ -7983,29 +8015,20 @@ def find_and_extract_cover(
                     zip_list.insert(0, item)
                     break
 
-        # Regular expressions to match cover patterns
-        cover_patterns = [
-            r"(cover\.([A-Za-z]+))$",
-            r"(\b(Cover([0-9]+|)|CoverDesign|page([-_. ]+)?cover)\b)",
-            r"(\b(p000|page_000)\b)",
-            r"((\s+)0+\.(.{2,}))",
-            r"(\bindex[-_. ]1[-_. ]1\b)",
-            r"(9([-_. :]+)?7([-_. :]+)?(8|9)(([-_. :]+)?[0-9]){10})",
-        ]
-
         # Set of blank images
         blank_images = set()
 
         # Iterate through the files in the zip archive
         for image_file in zip_list:
             # Check if the file matches any cover pattern
-            for pattern in cover_patterns:
+            for pattern in compiled_cover_patterns:
                 image_basename = os.path.basename(image_file)
                 is_novel_cover = novel_cover_path and image_basename == novel_cover_path
+
                 if (
                     is_novel_cover
-                    or pattern == image_basename
-                    or re.search(pattern, image_basename, re.IGNORECASE)
+                    or pattern.pattern == image_basename
+                    or pattern.search(image_basename)
                 ):
                     # Check if the image is blank
                     if (
@@ -8265,6 +8288,18 @@ def extract_covers(paths_to_process=paths):
 
             # Get the series cover
             series_cover_path = find_series_cover(folder_accessor, image_extensions)
+            series_cover_extension = (
+                get_file_extension(series_cover_path) if series_cover_path else ""
+            )
+
+            if series_cover_extension and (
+                (output_covers_as_webp and series_cover_extension != ".webp")
+                or (not output_covers_as_webp and series_cover_extension == ".webp")
+            ):
+                # Remove the existing series cover image
+                remove_status = remove_file(series_cover_path, silent=True)
+                if remove_status:
+                    series_cover_path = ""
 
             # Set the directory type
             is_chapter_directory = folder_accessor.files[0].file_type == "chapter"
@@ -8414,6 +8449,19 @@ def process_cover_extraction(
             "",
         )
 
+        cover_extension = get_file_extension(cover) if cover else ""
+
+        # If the user has specified to output covers as .webp files and the cover is not a .webp file,
+        # then we will remove the existing cover image so it can be replaced with a .webp file
+        if cover_extension and (
+            (output_covers_as_webp and cover_extension != ".webp")
+            or (not output_covers_as_webp and cover_extension == ".webp")
+        ):
+            # Remove the existing cover image
+            remove_status = remove_file(cover, silent=True)
+            if remove_status:
+                cover = ""
+
         if cover:
             # Cover image found
             has_cover = True
@@ -8428,7 +8476,7 @@ def process_cover_extraction(
             result = find_and_extract_cover(file)
 
             if result:
-                if result.endswith(".webp"):
+                if result.endswith(".webp") and not output_covers_as_webp:
                     # Cover image is a .webp file, attempt to convert to .jpg
                     print("\t\tCover is a .webp file. Converting to .jpg...")
                     conversion_result = convert_webp_to_jpg(result)
@@ -9368,6 +9416,7 @@ def search_bookwalker(
                 book_type = re.sub(r"\n|\t|\r", "", book_type).strip()
                 title = o_tile_book_info.find("h2", class_="a-tile-ttl").text.strip()
                 original_title = title
+
                 item_index = o_tile_list.index(item)
 
                 if title:
@@ -9389,7 +9438,7 @@ def search_bookwalker(
 
                 if (
                     title
-                    and re.search(r"Chapter", title, re.IGNORECASE)
+                    and "chapter" in title.lower()
                     and not re.search(r"re([-_. :]+)?zero", title, re.IGNORECASE)
                 ):
                     continue
@@ -11135,8 +11184,8 @@ def main():
         rename_dirs_in_download_folder()
 
     if watchdog_toggle:
+        # remove any deleted/renamed/moved files
         if transferred_files:
-            # remove any deleted/renamed/moved files
             transferred_files = [x for x in transferred_files if os.path.isfile(x)]
 
         # remove any deleted/renamed/moved directories
