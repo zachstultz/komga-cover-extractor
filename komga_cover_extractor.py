@@ -46,7 +46,7 @@ from settings import *
 import settings as settings_file
 
 # Version of the script
-script_version = (2, 5, 6)
+script_version = (2, 5, 7)
 script_version_text = "v{}.{}.{}".format(*script_version)
 
 # Paths = existing library
@@ -300,12 +300,12 @@ exclusion_keywords = [
     r"(\s)PT(\s)",
     r",",
     r"(\s)×",
-    r"\d\s-\s",
-    r"No.",
-    r"No.(\s)",
-    r"Bonus(\s)",
+    r"\d\s*-\s*",
+    r"\bNo.",
+    r"\bNo.(\s)",
+    r"\bBonus(\s)",
     r"(\]|\}|\)) -",
-    r"Zom(\s)",
+    r"\bZom(\s)",
 ]
 
 subtitle_exclusion_keywords = [r"-(\s)", r"-", r"-\s[A-Za-z]+\s"]
@@ -1786,20 +1786,23 @@ def remove_hidden_folders(dirs):
     return [x for x in dirs if not x.startswith(".")]
 
 
+volume_year_regex = r"(\(|\[|\{)(\d{4})(\)|\]|\})"
+
+
 # check if volume file name is a chapter
 @lru_cache(maxsize=None)
 def contains_chapter_keywords(file_name):
     # Remove "_extra" and replace underscores
     file_name_clean = replace_underscore_in_name(
-        re.sub(r"_extra", " ", file_name, flags=re.IGNORECASE)
+        file_name.replace("_extra", "")
     ).strip()
 
     # Remove "c1fi7"
-    file_name_clean = re.sub(r"c1fi7", "", file_name_clean, flags=re.IGNORECASE)
+    file_name_clean = file_name_clean.replace("c1fi7", "")
 
     # Remove underscores, replace with spaces, and remove dual spaces
     file_name_clean = remove_dual_space(
-        re.sub(r"(_)", " ", file_name_clean).strip()
+        file_name_clean.replace("_", " ").strip()
     ).strip()
 
     # Use compiled patterns for searching
@@ -1839,6 +1842,14 @@ volume_regex = re.compile(
     re.IGNORECASE,
 )
 
+# Precompiled
+brackets_pattern = re.compile(r"[(){}\[\]]")
+
+
+# Determines if the string contains brackets
+def contains_brackets(s):
+    return bool(brackets_pattern.search(s))
+
 
 # Removes bracketed content from the string, alongwith any whitespace.
 # As long as the bracketed content is not immediately preceded or followed by a dash.
@@ -1876,7 +1887,7 @@ def remove_bracketed_info_from_name(string):
 @lru_cache(maxsize=None)
 def contains_volume_keywords(file):
     # remove _extra from the file name, replace with space
-    file = remove_dual_space(re.sub(r"_extra", " ", file, flags=re.IGNORECASE)).strip()
+    file = remove_dual_space(file.replace("_extra", "")).strip()
     result = volume_regex.search(
         replace_underscore_in_name(remove_bracketed_info_from_name(file))
     )
@@ -2429,7 +2440,7 @@ def get_series_name_from_file_name(name, root, test_mode=False, second=False):
         name = re.sub(r"^(\[[^\]]*\]|\([^\)]*\)|\{[^}]*\})+\s+", "", name).strip()
 
     # remove _extra
-    name = remove_dual_space(re.sub(r"_extra", " ", name, flags=re.IGNORECASE)).strip()
+    name = remove_dual_space(name.replace("_extra", "")).strip()
 
     # replace underscores
     name = replace_underscore_in_name(name)
@@ -2469,7 +2480,8 @@ def get_series_name_from_file_name(name, root, test_mode=False, second=False):
             ).strip()
 
     # Remove a trailing comma at the end of the name
-    name = re.sub(r"(,)$", "", name).strip()
+    if name.endswith(","):
+        name = name[:-1].strip()
 
     # remove the file extension if still remaining
     name = re.sub(r"(%s)$" % file_extensions_regex, "", name).strip()
@@ -2534,9 +2546,9 @@ def chapter_file_name_cleaning(
     file_name = re.sub(r"(?<![A-Za-z])(-\s*)$", "", file_name).strip()
 
     # Return if we have nothing but a digit left, if not skip
-    if re.sub(r"(#)", "", file_name).isdigit() and not skip:
+    if file_name.replace("#", "").isdigit() and not skip:
         return ""
-    elif re.sub(r"(#)", "", file_name).replace(".", "", 1).isdigit() and not skip:
+    elif file_name.replace("#", "").replace(".", "", 1).isdigit() and not skip:
         return ""
 
     # if chapter_number and it's at the end of the file_name, remove it
@@ -2584,7 +2596,7 @@ def get_series_name_from_file_name_chapter(name, root, chapter_number="", second
         name = re.sub(r"^(\[[^\]]*\]|\([^\)]*\)|\{[^}]*\})+\s+", "", name).strip()
 
     # Remove dual space
-    name = remove_dual_space(re.sub(r"_extra", " ", name, flags=re.IGNORECASE)).strip()
+    name = remove_dual_space(name.replace("_extra", "")).strip()
 
     # remove the file extension
     name = re.sub(r"(%s)$" % file_extensions_regex, "", name).strip()
@@ -2615,7 +2627,8 @@ def get_series_name_from_file_name_chapter(name, root, chapter_number="", second
             )
 
     # Remove a trailing comma at the end of the name
-    result = re.sub(r"(,)$", "", result).strip()
+    if result.endswith(","):
+        result = result[:-1].strip()
 
     # Default to the root folder name if we have nothing left
     # As long as it's not in our download folders or paths
@@ -2734,7 +2747,7 @@ def get_release_number(file, chapter=False):
     keywords = volume_regex_keywords if not chapter else chapter_regex_keywords
     result = None
 
-    file = remove_dual_space(re.sub(r"_extra", " ", file, flags=re.IGNORECASE)).strip()
+    file = remove_dual_space(file.replace("_extra", "")).strip()
     file = replace_underscore_in_name(file)
 
     is_multi_volume = check_for_multi_volume_file(file, chapter=chapter)
@@ -2765,7 +2778,7 @@ def get_release_number(file, chapter=False):
                 if file.endswith("-") and not re.search(
                     r"-(\s+)?(#)?([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?(\s+)?-", file
                 ):
-                    file = re.sub(r"(-)$", "", file).strip()
+                    file = file[:-1].strip()
 
         # With a chapter keyword, without, but before bracketed info, or without and with a manga extension or a novel exteion after the number
         # Series Name c001.extension or Series Name 001 (2021) (Digital) (Release).extension or Series Name 001.extension
@@ -2818,11 +2831,15 @@ def get_release_number(file, chapter=False):
                 ).strip()
 
                 # - #404 - -> #404
-                file = re.sub(r"^- | -$", "", file).strip()
+                if file.startswith("- "):
+                    file = file[1:].strip()
+                if file.endswith(" -"):
+                    file = file[:-1].strip()
 
                 # remove # at the beginning of the string
                 # EX: #001 -> 001
-                file = re.sub(r"^#", "", file).strip()
+                if file.startswith("#"):
+                    file = file[1:].strip()
 
             file = re.sub(
                 r"\b({})(\.|)([-_. ])?".format(keywords),
@@ -2866,7 +2883,7 @@ def get_release_number(file, chapter=False):
                 else:
                     # Remove trailing ".0" so conversion doesn't fail
                     if file.endswith("0") and re.search(r"\.0+$", file):
-                        file = re.sub(r"\.0+$", "", file)
+                        file = file.split(".0")[0]
                     results = int(file) if float(file).is_integer() else float(file)
             except ValueError as v:
                 send_message(f"Not a float: {file}: ERROR: {v}", error=True)
@@ -2890,9 +2907,6 @@ def get_release_number(file, chapter=False):
 def get_release_number_cache(file, chapter=False):
     result = get_release_number(file, chapter=chapter)
     return list(result) if isinstance(result, tuple) else result
-
-
-volume_year_regex = r"(\(|\[|\{)(\d{4})(\)|\]|\})"
 
 
 # Get the release year from the file metadata, if present, otherwise from the file name
@@ -3003,8 +3017,8 @@ def get_publisher_from_meta(metadata):
             publisher = clean_publisher_name(metadata["Publisher"])
         elif "dc:publisher" in metadata:
             publisher = clean_publisher_name(metadata["dc:publisher"])
-            publisher = re.sub(r"LLC", "", publisher).strip()
-            publisher = re.sub(r":", " - ", publisher).strip()
+            publisher = publisher.replace("LLC", "").strip()
+            publisher = publisher.replace(":", " - ").strip()
             publisher = remove_dual_space(publisher)
 
     return publisher
@@ -3233,7 +3247,7 @@ def remove_images(path):
         "",
     )
 
-    # The series cover for the file. (cover.jpg)
+    # The series cover for the file. (cover.ext)
     series_cover = next(
         (
             os.path.join(os.path.dirname(path), f"cover{ext}")
@@ -4098,6 +4112,12 @@ def check_for_premium_content(file_path, extension):
     return result
 
 
+# Determines if the string contains unicode characters.
+# or rather non-ascii characters.
+def contains_unicode(input_str):
+    return not input_str.isascii()
+
+
 # Rebuilds the file name by cleaning up, adding, and moving some parts around.
 def reorganize_and_rename(files, dir):
     global transferred_files, grouped_notifications
@@ -4149,10 +4169,10 @@ def reorganize_and_rename(files, dir):
                         if number < 10 or (
                             file.file_type == "chapter" and number < 100
                         ):
-                            if isinstance(number, int):
-                                number_string += str(number).zfill(zfill_int)
-                            else:
-                                number_string += str(number).zfill(zfill_float)
+                            fill_type = (
+                                zfill_int if isinstance(number, int) else zfill_float
+                            )
+                            number_string += str(number).zfill(fill_type)
                         else:
                             number_string += str(number)
                     elif isinstance(number, str):
@@ -4258,7 +4278,8 @@ def reorganize_and_rename(files, dir):
                         for extra in file.extras
                         if not re.search(re.escape(extra), rename, re.IGNORECASE)
                     ]
-                    rename += " " + " ".join(extras_to_add)
+                    if extras_to_add:
+                        rename += " " + " ".join(extras_to_add)
 
                 if move_release_group_to_end_of_file_name and file.release_group:
                     release_group_escaped = re.escape(file.release_group)
@@ -4268,19 +4289,19 @@ def reorganize_and_rename(files, dir):
                         rename += f" {modifiers[file.extension] % file.release_group}"
 
                 # remove * from the replacement
-                rename = re.sub(r"\*", "", rename)
+                rename = rename.replace("*", "")
                 rename += file.extension
                 rename = rename.strip()
 
                 # Replace unicode using unidecode, if enabled
-                if replace_unicode_when_restructuring:
+                if replace_unicode_when_restructuring and contains_unicode(rename):
                     rename = unidecode(rename)
 
                 # Replace any quotes with '
-                rename = re.sub(r"\"", "'", rename)
+                rename = rename.replace('"', "'")
 
                 # Replace / with -
-                rename = re.sub(r"/", "-", rename)
+                rename = rename.replace("/", "-")
 
                 processed_files.append(rename)
 
@@ -4493,19 +4514,44 @@ def remove_s(s):
     return re.sub(r"\b(\w+)(s)\b", r"\1", s, flags=re.IGNORECASE).strip()
 
 
+# Precompiled
+punctuation_pattern = re.compile(r"[^\w\s]")
+
+
+# Determines if the string contains punctuation
+def contains_punctuation(s):
+    return bool(punctuation_pattern.search(s))
+
+
 # Returns a string without punctuation.
 @lru_cache(maxsize=None)
 def remove_punctuation(s):
-    s = re.sub(r":", " ", s)
+    # replace : with space
+    s = s.replace(":", " ")
+
+    # remove uneccessary spacing
     s = remove_dual_space(s)
 
-    return convert_to_ascii(
-        unidecode(
-            remove_dual_space(
-                remove_s(re.sub(r"[^\w\s+]", " ", normalize_string_for_matching(s)))
-            )
-        )
-    )
+    # normalize the string
+    s = normalize_string_for_matching(s)
+
+    # remove punctuation
+    s = re.sub(r"[^\w\s]", " ", s)
+
+    # remove trailing s
+    s = remove_s(s)
+
+    # remove dual spaces
+    s = remove_dual_space(s)
+
+    # unidecode
+    if contains_unicode(s):
+        s = unidecode(s)
+
+    # convert to ascii
+    s = convert_to_ascii(s)
+
+    return s.strip()
 
 
 # Cleans the string by removing punctuation, bracketed info, and replacing underscores with periods.
@@ -4522,7 +4568,9 @@ def clean_string(
 
     # Remove bracketed info
     string_without_brackets = (
-        remove_bracketed_info_from_name(string) if not skip_bracket else string
+        remove_bracketed_info_from_name(string)
+        if not skip_bracket and contains_brackets(string)
+        else string
     )
 
     # Remove punctuation
@@ -4535,7 +4583,7 @@ def clean_string(
     # Replace underscores with periods
     string_without_underscore = (
         replace_underscore_in_name(string_without_punctuation)
-        if not skip_underscore
+        if not skip_underscore and "_" in string_without_punctuation
         else string_without_punctuation
     )
 
@@ -4754,13 +4802,10 @@ def check_internals_for_premium_content(file):
                     with zf.open(name) as file:
                         file_contents = file.read().decode("utf-8")
                         if base_name == "toc.xhtml":
-                            if (
-                                re.search(
-                                    r"(Bonus\s+((Color\s+)?Illustrations?|(Short\s+)?Stories))",
-                                    file_contents,
-                                    re.IGNORECASE,
-                                )
-                                and "j-novel" in file_contents.lower()
+                            if "j-novel" in file_contents.lower() and re.search(
+                                r"(Bonus\s+((Color\s+)?Illustrations?|(Short\s+)?Stories))",
+                                file_contents,
+                                re.IGNORECASE,
                             ):
                                 bonus_content_found = True
                                 break
@@ -5449,7 +5494,7 @@ def replace_underscore_in_name(name):
     name = re.sub(r"(?<=\d)_(?=\d)", ".", name)
 
     # Replace all other underscores with a space
-    name = re.sub(r"_", " ", name)
+    name = name.replace("_", " ")
     name = remove_dual_space(name).strip()
 
     return name
@@ -5530,9 +5575,12 @@ def parse_words(user_string):
             translator = str.maketrans("", "", string.punctuation)
             words_no_punct = user_string.translate(translator)
             words_lower = words_no_punct.lower()
-            words_no_uni = unidecode(words_lower).split()
-            if words_no_uni:
-                words = words_no_uni
+            words_no_uni = (
+                unidecode(words_lower) if contains_unicode(words_lower) else words_lower
+            )
+            words_no_uni_split = words_lower.split()
+            if words_no_uni_split:
+                words = words_no_uni_split
         except Exception as e:
             send_message(f"parse_words(string={user_string}) - Error: {e}", error=True)
     return words
@@ -6504,10 +6552,10 @@ def check_for_existing_series(
                     if message.fields and len(message.fields) >= 2:
                         # remove ``` from the start and end of the value
                         volume_numbers_mts.append(
-                            re.sub(r"```", "", message.fields[0]["value"])
+                            message.fields[0]["value"].replace("```", "")
                         )
                         volume_names_mts.append(
-                            re.sub(r"```", "", message.fields[1]["value"])
+                            message.fields[1]["value"].replace("```", "")
                         )
 
                 if volume_numbers_mts and volume_names_mts and series_name:
@@ -6567,7 +6615,7 @@ def check_for_existing_series(
 # !OLD METHOD!: Only used for cleaning a folder name as a backup if no volumes were found inside the folder
 # when renaming folders in the dowload directory.
 def get_series_name(dir):
-    dir = remove_dual_space(re.sub(r"_extra", " ", dir, flags=re.IGNORECASE)).strip()
+    dir = remove_dual_space(dir.replace("_extra", "")).strip()
     dir = (
         re.sub(
             r"(\b|\s)((\s|)-(\s|)|)(Part|)(%s)([-_. ]|)([-_. ]|)([0-9]+)(\b|\s).*"
@@ -6739,7 +6787,7 @@ def rename_dirs_in_download_folder(paths_to_process=download_folders):
                 folder_name = re.sub(
                     r"([A-Za-z])(\:)", r"\1 -", folder_name  # A: -> A -
                 )
-                folder_name = re.sub(r"([?])", "", folder_name)  # remove question marks
+                folder_name = folder_name.replace("?", "")  # remove question marks
                 folder_name = remove_dual_space(
                     folder_name
                 ).strip()  # remove dual spaces
@@ -7285,12 +7333,7 @@ def rename_files(
                             result = re.search(
                                 regex,
                                 remove_dual_space(
-                                    re.sub(
-                                        r"_extra",
-                                        " ",
-                                        file.name,
-                                        flags=re.IGNORECASE,
-                                    )
+                                    file.name.replace("_extra", "")
                                 ).strip(),
                                 re.IGNORECASE,
                             )
@@ -7335,7 +7378,7 @@ def rename_files(
 
                                     if result:
                                         if re.search(r"(\d+_\d+)", result):
-                                            result = re.sub("_", ".", result)
+                                            result = result.replace("_", ".")
 
                                     if result:
                                         # check that the string is a float or int
@@ -7366,7 +7409,7 @@ def rename_files(
 
                         # EX: "- c009" -> "c009"
                         if result.startswith("-"):
-                            result = re.sub(r"^-", " ", result).strip()
+                            result = result[1:]
 
                         result = re.sub(
                             r"([\[\(\{\]\)\}]|((?<!\d+)_(?!\d+)))", "", result
@@ -7462,10 +7505,12 @@ def rename_files(
                                     if item < 10 or (
                                         file.file_type == "chapter" and item < 100
                                     ):
-                                        if isinstance(item, int):
-                                            combined += str(item).zfill(zfill_int)
-                                        else:
-                                            combined += str(item).zfill(zfill_float)
+                                        fill_type = (
+                                            zfill_int
+                                            if isinstance(item, int)
+                                            else zfill_float
+                                        )
+                                        combined += str(item).zfill(fill_type)
                                     else:
                                         combined += str(item)
                                 elif isinstance(item, str):
@@ -7563,12 +7608,7 @@ def rename_files(
                                         optional_following_zero,
                                         f" {preferred_naming_format}{converted_and_filled}",
                                         remove_dual_space(
-                                            re.sub(
-                                                r"_extra",
-                                                ".5",
-                                                without_end_brackets,
-                                                flags=re.IGNORECASE,
-                                            )
+                                            without_end_brackets.replace("_extra", ".5")
                                         ),
                                         flags=re.IGNORECASE,
                                         count=1,
@@ -7636,10 +7676,14 @@ def rename_files(
                                 # Add the extension back
                                 replacement += file.extension
 
-                            replacement = re.sub(r"([?])", "", replacement).strip()
+                            # Remove question marks from the replacement
+                            replacement = replacement.replace("?", "").strip()
+
+                            # Remove any extra spaces
                             replacement = remove_dual_space(
-                                re.sub(r"_", " ", replacement)
+                                replacement.replace("_", " ")
                             ).strip()
+
                             # replace : with - in dir_clean
                             replacement = re.sub(
                                 r"([A-Za-z])(\:|：)", r"\1 -", replacement
@@ -8432,7 +8476,7 @@ def process_cover_extraction(
         return [
             folder
             for folder in filtered_series
-            if folder.lower().startswith(first_word)
+            if clean_string(folder).lower().startswith(first_word)
         ]
 
     try:
@@ -9518,7 +9562,8 @@ def search_bookwalker(
                         title,
                         flags=re.IGNORECASE,
                     ).strip()
-                    title = re.sub(r",$", "", title).strip()
+                    if title.endswith(","):
+                        title = title[:-1].strip()
                     title = title.replace("\n", "").replace("\t", "")
                     title = re.sub(rf"\b{volume_number}\b", "", title)
                     title = re.sub(r"(\s{2,})", " ", title).strip()
@@ -9541,13 +9586,13 @@ def search_bookwalker(
                     else ""
                 )
                 clean_shortened_query = (
-                    unidecode(remove_punctuation(shortened_query).lower().strip())
+                    remove_punctuation(shortened_query).lower().strip()
                     if shortened_query
                     else ""
                 )
 
                 clean_title = remove_punctuation(title).lower().strip()
-                clean_query = unidecode(remove_punctuation(query).lower().strip())
+                clean_query = remove_punctuation(query).lower().strip()
 
                 score = similar(clean_title, clean_query)
                 print(f"\t\t\t\t\t\tBookwalker: {clean_title}")
@@ -10558,17 +10603,23 @@ class Image_Result:
 def prep_images_for_similarity(
     blank_image_path, internal_cover_data, both_cover_data=False, silent=False
 ):
+
+    # Decode internal cover data
     internal_cover = cv2.imdecode(
         np.frombuffer(internal_cover_data, np.uint8), cv2.IMREAD_UNCHANGED
     )
-    blank_image = None
-    if not both_cover_data:
-        blank_image = cv2.imread(blank_image_path)
-    else:
-        blank_image = cv2.imdecode(
+
+    # Load blank image either from path or data buffer based on condition
+    blank_image = (
+        cv2.imread(blank_image_path)
+        if not both_cover_data
+        else cv2.imdecode(
             np.frombuffer(blank_image_path, np.uint8), cv2.IMREAD_UNCHANGED
         )
+    )
     internal_cover = np.array(internal_cover)
+
+    # Resize images to have matching dimensions
     if blank_image.shape[0] > internal_cover.shape[0]:
         blank_image = cv2.resize(
             blank_image,
@@ -10585,18 +10636,20 @@ def prep_images_for_similarity(
                 blank_image.shape[0],
             ),
         )
-    # if they have both have a third channel, make them the same
+
+    # Ensure both images have the same number of color channels
     if len(blank_image.shape) == 3 and len(internal_cover.shape) == 3:
-        if blank_image.shape[2] > internal_cover.shape[2]:
-            blank_image = blank_image[:, :, : internal_cover.shape[2]]
-        else:
-            internal_cover = internal_cover[:, :, : blank_image.shape[2]]
+        min_shape = min(blank_image.shape[2], internal_cover.shape[2])
+        blank_image = blank_image[:, :, :min_shape]
+        internal_cover = internal_cover[:, :, :min_shape]
     elif len(blank_image.shape) == 3 and len(internal_cover.shape) == 2:
         blank_image = blank_image[:, :, 0]
     elif len(blank_image.shape) == 2 and len(internal_cover.shape) == 3:
         internal_cover = internal_cover[:, :, 0]
 
+    # Compare images and return similarity score
     score = compare_images(blank_image, internal_cover, silent=silent)
+
     return score
 
 
