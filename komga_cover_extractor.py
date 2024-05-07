@@ -46,7 +46,7 @@ from settings import *
 import settings as settings_file
 
 # Version of the script
-script_version = (2, 5, 10)
+script_version = (2, 5, 11)
 script_version_text = "v{}.{}.{}".format(*script_version)
 
 # Paths = existing library
@@ -1559,7 +1559,11 @@ def set_num_as_float_or_int(volume_number, silent=False):
         if isinstance(volume_number, list):
             result = "-".join(
                 [
-                    str(int(num)) if float(num) == int(num) else str(float(num))
+                    (
+                        str(int(float(num)))
+                        if float(num) == int(float(num))
+                        else str(float(num))
+                    )
                     for num in volume_number
                 ]
             )
@@ -1798,8 +1802,8 @@ volume_year_regex = r"(\(|\[|\{)(\d{4})(\)|\]|\})"
 # check if volume file name is a chapter
 @lru_cache(maxsize=None)
 def contains_chapter_keywords(file_name):
-    # Remove "_extra" and replace underscores
-    file_name_clean = file_name.replace("_extra", "")
+    # Replace "_extra"
+    file_name_clean = file_name.replace("_extra", ".5")
 
     # Replace underscores
     file_name_clean = (
@@ -1926,8 +1930,8 @@ volume_regex = re.compile(
 # Checks if the passed string contains volume keywords
 @lru_cache(maxsize=None)
 def contains_volume_keywords(file):
-    # Remove _extra
-    file = file.replace("_extra", "")
+    # Replace _extra
+    file = file.replace("_extra", ".5")
 
     # Remove dual spaces
     file = remove_dual_space(file).strip()
@@ -2153,6 +2157,20 @@ def upgrade_to_file_class(
         )[0]
 
     # Create a list of tuples with arguments to pass to the File constructor
+    file_types = [
+        (
+            "chapter"
+            if not contains_volume_keywords(file) and contains_chapter_keywords(file)
+            else "volume"
+        )
+        for file in files
+    ]
+
+    chapter_numbers = [
+        get_release_number_cache(file, chapter=file_type == "chapter")
+        for file, file_type in zip(files, file_types)
+    ]
+
     file_args = [
         (
             file,
@@ -2174,36 +2192,9 @@ def upgrade_to_file_class(
                 else None
             ),
         )
-        for file, file_type, chapter_number in zip(
-            files,
-            [
-                (
-                    "chapter"
-                    if not contains_volume_keywords(file)
-                    and contains_chapter_keywords(file)
-                    else "volume"
-                )
-                for file in files
-            ],
-            [
-                get_release_number_cache(file, chapter=file_type == "chapter")
-                for file, file_type in zip(
-                    files,
-                    [
-                        (
-                            "chapter"
-                            if not contains_volume_keywords(file)
-                            and contains_chapter_keywords(file)
-                            else "volume"
-                        )
-                        for file in files
-                    ],
-                )
-            ],
-        )
+        for file, file_type, chapter_number in zip(files, file_types, chapter_numbers)
     ]
 
-    # Process the files sequentially
     results = [File(*args) for args in file_args]
 
     return results
@@ -2489,8 +2480,8 @@ def get_series_name_from_volume(name, root, test_mode=False, second=False):
         # remove the brackets only
         name = re.sub(r"^(\[[^\]]*\]|\([^\)]*\)|\{[^}]*\})+\s+", "", name).strip()
 
-    # remove _extra
-    name = remove_dual_space(name.replace("_extra", "")).strip()
+    # replace _extra
+    name = remove_dual_space(name.replace("_extra", ".5")).strip()
 
     # replace underscores
     name = replace_underscores(name) if "_" in name else name
@@ -2658,7 +2649,7 @@ def get_series_name_from_chapter(name, root, chapter_number="", second=False):
         name = re.sub(r"^(\[[^\]]*\]|\([^\)]*\)|\{[^}]*\})+\s+", "", name).strip()
 
     # Replace _extra
-    name = name.replace("_extra", "")
+    name = name.replace("_extra", ".5")
 
     # Remove dual space
     name = remove_dual_space(name).strip()
@@ -2721,7 +2712,7 @@ def get_series_name_from_chapter(name, root, chapter_number="", second=False):
 
 
 # Calculates the percentage of files in a folder that match a specified extension or file type.
-def get_percent_for_folder(files, extensions=None, file_type=None):
+def get_folder_type(files, extensions=None, file_type=None):
     if not files:
         return 0
 
@@ -2892,7 +2883,10 @@ def get_release_number(file, chapter=False):
     keywords = volume_regex_keywords if not chapter else chapter_regex_keywords
     result = None
 
-    file = remove_dual_space(file.replace("_extra", "")).strip()
+    # Replace _extra
+    file = remove_dual_space(file.replace("_extra", ".5")).strip()
+
+    # Replace underscores
     file = replace_underscores(file) if "_" in file else file
 
     is_multi_volume = (
@@ -3671,9 +3665,7 @@ def remove_duplicate_releases(
             )
             continue
 
-        chap_dl_percent = get_percent_for_folder(
-            downloaded_releases, file_type="chapter"
-        )
+        chap_dl_percent = get_folder_type(downloaded_releases, file_type="chapter")
         is_chapter_dir = chap_dl_percent >= required_matching_percentage
 
         highest_index_num = (
@@ -4959,24 +4951,24 @@ def check_upgrade(
         percent_existing = 0
 
         if file_type in ["manga", "novel"]:
-            percent_dl = get_percent_for_folder(
+            percent_dl = get_folder_type(
                 [file.name],
                 extensions=(
                     manga_extensions if file_type == "manga" else novel_extensions
                 ),
             )
-            percent_existing = get_percent_for_folder(
+            percent_existing = get_folder_type(
                 [f.name for f in existing_files],
                 extensions=(
                     manga_extensions if file_type == "manga" else novel_extensions
                 ),
             )
         elif file_type in ["chapter", "volume"]:
-            percent_dl = get_percent_for_folder(
+            percent_dl = get_folder_type(
                 [file],
                 file_type=file_type,
             )
-            percent_existing = get_percent_for_folder(
+            percent_existing = get_folder_type(
                 existing_files,
                 file_type=file_type,
             )
@@ -6715,7 +6707,7 @@ def check_for_existing_series(
 # !OLD METHOD!: Only used for cleaning a folder name as a backup if no volumes were found inside the folder
 # when renaming folders in the dowload directory.
 def get_series_name(dir):
-    dir = remove_dual_space(dir.replace("_extra", "")).strip()
+    dir = remove_dual_space(dir.replace("_extra", ".5")).strip()
     dir = (
         re.sub(
             r"(\b|\s)((\s|)-(\s|)|)(Part|)(%s)([-_. ]|)([-_. ]|)([0-9]+)(\b|\s).*"
@@ -7303,6 +7295,9 @@ def rename_files(
 
         for root, dirs, files in scandir.walk(path):
             if test_mode:
+                if root not in download_folders:
+                    return
+
                 dirs = []
                 files = only_these_files
 
@@ -7336,6 +7331,10 @@ def rename_files(
 
             print(f"\t{root}")
             for file in volumes:
+                if "_extra" in file.name and ".5" in str(file.volume_number):
+                    # remove .5 from the volume number and index_number
+                    file.volume_number = int(file.volume_number)
+                    file.index_number = int(file.index_number)
                 if test_mode:
                     print(f"\t\t[{volumes.index(file) + 1}/{len(volumes)}] {file.name}")
 
@@ -9554,16 +9553,14 @@ def search_bookwalker(
                 a_tag_chapter = tag_dict["a-tag-chapter"]
                 a_tag_simulpub = tag_dict["a-tag-simulpub"]
 
-                if a_tag_manga:
-                    book_type = a_tag_manga.get_text()
-                elif a_tag_light_novel:
-                    book_type = a_tag_light_novel.get_text()
-                elif a_tag_other:
-                    book_type = a_tag_other.get_text()
+                book_type = a_tag_manga or a_tag_light_novel or a_tag_other
+
+                if book_type:
+                    book_type = book_type.get_text()
+                    book_type = re.sub(r"\n|\t|\r", "", book_type).strip()
                 else:
                     book_type = "Unknown"
 
-                book_type = re.sub(r"\n|\t|\r", "", book_type).strip()
                 title = o_tile_book_info.find("h2", class_="a-tile-ttl").text.strip()
                 original_title = title
 
@@ -9572,15 +9569,19 @@ def search_bookwalker(
                 if title:
                     print(f"\t\t\t\t\t[{item_index + 1}] {title}")
 
-                # remove brackets
-                title = remove_brackets(title) if contains_brackets(title) else title
+                    # remove brackets
+                    title = (
+                        remove_brackets(title) if contains_brackets(title) else title
+                    )
 
-                # unidecode the title
-                title = unidecode(title)
+                    # unidecode the title
+                    title = unidecode(title)
 
-                # replace any remaining unicode characters in the title with spaces
-                title = re.sub(r"[^\x00-\x7F]+", " ", title)
-                title = remove_dual_space(title).strip()
+                    # replace any remaining unicode characters in the title with spaces
+                    title = re.sub(r"[^\x00-\x7F]+", " ", title)
+
+                    # remove any extra spaces
+                    title = remove_dual_space(title).strip()
 
                 if a_tag_chapter or a_tag_simulpub:
                     chapter_releases.append(title)
@@ -9588,7 +9589,7 @@ def search_bookwalker(
 
                 if (
                     title
-                    and "chapter" in title.lower()
+                    and ("chapter" in title.lower() or re.search(r"\s#\d+\b", title))
                     and not re.search(r"re([-_. :]+)?zero", title, re.IGNORECASE)
                 ):
                     continue
@@ -9988,9 +9989,9 @@ def check_for_new_volumes_on_bookwalker():
 
     # Gets the volume type based on the extensions in the folder
     def determine_volume_type(volumes):
-        if get_percent_for_folder([f.name for f in volumes], manga_extensions) >= 70:
+        if get_folder_type([f.name for f in volumes], manga_extensions) >= 70:
             return "m"
-        elif get_percent_for_folder([f.name for f in volumes], novel_extensions) >= 70:
+        elif get_folder_type([f.name for f in volumes], novel_extensions) >= 70:
             return "l"
         return None
 
@@ -10657,31 +10658,41 @@ def has_multiple_numbers(file_name):
 
 # Extracts all the numbers from a string
 def extract_all_numbers(string, subtitle=None):
+    # Replace underscores
+    string = replace_underscores(string) if "_" in string else string
+
+    # Remove the subtitle if present
     if subtitle:
         string = re.sub(
             rf"(-|:)\s*{re.escape(subtitle)}$", "", string, re.IGNORECASE
         ).strip()
 
     numbers = re.findall(
-        r"\b(%s)(([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?(#([0-9]+)(([-_.])([0-9]+)|)+)?)"
+        r"\b(?:%s)(\d+(?:[-_.]\d+|)+(?:x\d+)?(?:#\d+(?:[-_.]\d+|)+)?)"
         % exclusion_keywords_regex,
         string,
     )
-
     new_numbers = []
-    if numbers:
-        for number in numbers:
-            if isinstance(number, tuple):
-                for item in tuple(filter(None, set(number))):
-                    if item and not re.search(
-                        r"(x[0-9]+)|(#([0-9]+)(([-_.])([0-9]+)|)+)|^(-|\.)$", item
-                    ):
-                        new_numbers.append(set_num_as_float_or_int(item))
+
+    for number in numbers:
+        items = number if isinstance(number, tuple) else [number]
+
+        for item in items:
+            if not item:
+                continue
+
+            if "#" in item and re.search(r"(\d+#\d+)", item):
+                item = re.sub(r"((#)([0-9]+)(([-_.])([0-9]+)|)+)", "", item).strip()
+            if "x" in item:
+                item = re.sub(r"(x[0-9]+)", "", item, re.IGNORECASE).strip()
+
+            if "-" not in item:
+                new_numbers.append(set_num_as_float_or_int(item))
             else:
-                if number and not re.search(
-                    r"(x[0-9]+)|(#([0-9]+)(([-_.])([0-9]+)|)+)|^(-|\.)$", number
-                ):
-                    new_numbers.append(set_num_as_float_or_int(number))
+                num_range = item.split("-")
+                new_range = [set_num_as_float_or_int(num) for num in num_range]
+                new_numbers.append(new_range)
+
     return new_numbers
 
 
