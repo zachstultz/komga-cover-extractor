@@ -46,7 +46,7 @@ from settings import *
 import settings as settings_file
 
 # Version of the script
-script_version = (2, 5, 11)
+script_version = (2, 5, 12)
 script_version_text = "v{}.{}.{}".format(*script_version)
 
 # Paths = existing library
@@ -3033,6 +3033,11 @@ publishers_joined_regex = ""
 # Pre-compile release group regex
 release_groups_joined_regex = ""
 
+# Pre-compiled regex for the release group at the end of the file name
+release_group_end_regex = re.compile(
+    r"-(?! )([^\(\)\[\]\{\}]+)(?:%s)$" % file_extensions_regex, re.IGNORECASE
+)
+
 
 # Retrieves the release_group on the file name
 def get_extra_from_group(name, groups, publisher_m=False, release_group_m=False):
@@ -3045,12 +3050,23 @@ def get_extra_from_group(name, groups, publisher_m=False, release_group_m=False)
 
     search = ""
 
-    if publisher_m and publishers_joined_regex:
+    if publisher_m and publishers_joined_regex and contains_brackets(name):
         search = publishers_joined_regex.search(name)
-    elif release_group_m and release_groups_joined_regex:
-        search = release_groups_joined_regex.search(name)
+        if search:
+            search = search.group()
 
-    return search.group() if search else ""
+    elif release_group_m:
+        search = release_group_end_regex.search(name) if "-" in name else ""
+
+        if search:
+            search = search.group(1)
+
+        if not search and release_groups_joined_regex and contains_brackets(name):
+            search = release_groups_joined_regex.findall(name)
+            if search:
+                search = search[-1]  # use the last element
+
+    return search if search else ""
 
 
 # Precompile the regular expressions
@@ -4385,6 +4401,9 @@ def reorganize_and_rename(files, dir):
                     if extras_to_add:
                         rename += " " + " ".join(extras_to_add)
 
+                # remove * from the replacement
+                rename = rename.replace("*", "")
+
                 if move_release_group_to_end_of_file_name and file.release_group:
                     release_group_escaped = re.escape(file.release_group)
                     if not re.search(
@@ -4392,8 +4411,6 @@ def reorganize_and_rename(files, dir):
                     ):
                         rename += f" {modifiers[file.extension] % file.release_group}"
 
-                # remove * from the replacement
-                rename = rename.replace("*", "")
                 rename += file.extension
                 rename = rename.strip()
 
@@ -4414,6 +4431,7 @@ def reorganize_and_rename(files, dir):
 
                     if watchdog_toggle:
                         transferred_files.append(rename_path)
+
                     try:
                         send_message(f"\n\t\tBEFORE: {file.name}", discord=False)
                         send_message(f"\t\tAFTER:  {rename}", discord=False)
@@ -7098,9 +7116,10 @@ def get_extras(file_name, chapter=False, series_name="", subtitle=""):
 
     # Helper function to extract unique patterns from text
     def extract_unique_patterns(text):
-        results = re.findall(r"(\{|\(|\[)(.*?)(\]|\)|\})", text, flags=re.IGNORECASE)
-        results = ["".join(result) for result in results]
-        return list(dict.fromkeys(results))
+        results = re.findall(
+            r"((?:\{|\(|\[).*?(?:\]|\)|\}))", text, flags=re.IGNORECASE
+        )
+        return results
 
     # Helper function to remove specific patterns from a list
     def remove_patterns(items, patterns):
@@ -10553,6 +10572,7 @@ def generate_rename_lists():
                                         re.IGNORECASE,
                                     )
                                 ),
+                                None,
                             )
                             if found:
                                 print(f'\t\tFound: "{found}", skipping file.')
