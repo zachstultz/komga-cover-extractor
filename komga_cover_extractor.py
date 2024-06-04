@@ -46,7 +46,7 @@ from settings import *
 import settings as settings_file
 
 # Version of the script
-script_version = (2, 5, 12)
+script_version = (2, 5, 13)
 script_version_text = "v{}.{}.{}".format(*script_version)
 
 # Paths = existing library
@@ -588,6 +588,17 @@ def get_sort_key(index_number):
         return min(index_number)
     else:
         return index_number
+
+
+# Sorts the volumes by the index number if they're all numbers,
+# otherwise it sorts the volumes alphabetically by the file name.
+def sort_volumes(volumes):
+    if any(isinstance(item.index_number, str) for item in volumes):
+        # sort alphabetically by the file name
+        return sorted(volumes, key=lambda x: x.name)
+    else:
+        # sort by the index number
+        return sorted(volumes, key=lambda x: get_sort_key(x.index_number))
 
 
 # Path Class
@@ -1722,7 +1733,7 @@ def send_discord_message(
 
             if embeds:
                 # Limit the number of embeds to 10
-                for index, embed in enumerate(embeds[:10]):
+                for index, embed in enumerate(embeds[:10], start=1):
                     if script_version_text:
                         embed.embed.set_footer(text=script_version_text)
 
@@ -1736,9 +1747,7 @@ def send_discord_message(
                         embed.embed.set_image(url=image)
                     elif embed.file:
                         file_name = (
-                            "cover.jpg"
-                            if len(embeds) == 1
-                            else f"cover_{index + 1}.jpg"
+                            "cover.jpg" if len(embeds) == 1 else f"cover_{index}.jpg"
                         )
                         webhook_obj.add_file(file=embed.file, filename=file_name)
                         embed.embed.set_image(url=f"attachment://{file_name}")
@@ -2545,6 +2554,7 @@ def get_series_name_from_volume(name, root, test_mode=False, second=False):
             os.path.basename(root) not in str(download_folders) or not download_folders
         )
         and (os.path.basename(root) not in str(paths) or not paths)
+        and not contains_keyword(os.path.basename(root))
     ):
         # Get the series namne from the root folder
         # EX: "Kindaichi 37-sai no Jikenbo -v01-v12-"" -> "Kindaichi 37-sai no Jikenbo"
@@ -2694,6 +2704,7 @@ def get_series_name_from_chapter(name, root, chapter_number="", second=False):
         and not second
         and root
         and os.path.basename(root) not in str(download_folders + paths)
+        and not contains_keyword(os.path.basename(root))
     ):
         root_number = get_release_number_cache(os.path.basename(root))
 
@@ -3007,12 +3018,12 @@ def get_release_year(name, metadata=None):
     if match:
         result = int(re.sub(r"(\(|\[|\{)|(\)|\]|\})", "", match.group()))
 
-    if metadata and not result:
+    if not result and metadata:
         release_year_from_file = None
 
-        if "Year" in metadata:
+        if "Summary" in metadata and "Year" in metadata:
             release_year_from_file = metadata["Year"]
-        elif "dc:date" in metadata:
+        elif "dc:description" in metadata and "dc:date" in metadata:
             release_year_from_file = metadata["dc:date"].strip()
             release_year_from_file = re.search(r"\d{4}", release_year_from_file)
             release_year_from_file = (
@@ -6027,13 +6038,8 @@ def check_for_existing_series(
             else:
                 volumes = test_mode
 
-            # check that all volumes' index numbers aren't strings
-            if any(isinstance(item.index_number, str) for item in volumes):
-                # sort alphabetically by the file name
-                volumes = sorted(volumes, key=lambda x: x.name)
-            else:
-                # sort by the index number
-                volumes = sorted(volumes, key=lambda x: get_sort_key(x.index_number))
+            # Sort the volumes
+            volumes = sort_volumes(volumes)
 
             exclude = None
 
@@ -6172,7 +6178,7 @@ def check_for_existing_series(
                     # 2 - Use the cached paths
                     if cached_paths:
                         print("\n\tChecking path types...")
-                        for cached_path_index, p in enumerate(cached_paths[:]):
+                        for cached_path_index, p in enumerate(cached_paths[:], start=1):
                             if (
                                 not os.path.exists(p)
                                 or not os.path.isdir(p)
@@ -6218,7 +6224,7 @@ def check_for_existing_series(
                             )
 
                             print(
-                                f"\n\t\t-(CACHE)- {cached_path_index+1} of {len(cached_paths)} - "
+                                f"\n\t\t-(CACHE)- {cached_path_index} of {len(cached_paths)} - "
                                 f'"{file.name}"\n\t\tCHECKING: {downloaded_file_series_name}\n\t\tAGAINST:  {successful_series_name}\n\t\tSCORE:    {successful_similarity_score}'
                             )
                             if successful_similarity_score >= required_similarity_score:
@@ -6262,7 +6268,7 @@ def check_for_existing_series(
                     directories_found = []
                     matched_ids = []
 
-                    for path_position, path in enumerate(paths):
+                    for path_position, path in enumerate(paths, start=1):
                         if done or not os.path.exists(path) or path in download_folders:
                             continue
 
@@ -6358,7 +6364,7 @@ def check_for_existing_series(
 
                                     print(f"\n\tLooking for: {file.series_name}")
                                     for dir_position, inner_dir in enumerate(
-                                        folder_accessor.dirs
+                                        folder_accessor.dirs, start=1
                                     ):
                                         if done:
                                             break
@@ -6380,7 +6386,7 @@ def check_for_existing_series(
                                         )
 
                                         print(
-                                            f'\n\t\t-(NOT CACHE)- {dir_position+1} of {len(folder_accessor.dirs)} - path {path_position+1} of {len(paths)} - "{file.name}"\n\t\tCHECKING: {downloaded_file_series_name}\n\t\tAGAINST:  {existing_series_folder_from_library}\n\t\tSCORE:    {similarity_score}'
+                                            f'\n\t\t-(NOT CACHE)- {dir_position} of {len(folder_accessor.dirs)} - path {path_position} of {len(paths)} - "{file.name}"\n\t\tCHECKING: {downloaded_file_series_name}\n\t\tAGAINST:  {existing_series_folder_from_library}\n\t\tSCORE:    {similarity_score}'
                                         )
                                         file_root = os.path.join(
                                             folder_accessor.root, inner_dir
@@ -8240,7 +8246,7 @@ def find_and_extract_cover(
 # Returns the highest volume number and volume part number of a release in a list of volume releases
 @lru_cache(maxsize=None)
 def get_highest_release(releases, is_chapter_directory=False):
-    highest_index_number = ""
+    highest_num = ""
 
     if use_latest_volume_cover_as_series_cover and not is_chapter_directory:
         contains_empty_or_tuple_index_number = any(
@@ -8253,16 +8259,16 @@ def get_highest_release(releases, is_chapter_directory=False):
 
                 number = item
                 if isinstance(number, (int, float)):
-                    if highest_index_number == "" or number > highest_index_number:
-                        highest_index_number = number
+                    if highest_num == "" or number > highest_num:
+                        highest_num = number
                 elif isinstance(number, (tuple, list)):
                     max_number = max(number)
-                    if highest_index_number == "" or max_number > highest_index_number:
-                        highest_index_number = max_number
+                    if highest_num == "" or max_number > highest_num:
+                        highest_num = max_number
         else:
-            highest_index_number = max(releases)
+            highest_num = max(releases)
 
-    return highest_index_number
+    return highest_num
 
 
 # Series covers that have been checked and can be skipped.
@@ -8763,40 +8769,48 @@ def process_cover_extraction(
                     ):
                         continue
 
-                    volumes = upgrade_to_file_class(
-                        [
-                            f
-                            for f in [
-                                entry.name
-                                for entry in os.scandir(folder_path)
-                                if entry.is_file()
-                            ]
-                        ],
-                        folder_path,
-                        clean=True,
+                    volumes = upgrade_to_volume_class(
+                        upgrade_to_file_class(
+                            [
+                                f
+                                for f in [
+                                    entry.name
+                                    for entry in os.scandir(folder_path)
+                                    if entry.is_file()
+                                ]
+                            ],
+                            folder_path,
+                            clean=True,
+                        ),
+                        skip_release_year=True,
+                        skip_release_group=True,
+                        skip_extras=True,
+                        skip_publisher=True,
+                        skip_premium_content=True,
+                        skip_subtitle=True,
+                        skip_multi_volume=True,
                     )
 
                     if not volumes:
                         continue
 
                     # sort the volumes by name
-                    volumes = sorted(volumes, key=lambda x: x.name)
+                    volumes = sort_volumes(volumes)
 
-                    volume_one = next(
-                        (
-                            x
-                            for x in volumes
-                            if x.volume_number == 1
-                            or (
-                                isinstance(x.volume_number, list)
-                                and 1 in x.volume_number
-                            )
-                        ),
-                        None,
-                    )
-
-                    if not volume_one:
-                        continue
+                    volume_one = (
+                        next(
+                            (
+                                x
+                                for x in volumes
+                                if x.volume_number == 1
+                                or (
+                                    isinstance(x.volume_number, list)
+                                    and 1 in x.volume_number
+                                )
+                            ),
+                            None,
+                        )
+                    ) or volumes[0]
 
                     # find the image cover
                     cover_path = next(
@@ -9373,8 +9387,6 @@ def search_bookwalker(
     bookwalker_light_novel_category = "&qcat=3"
     bookwalker_intll_manga_category = "&qcat=11"
 
-    start_time = datetime.now()
-
     done = False
     search_type = type
     count = 0
@@ -9384,6 +9396,7 @@ def search_bookwalker(
 
     search = urllib.parse.quote(query)
     base_url = "https://global.bookwalker.jp/search/?word="
+    chapter_exclusion_url = "&np=1&qnot%5B%5D=Chapter&x=13&y=16"
     series_only = "&np=0"
     series_url = f"{base_url}{search}{series_only}"
     original_similarity_score = required_similarity_score
@@ -9404,7 +9417,6 @@ def search_bookwalker(
 
         print(f"{keyword}{query}\n\t\tCategory: {category} {series_info}")
 
-    chapter_exclusion_url = "&np=1&qnot%5B%5D=Chapter&x=13&y=16"
     series_page = scrape_url(
         series_url,
         cookies=default_cookies,
@@ -9425,7 +9437,6 @@ def search_bookwalker(
 
     while page_count < total_pages_to_scrape + 1:
         page_count_url = f"&page={page_count}"
-        alternate_url = ""
         url = f"{base_url}{search}{page_count_url}"
         category = ""
 
@@ -9547,12 +9558,6 @@ def search_bookwalker(
                 ul_tag_box = o_tile_book_info.find("ul", class_="m-tile-tag-box")
                 li_tag_item = ul_tag_box.find_all("li", class_="m-tile-tag")
 
-                a_tag_chapter = None
-                a_tag_simulpub = None
-                a_tag_manga = None
-                a_tag_light_novel = None
-                a_tag_other = None
-
                 tag_dict = {
                     "a-tag-manga": None,
                     "a-tag-light-novel": None,
@@ -9566,11 +9571,11 @@ def search_bookwalker(
                         if i.find("div", class_=tag_name):
                             tag_dict[tag_name] = i.find("div", class_=tag_name)
 
+                a_tag_chapter = tag_dict["a-tag-chapter"]
+                a_tag_simulpub = tag_dict["a-tag-simulpub"]
                 a_tag_manga = tag_dict["a-tag-manga"]
                 a_tag_light_novel = tag_dict["a-tag-light-novel"]
                 a_tag_other = tag_dict["a-tag-other"]
-                a_tag_chapter = tag_dict["a-tag-chapter"]
-                a_tag_simulpub = tag_dict["a-tag-simulpub"]
 
                 book_type = a_tag_manga or a_tag_light_novel or a_tag_other
 
@@ -9803,7 +9808,6 @@ def search_bookwalker(
 
                 # find table class="product-detail"
                 product_detail = soup_two.find("table", class_="product-detail")
-                # print(f"{datetime.now() - start_time}")
 
                 # find all <td> inside of product-detail
                 product_detail_td = product_detail.find_all("td")
@@ -10139,7 +10143,7 @@ def check_for_new_volumes_on_bookwalker():
     # Remove any paths that are in the download folders list
     paths_clean = [p for p in paths if p not in download_folders]
 
-    for path_index, path in enumerate(paths_clean):
+    for path_index, path in enumerate(paths_clean, start=1):
         if not os.path.exists(path):
             print(f"\n\tPath does not exist: {path}")
             continue
@@ -10165,7 +10169,7 @@ def check_for_new_volumes_on_bookwalker():
             base_name = os.path.basename(root)
 
             print(
-                f"\n\t[Folder {dir_index} of {len(folders)} - Path {path_index + 1} of {len(paths_clean)}]"
+                f"\n\t[Folder {dir_index} of {len(folders)} - Path {path_index} of {len(paths_clean)}]"
             )
             print(f"\tPath: {root}")
 
@@ -11206,6 +11210,15 @@ def correct_file_extensions():
                                         transferred_files.append(new_path)
                     else:
                         print("\t\t\tSkipped")
+
+
+# Checks if the file string contains a chapter/volume keyword
+def contains_keyword(file_string, chapter=False):
+    return re.search(
+        rf"(\b({chapter_regex_keywords if chapter else volume_regex_keywords})([-_.]|)(([0-9]+)((([-_.]|)([0-9]+))+|))(\s|{file_extensions_regex}))",
+        file_string,
+        re.IGNORECASE,
+    )
 
 
 # Optional features below, use at your own risk.
