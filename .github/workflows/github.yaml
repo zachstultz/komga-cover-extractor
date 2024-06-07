@@ -21,5 +21,5 @@ jobs:
               password: ${{secrets.GITHUB_TOKEN}}
           - name: 'Build Inventory Image'
             run: |
-              docker build . ghcr.io/zachstultz/komga-cover-extractor:latest
+              docker build -t ghcr.io/zachstultz/komga-cover-extractor:latest .
               docker push ghcr.io/zachstultz/komga-cover-extractor:latest
