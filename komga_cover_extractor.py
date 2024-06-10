@@ -46,7 +46,7 @@ from settings import *
 import settings as settings_file
 
 # Version of the script
-script_version = (2, 5, 13)
+script_version = (2, 5, 14)
 script_version_text = "v{}.{}.{}".format(*script_version)
 
 # Paths = existing library
@@ -224,6 +224,7 @@ library_types = [
         [r"\(Digital\b"],  # must_contain
         [
             r"Webtoon",
+            r"^(?=.*Digital)((?=.*Compilation)|(?=.*danke-repack))",
         ],  # must_not_contain
     ),
     LibraryType(
@@ -232,6 +233,12 @@ library_types = [
         [
             r"\[[^\]]*(Lucaz|Stick|Oak|Yen (Press|On)|J-Novel|Seven Seas|Vertical|One Peace Books|Cross Infinite|Sol Press|Hanashi Media|Kodansha|Tentai Books|SB Creative|Hobby Japan|Impress Corporation|KADOKAWA)[^\]]*\]|(faratnis)"
         ],  # must_contain
+        [],  # must_not_contain
+    ),
+    LibraryType(
+        "digital_comps",  # name
+        manga_extensions,  # extensions
+        [r"^(?=.*Digital)((?=.*Compilation)|(?=.*danke-repack))"],  # must_contain
         [],  # must_not_contain
     ),
 ]
@@ -306,6 +313,7 @@ exclusion_keywords = [
     r"\bBonus(\s)",
     r"(\]|\}|\)) -",
     r"\bZom(\s)",
+    r"Tail -",
 ]
 
 subtitle_exclusion_keywords = [r"-(\s)", r"-", r"-\s[A-Za-z]+\s"]
@@ -685,6 +693,39 @@ def send_message(
         items_changed.append(message)
         if log:
             write_to_file(changes_file_name, message)
+
+
+# Determines the files library type
+# must apply to all files
+def get_library_type(files, required_match_percentage=90):
+    results = []
+    result = None
+
+    for file in files:
+        extension = get_file_extension(file)
+        for library_type in library_types:
+            if (
+                extension in library_type.extensions
+                and all(
+                    re.search(regex, file, re.IGNORECASE)
+                    for regex in library_type.must_contain
+                )
+                and all(
+                    not re.search(regex, file, re.IGNORECASE)
+                    for regex in library_type.must_not_contain
+                )
+            ):
+                results.append(library_type)
+
+    if results:
+        result_counts = {
+            library_type: results.count(library_type) for library_type in library_types
+        }
+        max_count = max(result_counts.values())
+        if max_count / len(results) * 100 >= required_match_percentage:
+            result = max(result_counts, key=result_counts.get)
+
+    return result
 
 
 # Checks if the file is fully transferred by checking the file size
@@ -2188,7 +2229,8 @@ def upgrade_to_file_class(
                 get_series_name_from_chapter(file, root, chapter_number)
                 if file_type == "chapter"
                 else get_series_name_from_volume(file, root, test_mode=test_mode)
-            ),
+            )
+            or get_series_name_from_contents(os.path.basename(root), [file]),
             get_file_extension(file),
             root,
             os.path.join(root, file),
@@ -2477,6 +2519,47 @@ def move_images(
                     remove_file(cover_image_file_path, silent=True)
 
 
+# Retrives the series name from matching the folder name and the file names
+def get_series_name_from_contents(
+    folder_name, file_names, required_matching_percent=100
+):
+    # Check if there are fewer than 2 items in the file names array
+    if len(file_names) <= 1:
+        return ""
+
+    min_matching_count = (
+        required_matching_percent * len(file_names) / 100
+    )  # Minimum number of file names to match
+    series_name = ""
+
+    for i, char in enumerate(folder_name):
+        # Loop through characters of the folder name
+        matching_count = sum(
+            1
+            for file_name in file_names
+            if i < len(file_name) and file_name[i].lower() == char.lower()
+        )
+        if matching_count >= min_matching_count:
+            series_name += char
+        else:
+            break
+
+    # Check if series_name is at least three characters
+    if len(series_name) < 3:
+        series_name = ""
+
+    return series_name.strip()
+
+
+# Checks if the file string contains a chapter/volume keyword
+def contains_keyword(file_string, chapter=False):
+    return re.search(
+        rf"(\b({chapter_regex_keywords if chapter else volume_regex_keywords})([-_.]|)(([0-9]+)((([-_.]|)([0-9]+))+|))(\s|{file_extensions_regex}))",
+        file_string,
+        re.IGNORECASE,
+    )
+
+
 # Retrieves the series name through various regexes
 # Removes the volume number and anything to the right of it, and strips it.
 @lru_cache(maxsize=None)
@@ -2704,7 +2787,7 @@ def get_series_name_from_chapter(name, root, chapter_number="", second=False):
         and not second
         and root
         and os.path.basename(root) not in str(download_folders + paths)
-        and not contains_keyword(os.path.basename(root))
+        and not contains_keyword(os.path.basename(root), chapter=True)
     ):
         root_number = get_release_number_cache(os.path.basename(root))
 
@@ -10163,15 +10246,15 @@ def check_for_new_volumes_on_bookwalker():
             dirs = folder["dirs"]
             files = clean_and_sort(root, folder["files"], chapters=False, sort=True)[0]
 
-            if not files:
-                continue
-
-            base_name = os.path.basename(root)
-
             print(
                 f"\n\t[Folder {dir_index} of {len(folders)} - Path {path_index} of {len(paths_clean)}]"
             )
             print(f"\tPath: {root}")
+
+            if not files:
+                continue
+
+            base_name = os.path.basename(root)
 
             series = normalize_str(
                 base_name,
@@ -10295,13 +10378,6 @@ def scan_komga_library(library_id):
         )
         return
 
-    if not komga_port:
-        send_message(
-            "Komga Port is not set in settings.py. Please set it and try again.",
-            error=True,
-        )
-        return
-
     if not komga_login_email:
         send_message(
             "Komga Login Email is not set in settings.py. Please set it and try again.",
@@ -10316,7 +10392,7 @@ def scan_komga_library(library_id):
         )
         return
 
-    komga_url = f"{komga_ip}:{komga_port}"
+    komga_url = f"{komga_ip}:{komga_port}" if komga_port else komga_ip
 
     print("\nSending Komga Scan Request:")
     try:
@@ -10361,13 +10437,6 @@ def get_komga_libraries(first_run=True):
         )
         return
 
-    if not komga_port:
-        send_message(
-            "Komga Port is not set in settings.py. Please set it and try again.",
-            error=True,
-        )
-        return
-
     if not komga_login_email:
         send_message(
             "Komga Login Email is not set in settings.py. Please set it and try again.",
@@ -10382,7 +10451,7 @@ def get_komga_libraries(first_run=True):
         )
         return
 
-    komga_url = f"{komga_ip}:{komga_port}"
+    komga_url = f"{komga_ip}:{komga_port}" if komga_port else komga_ip
 
     try:
         request = requests.get(
@@ -11210,15 +11279,6 @@ def correct_file_extensions():
                                         transferred_files.append(new_path)
                     else:
                         print("\t\t\tSkipped")
-
-
-# Checks if the file string contains a chapter/volume keyword
-def contains_keyword(file_string, chapter=False):
-    return re.search(
-        rf"(\b({chapter_regex_keywords if chapter else volume_regex_keywords})([-_.]|)(([0-9]+)((([-_.]|)([0-9]+))+|))(\s|{file_extensions_regex}))",
-        file_string,
-        re.IGNORECASE,
-    )
 
 
 # Optional features below, use at your own risk.
