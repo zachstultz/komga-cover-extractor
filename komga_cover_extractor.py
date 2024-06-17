@@ -46,7 +46,7 @@ from settings import *
 import settings as settings_file
 
 # Version of the script
-script_version = (2, 5, 14)
+script_version = (2, 5, 15)
 script_version_text = "v{}.{}.{}".format(*script_version)
 
 # Paths = existing library
@@ -696,7 +696,6 @@ def send_message(
 
 
 # Determines the files library type
-# must apply to all files
 def get_library_type(files, required_match_percentage=90):
     results = []
     result = None
@@ -5763,11 +5762,6 @@ def get_identifiers(zip_comment):
 
         # remove any whitespace
         identifiers = [x.strip() for x in identifiers]
-
-        # remove any that are "NONE" - used to be the default vale for the identifier
-        # in my isbn script for other reasons
-        if identifiers:
-            metadata = [x for x in identifiers if "none" not in x.lower()]
     return metadata
 
 
@@ -7244,6 +7238,9 @@ def get_extras(file_name, chapter=False, series_name="", subtitle=""):
 
     # Remove specified patterns from the results
     results = remove_patterns(results, patterns)
+
+    # Remove any possible dupcliates
+    results = list(dict.fromkeys(results))
 
     # Generate file extension modifiers for keywords
     modifiers = {
@@ -10756,9 +10753,9 @@ def extract_all_numbers(string, subtitle=None):
 
     # Remove the subtitle if present
     if subtitle:
-        string = re.sub(
-            rf"(-|:)\s*{re.escape(subtitle)}$", "", string, re.IGNORECASE
-        ).strip()
+        string = remove_dual_space(
+            re.sub(rf"(-|:)\s*{re.escape(subtitle)}", "", string, re.IGNORECASE).strip()
+        )
 
     numbers = re.findall(
         r"\b(?:%s)(\d+(?:[-_.]\d+|)+(?:x\d+)?(?:#\d+(?:[-_.]\d+|)+)?)"
