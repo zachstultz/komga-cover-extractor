@@ -46,7 +46,7 @@ from settings import *
 import settings as settings_file
 
 # Version of the script
-script_version = (2, 5, 15)
+script_version = (2, 5, 16)
 script_version_text = "v{}.{}.{}".format(*script_version)
 
 # Paths = existing library
@@ -2180,6 +2180,37 @@ def get_extensionless_name(file):
     return os.path.splitext(file)[0]
 
 
+# Retrives the series name from matching the folder name and the file names
+def get_series_name_from_contents(
+    folder_name, file_names, required_matching_percent=100
+):
+    if not file_names:
+        return ""
+
+    min_matching_count = (
+        required_matching_percent * len(file_names) / 100
+    )  # Minimum number of file names to match
+    series_name = ""
+
+    for i, char in enumerate(folder_name):
+        # Loop through characters of the folder name
+        matching_count = sum(
+            1
+            for file_name in file_names
+            if i < len(file_name) and file_name[i].lower() == char.lower()
+        )
+        if matching_count >= min_matching_count:
+            series_name += char
+        else:
+            break
+
+    # Check if series_name is at least three characters
+    if len(series_name) < 3:
+        series_name = ""
+
+    return series_name.strip()
+
+
 # Creates and returns file objects from the passed files and root
 def upgrade_to_file_class(
     files,
@@ -2516,38 +2547,6 @@ def move_images(
                 else:
                     # remove the cover image from the folder
                     remove_file(cover_image_file_path, silent=True)
-
-
-# Retrives the series name from matching the folder name and the file names
-def get_series_name_from_contents(
-    folder_name, file_names, required_matching_percent=100
-):
-    # Check if there are fewer than 2 items in the file names array
-    if len(file_names) <= 1:
-        return ""
-
-    min_matching_count = (
-        required_matching_percent * len(file_names) / 100
-    )  # Minimum number of file names to match
-    series_name = ""
-
-    for i, char in enumerate(folder_name):
-        # Loop through characters of the folder name
-        matching_count = sum(
-            1
-            for file_name in file_names
-            if i < len(file_name) and file_name[i].lower() == char.lower()
-        )
-        if matching_count >= min_matching_count:
-            series_name += char
-        else:
-            break
-
-    # Check if series_name is at least three characters
-    if len(series_name) < 3:
-        series_name = ""
-
-    return series_name.strip()
 
 
 # Checks if the file string contains a chapter/volume keyword
@@ -4733,7 +4732,7 @@ def remove_s(s):
 
 
 # Precompiled
-punctuation_pattern = re.compile(r"[^\w\s]")
+punctuation_pattern = re.compile(r"[^\w\s+]")
 
 
 # Determines if the string contains punctuation
@@ -4744,7 +4743,7 @@ def contains_punctuation(s):
 # Returns a string without punctuation.
 @lru_cache(maxsize=None)
 def remove_punctuation(s):
-    return re.sub(r"[^\w\s]", " ", s).strip()
+    return re.sub(r"[^\w\s+]", " ", s).strip()
 
 
 # Cleans the string by removing punctuation, bracketed info, and replacing underscores with periods.
@@ -5761,7 +5760,7 @@ def get_identifiers(zip_comment):
         identifiers = ((zip_comment.split("Identifiers:")[1]).strip()).split(",")
 
         # remove any whitespace
-        identifiers = [x.strip() for x in identifiers]
+        metadata = [x.strip() for x in identifiers]
     return metadata
 
 
@@ -5825,6 +5824,14 @@ def move_strings_to_top(target_item, item_array):
         if parse_words(os.path.basename(unidecode(item.lower().strip())))[:3]
         == target_words[:3]
     ]
+
+    # sort items_to_move by the basename matching the target_item
+    items_to_move = sorted(
+        items_to_move,
+        key=lambda x: os.path.basename(x.lower().strip())
+        == target_item.lower().strip(),
+        reverse=True,
+    )
 
     # Remove items_to_move from item_array
     item_array = [item for item in item_array if item not in items_to_move]
@@ -7240,7 +7247,7 @@ def get_extras(file_name, chapter=False, series_name="", subtitle=""):
     results = remove_patterns(results, patterns)
 
     # Remove any possible dupcliates
-    results = list(dict.fromkeys(results))
+    results = remove_duplicates(results)
 
     # Generate file extension modifiers for keywords
     modifiers = {
