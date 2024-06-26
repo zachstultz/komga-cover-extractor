@@ -46,7 +46,7 @@ from settings import *
 import settings as settings_file
 
 # Version of the script
-script_version = (2, 5, 16)
+script_version = (2, 5, 17)
 script_version_text = "v{}.{}.{}".format(*script_version)
 
 # Paths = existing library
@@ -5815,29 +5815,51 @@ def count_words(strings_list):
 
 # Moves strings in item_array that match the first three words of target_item to the top of the array.
 def move_strings_to_top(target_item, item_array):
-    target_words = parse_words(unidecode(target_item.lower().strip()))
+    # Convert to lower and strip
+    target_words = target_item.lower().strip()
+
+    # Unidecode if applicable
+    target_words = (
+        unidecode(target_words) if contains_unicode(target_words) else target_words
+    )
+
+    # Parse into words
+    target_words = parse_words(target_words)
+
+    if not target_words:
+        return item_array
 
     # Find items in item_array that match the first three words of target_item
     items_to_move = [
         item
         for item in item_array
-        if parse_words(os.path.basename(unidecode(item.lower().strip())))[:3]
+        if parse_words(
+            os.path.basename(
+                unidecode(item).lower().strip()
+                if contains_unicode(item)
+                else item.lower().strip()
+            )
+        )[:3]
         == target_words[:3]
     ]
 
-    # sort items_to_move by the basename matching the target_item
-    items_to_move = sorted(
-        items_to_move,
-        key=lambda x: os.path.basename(x.lower().strip())
-        == target_item.lower().strip(),
-        reverse=True,
-    )
+    if not items_to_move:
+        return item_array
 
-    # Remove items_to_move from item_array
-    item_array = [item for item in item_array if item not in items_to_move]
+    clean_target_item = clean_str(target_item)
+
+    # Sort items_to_move by the basename matching the target_item
+    if len(items_to_move) >= 2:
+        items_to_move = sorted(
+            items_to_move,
+            key=lambda x: clean_str(os.path.basename(x)) != clean_target_item,
+        )
 
     # Insert items_to_move at the beginning of item_array
     item_array = items_to_move + item_array
+
+    # Remove duplicates
+    item_array = remove_duplicates(item_array)
 
     return item_array
 
