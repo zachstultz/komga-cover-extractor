@@ -12,7 +12,7 @@ ARG PUID=1000
 ARG PGID=1000
 
 # Set the PYTHONUNBUFFERED environment variable to avoid partial output in logs
-ENV PYTHONUNBUFFERED 1
+ENV PYTHONUNBUFFERED=1
 
 # Add non-free to sources.list
 RUN echo "deb http://deb.debian.org/debian bullseye non-free" >> /etc/apt/sources.list
@@ -21,7 +21,7 @@ RUN echo "deb http://deb.debian.org/debian bullseye non-free" >> /etc/apt/source
 RUN groupmod -o -g "$PGID" appuser && usermod -o -u "$PUID" appuser
 
 # Allow users to specify UMASK (default value is 022)
-ENV UMASK 022
+ENV UMASK=022
 RUN umask "$UMASK"
 
 # Copy the current directory contents into the container at /app
