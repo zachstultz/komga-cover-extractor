@@ -46,7 +46,7 @@ from settings import *
 import settings as settings_file
 
 # Version of the script
-script_version = (2, 5, 17)
+script_version = (2, 5, 18)
 script_version_text = "v{}.{}.{}".format(*script_version)
 
 # Paths = existing library
@@ -3063,6 +3063,11 @@ def get_release_number(file, chapter=False):
                         )
                         if len(multi_numbers) == 1:
                             is_multi_volume = False
+                            results = (
+                                int(results[0])
+                                if float(results[0]).is_integer()
+                                else float(results[0])
+                            )
                 else:
                     # Remove trailing ".0" so conversion doesn't fail
                     if file.endswith("0") and ".0" in file:
@@ -3113,7 +3118,7 @@ def get_release_year(name, metadata=None):
 
         if release_year_from_file and release_year_from_file.isdigit():
             result = int(release_year_from_file)
-            if result < 1000:
+            if result < 1950:
                 result = None
 
     return result
@@ -3132,7 +3137,9 @@ release_group_end_regex = re.compile(
 
 
 # Retrieves the release_group on the file name
-def get_extra_from_group(name, groups, publisher_m=False, release_group_m=False):
+def get_extra_from_group(
+    name, groups, publisher_m=False, release_group_m=False, series_name=None
+):
     if (
         not groups
         or (publisher_m and not publishers_joined)
@@ -3148,7 +3155,18 @@ def get_extra_from_group(name, groups, publisher_m=False, release_group_m=False)
             search = search.group()
 
     elif release_group_m:
-        search = release_group_end_regex.search(name) if "-" in name else ""
+        # remove series name from the file name, re.escape it
+        series_free_name = ""
+        if series_name:
+            series_free_name = re.sub(
+                re.escape(series_name), "", name, flags=re.IGNORECASE
+            ).strip()
+
+        search = (
+            release_group_end_regex.search(series_free_name or name)
+            if "-" in name
+            else ""
+        )
 
         if search:
             search = search.group(1)
@@ -3294,7 +3312,12 @@ def upgrade_to_volume_class(
             "",
             "",
             (
-                get_extra_from_group(file.name, release_groups, release_group_m=True)
+                get_extra_from_group(
+                    file.name,
+                    release_groups,
+                    release_group_m=True,
+                    series_name=file.basename,
+                )
                 if not skip_release_group
                 else ""
             ),
@@ -10823,6 +10846,47 @@ class Image_Result:
         self.image_source = image_source
 
 
+# Preps the image for comparison
+def preprocess_image(image):
+    # Check if the image is already grayscale
+    if len(image.shape) == 2 or (len(image.shape) == 3 and image.shape[2] == 1):
+        gray_image = image
+    else:
+        # Convert to grayscale if it's a color image
+        gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+    # Apply histogram equalization
+    gray_image = cv2.equalizeHist(gray_image)
+
+    # Normalize the image
+    gray_image = gray_image / 255.0
+
+    return gray_image
+
+
+# Comapres two images using SSIM
+def compare_images(imageA, imageB, silent=False):
+    try:
+        if not silent:
+            print(f"\t\t\tBlank Image Size: {imageA.shape}")
+            print(f"\t\t\tInternal Cover Size: {imageB.shape}")
+
+        # Preprocess images
+        grayA = preprocess_image(imageA)
+        grayB = preprocess_image(imageB)
+
+        # Compute SSIM between the two images
+        ssim_score = ssim(grayA, grayB, data_range=1.0)
+
+        if not silent:
+            print(f"\t\t\t\tSSIM: {ssim_score}")
+
+        return ssim_score
+    except Exception as e:
+        send_message(str(e), error=True)
+        return 0
+
+
 # Compares two images and returns the ssim score of the two images similarity.
 def prep_images_for_similarity(
     blank_image_path, internal_cover_data, both_cover_data=False, silent=False
@@ -10871,31 +10935,17 @@ def prep_images_for_similarity(
     elif len(blank_image.shape) == 2 and len(internal_cover.shape) == 3:
         internal_cover = internal_cover[:, :, 0]
 
+    # Ensure both images are in the same format (grayscale or color)
+    if len(blank_image.shape) != len(internal_cover.shape):
+        if len(blank_image.shape) == 3:
+            blank_image = cv2.cvtColor(blank_image, cv2.COLOR_BGR2GRAY)
+        else:
+            internal_cover = cv2.cvtColor(internal_cover, cv2.COLOR_BGR2GRAY)
+
     # Compare images and return similarity score
     score = compare_images(blank_image, internal_cover, silent=silent)
 
     return score
-
-
-# compares our two images likness and returns the ssim score
-def compare_images(imageA, imageB, silent=False):
-    ssim_score = None
-    try:
-        if not silent:
-            print(f"\t\t\tBlank Image Size: {imageA.shape}")
-            print(f"\t\t\tInternal Cover Size: {imageB.shape}")
-
-        if len(imageA.shape) == 3 and len(imageB.shape) == 3:
-            grayA = cv2.cvtColor(imageA, cv2.COLOR_BGR2GRAY)
-            grayB = cv2.cvtColor(imageB, cv2.COLOR_BGR2GRAY)
-            ssim_score = ssim(grayA, grayB)
-        else:
-            ssim_score = ssim(imageA, imageB)
-        if not silent:
-            print(f"\t\t\t\tSSIM: {ssim_score}")
-    except Exception as e:
-        send_message(str(e), error=True)
-    return ssim_score
 
 
 # Extracts a supported archive to a temporary directory.
