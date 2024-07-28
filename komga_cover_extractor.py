@@ -46,7 +46,7 @@ from settings import *
 import settings as settings_file
 
 # Version of the script
-script_version = (2, 5, 18)
+script_version = (2, 5, 19)
 script_version_text = "v{}.{}.{}".format(*script_version)
 
 # Paths = existing library
@@ -202,18 +202,24 @@ settings = [
     if not callable(getattr(settings_file, var)) and not var.startswith("__")
 ]
 
+# Libraries to be scanned after files have been moved over.
+libraries_to_scan = []
+
 
 # Library Type class
 class LibraryType:
-    def __init__(self, name, extensions, must_contain, must_not_contain):
+    def __init__(
+        self, name, extensions, must_contain, must_not_contain, match_percentage=90
+    ):
         self.name = name
         self.extensions = extensions
         self.must_contain = must_contain
         self.must_not_contain = must_not_contain
+        self.match_percentage = match_percentage
 
     # Convert the object to a string representation
     def __str__(self):
-        return f"LibraryType(name={self.name}, extensions={self.extensions}, must_contain={self.must_contain}, must_not_contain={self.must_not_contain})"
+        return f"LibraryType(name={self.name}, extensions={self.extensions}, must_contain={self.must_contain}, must_not_contain={self.must_not_contain}, match_percentage={self.match_percentage})"
 
 
 # The Library Entertainment types
@@ -221,11 +227,12 @@ library_types = [
     LibraryType(
         "manga",  # name
         manga_extensions,  # extensions
-        [r"\(Digital\b"],  # must_contain
+        [r"\(Digital\)"],  # must_contain
         [
             r"Webtoon",
             r"^(?=.*Digital)((?=.*Compilation)|(?=.*danke-repack))",
         ],  # must_not_contain
+        1,  # match_percentage - for classifying a group
     ),
     LibraryType(
         "light novel",  # name
@@ -471,6 +478,10 @@ komga_libraries = []
 # requires: '--watchdog "True"' and check_for_existing_series_toggle = True
 move_new_series_to_library_toggle = False
 
+# Moves any series with a non-matching library type to the appropriate library
+# requires: library_types
+move_series_to_correct_library_toggle = False
+
 # Used in get_extra_from_group()
 publishers_joined = ""
 release_groups_joined = ""
@@ -696,13 +707,11 @@ def send_message(
 
 
 # Determines the files library type
-def get_library_type(files, required_match_percentage=90):
-    results = []
-    result = None
-
-    for file in files:
-        extension = get_file_extension(file)
-        for library_type in library_types:
+def get_library_type(files, required_match_percentage=None):
+    for library_type in library_types:
+        match_count = 0
+        for file in files:
+            extension = get_file_extension(file)
             if (
                 extension in library_type.extensions
                 and all(
@@ -714,17 +723,12 @@ def get_library_type(files, required_match_percentage=90):
                     for regex in library_type.must_not_contain
                 )
             ):
-                results.append(library_type)
+                match_count += 1
 
-    if results:
-        result_counts = {
-            library_type: results.count(library_type) for library_type in library_types
-        }
-        max_count = max(result_counts.values())
-        if max_count / len(results) * 100 >= required_match_percentage:
-            result = max(result_counts, key=result_counts.get)
-
-    return result
+        match_percentage = required_match_percentage or library_type.match_percentage
+        if match_count / len(files) * 100 >= match_percentage:
+            return library_type
+    return None
 
 
 # Checks if the file is fully transferred by checking the file size
@@ -3455,7 +3459,7 @@ def is_upgradeable(downloaded_release, current_release):
     downloaded_release_result = None
     current_release_result = None
 
-    if downloaded_release.name.lower() == current_release.name.lower():
+    if downloaded_release.name == current_release.name:
         results = get_keyword_scores([downloaded_release])
         downloaded_release_result, current_release_result = results[0], results[0]
     else:
@@ -3626,6 +3630,60 @@ def remove_file(full_file_path, silent=False):
         remove_images(full_file_path)
 
     return True
+
+
+# Moves a folder and all of its contents to a new location.
+def move_folder(folder, new_location, silent=False):
+    global grouped_notifications
+
+    result = False
+    try:
+        if os.path.isdir(folder):
+            folder_name = os.path.basename(folder)
+            new_file_path = os.path.join(new_location, folder_name)
+            if not os.path.isdir(new_file_path):
+                shutil.move(folder, new_location)
+                if os.path.isdir(new_file_path):
+                    result = True
+                    if not silent:
+                        send_message(
+                            f"\n\t\tMoved Folder: {folder} to {new_location}",
+                            discord=False,
+                        )
+                        embed = handle_fields(
+                            DiscordEmbed(
+                                title="Moved Folder",
+                                color=grey_color,
+                            ),
+                            fields=[
+                                {
+                                    "name": "Folder",
+                                    "value": f"```{folder_name}```",
+                                    "inline": False,
+                                },
+                                {
+                                    "name": "From",
+                                    "value": f"```{folder}```",
+                                    "inline": False,
+                                },
+                                {
+                                    "name": "To",
+                                    "value": f"```{new_location}```",
+                                    "inline": False,
+                                },
+                            ],
+                        )
+                        grouped_notifications = group_notification(
+                            grouped_notifications, Embed(embed, None)
+                        )
+            else:
+                send_message(f"\t\tFolder already exists: {new_file_path}", error=True)
+    except Exception as e:
+        send_message(
+            f"\t\tFailed to move folder: {folder_name} to {new_location} - {e}",
+            error=True,
+        )
+    return result
 
 
 # Move a file
@@ -5293,8 +5351,10 @@ def check_upgrade(
             volume = download_dir_volumes[0]
 
             if isinstance(volume.volume_number, (float, int, list)):
+                release_type = volume.file_type.capitalize()
+
                 send_message(
-                    f"\t\t\t{volume.file_type.capitalize()} {array_to_string(volume.volume_number)}: {volume.name} does not exist in: {existing_dir}\n\t\t\tMoving: {volume.name} to {existing_dir}",
+                    f"\t\t\t{release_type} {array_to_string(volume.volume_number)}: {volume.name} does not exist in: {existing_dir}\n\t\t\tMoving: {volume.name} to {existing_dir}",
                     discord=False,
                 )
 
@@ -5311,12 +5371,12 @@ def check_upgrade(
 
                 fields = [
                     {
-                        "name": f"{volume.file_type.capitalize()} Number(s)",
+                        "name": f"{release_type} Number(s)",
                         "value": f"```{array_to_string(volume.volume_number)}```",
                         "inline": False,
                     },
                     {
-                        "name": f"{volume.file_type.capitalize()} Name(s)",
+                        "name": f"{release_type} Name(s)",
                         "value": f"```{volume.name}```",
                         "inline": False,
                     },
@@ -5327,13 +5387,13 @@ def check_upgrade(
                     fields.insert(
                         1,
                         {
-                            "name": f"{volume.file_type.capitalize()} Part",
+                            "name": f"{release_type} Part",
                             "value": f"```{volume.volume_part}```",
                             "inline": False,
                         },
                     )
 
-                title = f"New {volume.file_type.capitalize()}(s) Added"
+                title = f"New {release_type}(s) Added"
                 is_chapter_dir = chapter_percentage_dl >= required_matching_percentage
                 highest_index_num = (
                     get_highest_release(
@@ -10892,6 +10952,25 @@ def prep_images_for_similarity(
     blank_image_path, internal_cover_data, both_cover_data=False, silent=False
 ):
 
+    def resize_images(img1, img2, desired_width=600, desired_height=400):
+        img1_resized = cv2.resize(
+            img1, (desired_width, desired_height), interpolation=cv2.INTER_AREA
+        )
+        img2_resized = cv2.resize(
+            img2, (desired_width, desired_height), interpolation=cv2.INTER_AREA
+        )
+        return img1_resized, img2_resized
+
+    def match_image_channels(img1, img2):
+        if len(img1.shape) == 3 and len(img2.shape) == 3:
+            min_channels = min(img1.shape[2], img2.shape[2])
+            img1, img2 = img1[:, :, :min_channels], img2[:, :, :min_channels]
+        elif len(img1.shape) == 3 and len(img2.shape) == 2:
+            img1 = img1[:, :, 0]
+        elif len(img1.shape) == 2 and len(img2.shape) == 3:
+            img2 = img2[:, :, 0]
+        return img1, img2
+
     # Decode internal cover data
     internal_cover = cv2.imdecode(
         np.frombuffer(internal_cover_data, np.uint8), cv2.IMREAD_UNCHANGED
@@ -10907,33 +10986,11 @@ def prep_images_for_similarity(
     )
     internal_cover = np.array(internal_cover)
 
-    # Resize images to have matching dimensions
-    if blank_image.shape[0] > internal_cover.shape[0]:
-        blank_image = cv2.resize(
-            blank_image,
-            (
-                internal_cover.shape[1],
-                internal_cover.shape[0],
-            ),
-        )
-    else:
-        internal_cover = cv2.resize(
-            internal_cover,
-            (
-                blank_image.shape[1],
-                blank_image.shape[0],
-            ),
-        )
+    # Resize both images to 600x400
+    blank_image, internal_cover = resize_images(blank_image, internal_cover)
 
     # Ensure both images have the same number of color channels
-    if len(blank_image.shape) == 3 and len(internal_cover.shape) == 3:
-        min_shape = min(blank_image.shape[2], internal_cover.shape[2])
-        blank_image = blank_image[:, :, :min_shape]
-        internal_cover = internal_cover[:, :, :min_shape]
-    elif len(blank_image.shape) == 3 and len(internal_cover.shape) == 2:
-        blank_image = blank_image[:, :, 0]
-    elif len(blank_image.shape) == 2 and len(internal_cover.shape) == 3:
-        internal_cover = internal_cover[:, :, 0]
+    blank_image, internal_cover = match_image_channels(blank_image, internal_cover)
 
     # Ensure both images are in the same format (grayscale or color)
     if len(blank_image.shape) != len(internal_cover.shape):
@@ -11357,6 +11414,187 @@ def correct_file_extensions():
                         print("\t\t\tSkipped")
 
 
+# Checks existing series within existing libraries to see if their type matche sthe library they're in
+# If not, it moves the series to the appropriate library
+def move_series_to_correct_library(paths_to_search=paths_with_types):
+    global grouped_notifications
+    global moved_folders, moved_files
+    global libraries_to_scan
+    global komga_libraries
+
+    if not paths_to_search:
+        return
+
+    try:
+        for p in paths_to_search:
+            try:
+                if not os.path.exists(p.path):
+                    send_message(f"\nERROR: {p.path} is an invalid path.\n", error=True)
+                    continue
+
+                print(f"\nSearching {p.path} for incorrectly matching series types...")
+                for root, dirs, files in scandir.walk(p.path):
+                    print(f"\t{root}")
+                    files, dirs = process_files_and_folders(
+                        root,
+                        files,
+                        dirs,
+                        just_these_files=transferred_files,
+                        just_these_dirs=transferred_dirs,
+                    )
+
+                    if not files:
+                        continue
+
+                    file_objects = upgrade_to_file_class(files, root)
+
+                    if not file_objects:
+                        continue
+
+                    library_type = get_library_type([x.name for x in file_objects])
+
+                    if not library_type:
+                        continue
+
+                    # determine if the folder is a chapter folder
+                    is_chapter_dir = (
+                        get_folder_type(file_objects, file_type="chapter") >= 90
+                    )
+
+                    # determine if the folder is a volume folder
+                    is_volume_dir = (
+                        get_folder_type(file_objects, file_type="volume") >= 90
+                    )
+
+                    if not is_chapter_dir and not is_volume_dir:
+                        continue
+
+                    matching_paths = [
+                        path
+                        for path in paths_with_types
+                        if library_type.name in path.library_types
+                        and (
+                            is_chapter_dir
+                            and "chapter" in path.path_formats
+                            or is_volume_dir
+                            and "volume" in path.path_formats
+                        )
+                        and (
+                            all(
+                                [
+                                    x
+                                    for x in file_objects
+                                    if x.extension in path.path_extensions
+                                ]
+                            )
+                        )
+                    ]
+
+                    if len(matching_paths) > 1:
+                        send_message(
+                            f"\t\t\t{root} has more than one matching path",
+                            discord=False,
+                        )
+                        for path in matching_paths:
+                            print(f"\t\t\t\t{path.path}")
+                        continue
+
+                    matching_path = matching_paths[0]
+
+                    if matching_path == p:
+                        continue
+
+                    send_message(
+                        f"\t\t{root}\n\t\t\thas a library type of {p.library_types}\n\t\t\t\tbut should be in a {matching_path.library_types} library.",
+                        discord=False,
+                    )
+
+                    # Check that the new location doesn't already exist
+                    new_location = os.path.join(
+                        matching_path.path, os.path.basename(root)
+                    )
+
+                    if os.path.isdir(new_location):
+                        check_and_delete_empty_folder(new_location)
+                        if os.path.isdir(new_location):
+                            send_message(
+                                f"\t\t\t{new_location} already exists, skipping...",
+                                discord=False,
+                            )
+                            continue
+
+                    # move the folder to the correct library
+                    moved_folder_status = move_folder(
+                        root, matching_path.path, silent=True
+                    )
+
+                    if not moved_folder_status:
+                        send_message(
+                            f"\t\t\tFailed to move {root} to {matching_path.path}",
+                            error=True,
+                        )
+                        check_and_delete_empty_folder(new_location)
+                        continue
+
+                    send_message(
+                        f"\t\t\tMoved {root} to {matching_path.path}", discord=False
+                    )
+
+                    if new_location not in moved_folders:
+                        moved_folders.append(new_location)
+
+                    for file in files:
+                        path = os.path.join(new_location, file)
+                        if path not in moved_files:
+                            moved_files.append(path)
+
+                    # Create Discord Embed
+                    embed = handle_fields(
+                        DiscordEmbed(
+                            title="Moved Series",
+                            color=grey_color,
+                        ),
+                        fields=[
+                            {
+                                "name": "From",
+                                "value": f"```{root}```",
+                                "inline": False,
+                            },
+                            {
+                                "name": "To",
+                                "value": f"```{matching_path.path}```",
+                                "inline": False,
+                            },
+                        ],
+                    )
+
+                    # Add it to the group of notifications
+                    grouped_notifications = group_notification(
+                        grouped_notifications, Embed(embed, None)
+                    )
+
+                    if not send_scan_request_to_komga_libraries_toggle:
+                        continue
+
+                    if not komga_libraries:
+                        # Retrieve the Komga libraries
+                        komga_libraries = get_komga_libraries()
+
+                    # Setup the old library to get scanned
+                    # to reflect the changes
+                    if komga_libraries:
+                        for library in komga_libraries:
+                            if library["id"] in libraries_to_scan:
+                                continue
+
+                            if library["root"] in p.path:
+                                libraries_to_scan.append(library["id"])
+            except Exception as e:
+                send_message(f"\n\t\tError: {e}", error=True)
+    except Exception as e:
+        send_message(f"\n\t\tError: {e}", error=True)
+
+
 # Optional features below, use at your own risk.
 # Activate them in settings.py
 def main():
@@ -11373,6 +11611,7 @@ def main():
     global publishers_joined
     global release_groups_joined
     global publishers_joined_regex, release_groups_joined_regex
+    global libraries_to_scan
 
     processed_files = []
     moved_files = []
@@ -11530,6 +11769,14 @@ def main():
         if transferred_dirs:
             transferred_dirs = [x for x in transferred_dirs if os.path.isdir(x.root)]
 
+    if (
+        move_series_to_correct_library_toggle
+        and library_types
+        and paths_with_types
+        and moved_files
+    ):
+        move_series_to_correct_library()
+
     if grouped_notifications and not watchdog_toggle:
         send_discord_message(None, grouped_notifications)
 
@@ -11574,8 +11821,6 @@ def main():
         and check_for_existing_series_toggle
         and moved_files
     ):
-        # The paths we've already scanned, to avoid unnecessary scans.
-        libraries_to_scan = []
 
         if not komga_libraries:
             # Retrieve the Komga libraries
@@ -11597,6 +11842,9 @@ def main():
         if libraries_to_scan:
             for library_id in libraries_to_scan:
                 scan_komga_library(library_id)
+
+    # Reset libraries_to_scan
+    libraries_to_scan = []
 
     # clear lru_cache for contains_comic_info()
     contains_comic_info.cache_clear()
