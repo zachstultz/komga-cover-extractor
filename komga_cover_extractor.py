@@ -46,7 +46,7 @@ from settings import *
 import settings as settings_file
 
 # Version of the script
-script_version = (2, 5, 19)
+script_version = (2, 5, 20)
 script_version_text = "v{}.{}.{}".format(*script_version)
 
 # Paths = existing library
@@ -1730,7 +1730,7 @@ last_hook_index = None
 
 
 # Handles picking a webhook url, to evenly distribute the load
-@lru_cache(maxsize=None)
+@lru_cache(maxsize=10)
 def pick_webhook(hook, passed_webhook=None, url=None):
     global last_hook_index
 
@@ -1853,7 +1853,7 @@ volume_year_regex = r"(\(|\[|\{)(\d{4})(\)|\]|\})"
 
 
 # check if volume file name is a chapter
-@lru_cache(maxsize=None)
+@lru_cache(maxsize=3500)
 def contains_chapter_keywords(file_name):
     # Replace "_extra"
     file_name_clean = file_name.replace("_extra", ".5")
@@ -1925,7 +1925,7 @@ bracket_against_extension_pattern = re.compile(
 
 # Removes bracketed content from the string, alongwith any whitespace.
 # As long as the bracketed content is not immediately preceded or followed by a dash.
-@lru_cache(maxsize=None)
+@lru_cache(maxsize=3500)
 def remove_brackets(string):
     # Avoid a string that is only a bracket
     # Probably a series name
@@ -1981,7 +1981,7 @@ volume_regex = re.compile(
 
 
 # Checks if the passed string contains volume keywords
-@lru_cache(maxsize=None)
+@lru_cache(maxsize=3500)
 def contains_volume_keywords(file):
     # Replace _extra
     file = file.replace("_extra", ".5")
@@ -2344,7 +2344,7 @@ def get_novel_cover(novel_path):
 
 
 # Checks if the passed string is a volume one.
-@lru_cache(maxsize=None)
+@lru_cache(maxsize=3500)
 def is_volume_one(volume_name):
     keywords = volume_regex_keywords
 
@@ -2390,7 +2390,7 @@ def is_one_shot(file_name, root=None, skip_folder_check=False, test_mode=False):
 
 
 # Checks similarity between two strings.
-@lru_cache(maxsize=None)
+@lru_cache(maxsize=3500)
 def similar(a, b):
     # convert to lowercase and strip
     a = a.lower().strip()
@@ -2564,7 +2564,7 @@ def contains_keyword(file_string, chapter=False):
 
 # Retrieves the series name through various regexes
 # Removes the volume number and anything to the right of it, and strips it.
-@lru_cache(maxsize=None)
+@lru_cache(maxsize=3500)
 def get_series_name_from_volume(name, root, test_mode=False, second=False):
     # Remove starting brackets
     # EX: "[WN] Series Name" -> "Series Name"
@@ -2654,7 +2654,7 @@ def get_series_name_from_volume(name, root, test_mode=False, second=False):
 
 
 # Cleans the chapter file_name to retrieve the series_name
-@lru_cache(maxsize=None)
+@lru_cache(maxsize=3500)
 def chapter_file_name_cleaning(
     file_name, chapter_number="", skip=False, regex_matched=False
 ):
@@ -2833,7 +2833,7 @@ def get_folder_type(files, extensions=None, file_type=None):
 # Determines if a volume file is a multi-volume file or not
 # EX: TRUE == series_title v01-03.cbz
 # EX: FALSE == series_title v01.cbz
-@lru_cache(maxsize=None)
+@lru_cache(maxsize=3500)
 def check_for_multi_volume_file(file_name, chapter=False):
     # Set the list of keywords to search for
     keywords = volume_regex_keywords if not chapter else chapter_regex_keywords + "|"
@@ -2915,7 +2915,7 @@ volume_number_search_pattern = re.compile(
 
 
 # Finds the volume/chapter number(s) in the file name.
-@lru_cache(maxsize=None)
+@lru_cache(maxsize=3500)
 def get_release_number(file, chapter=False):
 
     # Cleans up the chapter's series name
@@ -3196,7 +3196,7 @@ rx_remove_x_hash = re.compile(r"((x|#))", re.IGNORECASE)
 
 
 # Retrieves and returns the file part from the file name
-@lru_cache(maxsize=None)
+@lru_cache(maxsize=3500)
 def get_file_part(file, chapter=False, series_name=None, subtitle=None):
     result = ""
 
@@ -4693,7 +4693,7 @@ dual_space_pattern = re.compile(r"(\s{2,})")
 
 
 # Replaces any pesky double spaces
-@lru_cache(maxsize=None)
+@lru_cache(maxsize=3500)
 def remove_dual_space(s):
     if "  " not in s:
         return s
@@ -4704,7 +4704,7 @@ def remove_dual_space(s):
 # Removes common words to improve string matching accuracy between a series_name
 # from a file name, and a folder name, useful for when releasers sometimes include them,
 # and sometimes don't.
-@lru_cache(maxsize=None)
+@lru_cache(maxsize=3500)
 def normalize_str(
     s,
     skip_common_words=False,
@@ -4807,7 +4807,7 @@ def normalize_str(
 
 
 # Removes the s from any words that end in s
-@lru_cache(maxsize=None)
+@lru_cache(maxsize=3500)
 def remove_s(s):
     return re.sub(r"\b(\w+)(s)\b", r"\1", s, flags=re.IGNORECASE).strip()
 
@@ -4822,14 +4822,14 @@ def contains_punctuation(s):
 
 
 # Returns a string without punctuation.
-@lru_cache(maxsize=None)
+@lru_cache(maxsize=3500)
 def remove_punctuation(s):
     return re.sub(r"[^\w\s+]", " ", s).strip()
 
 
 # Cleans the string by removing punctuation, bracketed info, and replacing underscores with periods.
 # Converts the string to lowercase and removes leading/trailing whitespace.
-@lru_cache(maxsize=None)
+@lru_cache(maxsize=3500)
 def clean_str(
     string,
     skip_lowercase_convert=False,
@@ -5041,7 +5041,7 @@ def create_folders_for_items_in_download_folder():
 
 
 # convert string to acsii
-@lru_cache(maxsize=None)
+@lru_cache(maxsize=3500)
 def convert_to_ascii(s):
     return "".join(i for i in s if ord(i) < 128)
 
@@ -5475,7 +5475,7 @@ def remove_duplicates(items):
 
 # Return the zip comment for the passed zip file (cached)
 # Used on existing library files.
-@lru_cache(maxsize=None)
+@lru_cache(maxsize=3500)
 def get_zip_comment_cache(zip_file):
     comment = ""
     try:
@@ -5780,7 +5780,7 @@ def check_for_duplicate_volumes(paths_to_search=[]):
 
 
 # Regex out underscore from passed string and return it
-@lru_cache(maxsize=None)
+@lru_cache(maxsize=3500)
 def replace_underscores(name):
     # Replace underscores that are preceded and followed by a number with a period
     name = re.sub(r"(?<=\d)_(?=\d)", ".", name)
@@ -5849,7 +5849,7 @@ def get_identifiers(zip_comment):
 
 # Parses the individual words from the passed string and returns them as an array
 # without punctuation, unidecoded, and in lowercase.
-@lru_cache(maxsize=None)
+@lru_cache(maxsize=3500)
 def parse_words(user_string):
     words = []
     if user_string:
@@ -5869,7 +5869,7 @@ def parse_words(user_string):
 
 
 # Finds a number of consecutive items in both arrays, or returns False if none are found.
-@lru_cache(maxsize=None)
+@lru_cache(maxsize=3500)
 def find_consecutive_items(arr1, arr2, count=3):
     if len(arr1) < count or len(arr2) < count:
         return False
@@ -7415,7 +7415,7 @@ def isint(x):
 
 
 # check if zip file contains ComicInfo.xml
-@lru_cache(maxsize=None)
+@lru_cache(maxsize=3500)
 def contains_comic_info(zip_file):
     result = False
     try:
@@ -8436,7 +8436,7 @@ def find_and_extract_cover(
 
 
 # Returns the highest volume number and volume part number of a release in a list of volume releases
-@lru_cache(maxsize=None)
+@lru_cache(maxsize=3500)
 def get_highest_release(releases, is_chapter_directory=False):
     highest_num = ""
 
@@ -9450,7 +9450,7 @@ def get_subtitle_from_dash(title, replace=False):
 # Extracts the subtitle from a file.name
 # (year required in brackets at the end of the subtitle)
 # EX: Sword Art Online v13 - Alicization Dividing [2018].epub -> Alicization Dividing
-@lru_cache(maxsize=None)
+@lru_cache(maxsize=3500)
 def get_subtitle_from_title(file, publisher=None):
     subtitle = ""
 
@@ -10853,7 +10853,7 @@ def has_one_set_of_numbers(string, chapter=False, file=None, subtitle=None):
 
 
 # Check if there is more than one set of numbers in the string
-@lru_cache(maxsize=None)
+@lru_cache(maxsize=3500)
 def has_multiple_numbers(file_name):
     return len(re.findall(r"\d+\.0+[1-9]+|\d+\.[1-9]+|\d+", file_name)) > 1
 
@@ -10952,7 +10952,7 @@ def prep_images_for_similarity(
     blank_image_path, internal_cover_data, both_cover_data=False, silent=False
 ):
 
-    def resize_images(img1, img2, desired_width=600, desired_height=400):
+    def resize_images(img1, img2, desired_width=400, desired_height=600):
         img1_resized = cv2.resize(
             img1, (desired_width, desired_height), interpolation=cv2.INTER_AREA
         )
@@ -11414,7 +11414,7 @@ def correct_file_extensions():
                         print("\t\t\tSkipped")
 
 
-# Checks existing series within existing libraries to see if their type matche sthe library they're in
+# Checks existing series within existing libraries to see if their type matches the library they're in
 # If not, it moves the series to the appropriate library
 def move_series_to_correct_library(paths_to_search=paths_with_types):
     global grouped_notifications
@@ -11435,6 +11435,7 @@ def move_series_to_correct_library(paths_to_search=paths_with_types):
                 print(f"\nSearching {p.path} for incorrectly matching series types...")
                 for root, dirs, files in scandir.walk(p.path):
                     print(f"\t{root}")
+
                     files, dirs = process_files_and_folders(
                         root,
                         files,
