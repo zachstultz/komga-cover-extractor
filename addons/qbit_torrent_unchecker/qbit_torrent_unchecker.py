@@ -221,7 +221,7 @@ def check_upgrade_or_new(volume, existing_files):
 
             message = (
                 f"\n\tDownload: {volume.name}"
-                f"\n\t\tis {'an' if upgrade_status else 'not an'} upgrade to: "
+                f"\n\t\t is {'an' if upgrade_status else 'not an'} upgrade to: "
                 f"\n\tExisting: {existing_file.name}"
             )
 
@@ -256,29 +256,37 @@ def has_unacceptable_keywords(torrent):
 
 # Processes file names, removing excluded files
 def process_file_names(files, files_to_exclude):
-    file_names = [
-        os.path.basename(file.name) for file in files if file not in files_to_exclude
-    ]
+    file_names = [file.name for file in files if file not in files_to_exclude]
     return file_names
 
 
 # Organizes the file names into volumes
 def organize_files(torrent, file_names):
-    volumes = upgrade_to_volume_class(
-        upgrade_to_file_class(
-            file_names,
-            f"/{torrent.name}",
-            is_correct_extensions_feature=convertable_file_extensions + file_extensions,
+    volumes = []
+
+    for name in file_names:
+        dir_name = os.path.basename(os.path.dirname(name)) or torrent.name
+        volume_name = os.path.basename(name)
+
+        volume = upgrade_to_volume_class(
+            upgrade_to_file_class(
+                [volume_name],
+                f"/{dir_name}",
+                is_correct_extensions_feature=convertable_file_extensions
+                + file_extensions,
+                test_mode=True,
+            ),
+            skip_release_year=True,
+            skip_release_group=True,
+            skip_extras=True,
+            skip_publisher=True,
+            skip_premium_content=True,
+            skip_subtitle=True,
             test_mode=True,
-        ),
-        skip_release_year=True,
-        skip_release_group=True,
-        skip_extras=True,
-        skip_publisher=True,
-        skip_premium_content=True,
-        skip_subtitle=True,
-        test_mode=True,
-    )
+        )
+        if volume:
+            volumes.append(volume[0])
+
     return volumes
 
 
@@ -525,7 +533,7 @@ def main():
                     )
                     if qb and qb.is_logged_in:
                         send_message_alt(
-                            "\tConnected to qBittorrent",
+                            "\tConnected to qBittorrent.",
                         )
                     else:
                         send_message_alt(
