@@ -46,7 +46,7 @@ from settings import *
 import settings as settings_file
 
 # Version of the script
-script_version = (2, 5, 20)
+script_version = (2, 5, 21)
 script_version_text = "v{}.{}.{}".format(*script_version)
 
 # Paths = existing library
@@ -2556,7 +2556,7 @@ def move_images(
 # Checks if the file string contains a chapter/volume keyword
 def contains_keyword(file_string, chapter=False):
     return re.search(
-        rf"(\b({chapter_regex_keywords if chapter else volume_regex_keywords})([-_.]|)(([0-9]+)((([-_.]|)([0-9]+))+|))(\s|{file_extensions_regex}))",
+        rf"(\b({chapter_regex_keywords if chapter else volume_regex_keywords})([-_.]|)(([0-9]+)((([-_.]|)([0-9]+))+|))((x|#)(\d+)([-_.]\d+)*)*(\s|-|{file_extensions_regex}))",
         file_string,
         re.IGNORECASE,
     )
