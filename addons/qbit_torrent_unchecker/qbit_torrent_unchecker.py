@@ -19,7 +19,7 @@ log_file_name = "qbit_torrent_unchecker_log"
 from komga_cover_extractor import *
 
 # state filter
-target_state = "pausedDL"
+target_states = ["pausedDL", "stoppedDL"]
 
 # Torrents actively being processed
 processing_torrents = []
@@ -182,7 +182,7 @@ def filter_torrents(torrents):
         torrent
         for torrent in torrents
         if torrent.category == qbittorrent_target_category
-        and torrent.state == target_state
+        and torrent.state in target_states
         and torrent.hash not in processing_torrents
     ]
 
@@ -414,7 +414,7 @@ def uncheck_files(torrent, file, qb):
 
 # Starts the torrent
 def start_torrent(torrent):
-    torrent.resume()
+    torrent.start()
 
 
 # Deletes the torrent
