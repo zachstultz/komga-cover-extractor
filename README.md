@@ -1,74 +1,86 @@
-## Table of Contents
-1. [Introduction](#1-introduction)
-2. [Installation](#2-installation)
-3. [Usage](#3-usage)
-4. [Examples](#4-examples)
-5. [Future Goals](#5-future-goals)
-6. [Contributing](#6-contributing)
-7. [License](#7-license)
-8. [Support and Contact](#8-support-and-contact)
+# Komga Cover Extractor
 
-### 1. Introduction
+This application scans for and extracts covers from various file types, including manga and novel files. It also provides additional functionality such as file renaming, organizing, and integration with Bookwalker and Komga.
 
-Komga Cover Extractor is a Python automation script that automates the detection and extraction of covers from zip, cbz, and epub files, providing users with high-resolution local covers within Komga.
+## Project Structure
 
-### 2. Installation
-
-To use the Komga Cover Extractor, follow one of the options below:
-
-### Docker (Recommended)
-You can use the [Docker image available here](https://hub.docker.com/r/zachstultz/komga-cover-extractor), which simplifies the setup process.
-
-### Manual Installation
-If you prefer manual installation, follow these steps:
-1. Clone the repository: `git clone https://github.com/zachstultz/komga-cover-extractor.git`
-2. Install required Python packages: `pip3 install -r requirements.txt`
-3. (OPTIONAL) If you intend to use advanced RAR features, you may need to install unrar:
-   - Linux: `sudo apt-get install unrar`
-   - MacOS: `brew install rar` (requires [brew](https://brew.sh/)) (untested)
-   - Windows: Install UnRAR.dll from [rarlab.com](https://www.rarlab.com/rar_add.htm) (untested)
-
-### 3. Usage
-```bash
-python3 komga_cover_extractor.py [-h] [-p [PATHS [PATHS ...]]] -wh WEBHOOK1,WEBHOOK2,upto N [-c COMPRESS] [-cq COMPRESS_QUALITY]
+```
+komga-cover-extractor/
+├── src/
+│   ├── __init__.py
+│   ├── config.py
+│   ├── main.py
+│   ├── extract_covers.py
+│   ├── file_operations.py
+│   ├── bookwalker.py
+│   ├── komga.py
+│   ├── utils/
+│   │   ├── __init__.py
+│   │   ├── image_utils.py
+│   │   ├── file_utils.py
+│   │   └── string_utils.py
+│   ├── models/
+│   │   ├── __init__.py
+│   │   ├── folder.py
+│   │   ├── file.py
+│   │   ├── volume.py
+│   │   ├── path.py
+│   │   └── bookwalker.py
+│   └── handlers/
+│       ├── __init__.py
+│       └── watchdog_handler.py
+├── settings.py
+├── requirements.txt
+└── README.md
 ```
 
-- `-p` or `--paths`: The path/paths to be scanned for cover extraction.
-- `-wh` or `--webhook`: The optional Discord webhook URL for notifications about changes and errors.
-- `-c` or `--compress`: Whether or not to compress the extracted cover images.
-- `-cq` or `--compress_quality`: The quality of the compressed cover images.
+## Installation
 
-### 4. Examples
+1. Clone the repository:
+   ```
+   git clone https://github.com/your-username/komga-cover-extractor.git
+   cd komga-cover-extractor
+   ```
 
-- **With Compression:**
-  ```bash
-  python3 komga_cover_extractor.py -p "/path/to/manga" -p "/path/to/novels" -c "True" -cq "40"
-  ```
-  
-- **Without Compression:**
-  ```bash
-  python3 komga_cover_extractor.py -p "/path/to/manga" -p "/path/to/novels"
-  ```
-### 5. Future Goals
+2. Create a virtual environment and activate it:
+   ```
+   python -m venv venv
+   source venv/bin/activate  # On Windows, use `venv\Scripts\activate`
+   ```
 
-```markdown
-1. Transforming the script into a comprehensive manga/light novel manager with a wide range of features (in-progress).
-2. Modularizing volume/chapter keyword regexes across the script (in-progress).
-3. Improving documentation to make the tool even more user-friendly (in-progress).
+3. Install the required packages:
+   ```
+   pip install -r requirements.txt
+   ```
+
+4. Copy `settings.py.example` to `settings.py` and modify the settings according to your needs.
+
+## Usage
+
+To run the application, use the following command:
+
+```
+python -m src.main [arguments]
 ```
 
-### 6. Contributing
+For a list of available arguments, run:
 
-We welcome contributions! If you'd like to contribute to the Komga Cover Extractor, please follow our [Contribution Guidelines](CONTRIBUTING.md)
-
-### 7. License
-
-```markdown
-This project is licensed under the [MIT License](LICENSE).
+```
+python -m src.main --help
 ```
 
-### 8. Support and Contact
-```markdown
+## Features
 
-If you need help or want to report issues, please [create an issue](https://github.com/zachstultz/komga-cover-extractor/issues) on GitHub.
-```
+- Extract covers from manga and novel files
+- Rename and organize files
+- Integration with Bookwalker for checking new releases
+- Integration with Komga for library management
+- Watchdog functionality for monitoring file changes
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
