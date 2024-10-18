@@ -46,7 +46,7 @@ from settings import *
 import settings as settings_file
 
 # Version of the script
-script_version = (2, 5, 21)
+script_version = (2, 5, 22)
 script_version_text = "v{}.{}.{}".format(*script_version)
 
 # Paths = existing library
@@ -1969,7 +1969,7 @@ def remove_brackets(string):
 
 # Pre-compile the volume pattern
 volume_regex = re.compile(
-    r"((\s?(\s-\s|)(Part|)+({})(\.|)([-_. ]|)([0-9]+)\b)|\s?(\s-\s|)(Part|)({})(\.|)([-_. ]|)([0-9]+)([-_.])(\s-\s|)(Part|)({})([0-9]+)\s|\s?(\s-\s|)(Part|)({})(\.|)([-_. ]|)([0-9]+)([-_.])(\s-\s|)(Part|)({})([0-9]+)\s)".format(
+    r"((\s?(\s-\s|)(Part|)+(?<![\[\(\{])(%s)(\.|)([-_. ]|)([0-9]+)\b)|\s?(\s-\s|)(Part|)(%s)(\.|)([-_. ]|)([0-9]+)([-_.])(\s-\s|)(Part|)(%s)([0-9]+)\s|\s?(\s-\s|)(Part|)(%s)(\.|)([-_. ]|)([0-9]+)([-_.])(\s-\s|)(Part|)(%s)([0-9]+)\s)" % (
         volume_regex_keywords,
         volume_regex_keywords,
         volume_regex_keywords,
@@ -2909,7 +2909,7 @@ chapter_number_search_pattern = re.compile(
 
 # Pre-compiled volume-keyword search for get_release_number()
 volume_number_search_pattern = re.compile(
-    r"\b({})((\.)|)(\s+)?([0-9]+)(([-_.])([0-9]+)|)+\b".format(volume_regex_keywords),
+    r"\b(?<![\[\(\{])(%s)((\.)|)(\s+)?([0-9]+)(([-_.])([0-9]+)|)+\b" % volume_regex_keywords,
     re.IGNORECASE,
 )
 
@@ -5056,6 +5056,52 @@ def array_to_string(array, separator=", "):
         return str(array)
 
 
+# Converts an array to a string seperated array with subsequent whole numbers abbreviated.
+def abbreviate_numbers(numbers):
+    result = []
+    temp_range = []
+
+    for i in range(len(numbers)):
+        # Check if the current number is an integer and if it's part of a sequential range
+        if i == 0 or (
+            isinstance(numbers[i], int)
+            and isinstance(numbers[i - 1], int)
+            and numbers[i] == numbers[i - 1] + 1
+        ):
+            temp_range.append(numbers[i])
+        else:
+            # Handle ranges and individual numbers
+            if len(temp_range) > 1:
+                result.append(f"{temp_range[0]}-{temp_range[-1]}")
+            else:
+                result.extend(map(str, temp_range))
+            temp_range = [numbers[i]]
+
+    # Handle the last part
+    if len(temp_range) > 1:
+        result.append(f"{temp_range[0]}-{temp_range[-1]}")
+    else:
+        result.extend(map(str, temp_range))
+
+    return ", ".join(result)
+
+
+# Fills in missing whole nubmers between
+# the lowest and the highest number.
+def complete_num_array(arr):
+    if not arr:  # Handle empty arrays
+        return arr
+
+    # Find the minimum and maximum numbers in the array
+    min_num = int(min(arr))
+    max_num = int(max(arr))
+
+    # Generate a complete range of whole numbers between min and max
+    complete_arr = list(range(min_num, max_num + 1))
+
+    return complete_arr
+
+
 class Result:
     def __init__(self, dir, score):
         self.dir = dir
@@ -6846,6 +6892,16 @@ def check_for_existing_series(
                         )
                     group_messages.remove(message)
             else:
+                group_numbers = []
+                for item in group_messages:
+                    if isinstance(item.number, list):
+                        filled_num_array = complete_num_array(item.number)
+                        for num in filled_num_array:
+                            group_numbers.append(num)
+                    else:
+                        group_numbers.append(item.number)
+
+                abbreviated_numbers_str = abbreviate_numbers(group_numbers)
                 volume_numbers_mts = []
                 volume_names_mts = []
                 first_item = group_messages[0]
@@ -6856,14 +6912,11 @@ def check_for_existing_series(
                 for message in group_messages:
                     if message.fields and len(message.fields) >= 2:
                         # remove ``` from the start and end of the value
-                        volume_numbers_mts.append(
-                            message.fields[0]["value"].replace("```", "")
-                        )
                         volume_names_mts.append(
                             message.fields[1]["value"].replace("```", "")
                         )
 
-                if volume_numbers_mts and volume_names_mts and series_name:
+                if abbreviated_numbers_str and volume_names_mts and series_name:
                     new_fields = [
                         {
                             "name": "Series Name",
@@ -6872,7 +6925,7 @@ def check_for_existing_series(
                         },
                         {
                             "name": title,
-                            "value": "```" + ", ".join(volume_numbers_mts) + "```",
+                            "value": "```" + abbreviated_numbers_str + "```",
                             "inline": False,
                         },
                         {
