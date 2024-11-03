@@ -46,7 +46,7 @@ from settings import *
 import settings as settings_file
 
 # Version of the script
-script_version = (2, 5, 22)
+script_version = (2, 5, 23)
 script_version_text = "v{}.{}.{}".format(*script_version)
 
 # Paths = existing library
@@ -359,9 +359,9 @@ image_extensions_regex = "|".join(image_extensions).replace(".", "\.")
 # IMPORTANT: Any change of order or swapping of regexes, requires change in full_chapter_match_attempt_allowed alternative logic!
 chapter_searches = [
     r"\b\s-\s*(#)?(\d+)([-_.]\d+)*(x\d+)?\s*-\s",
-    r"\b(%s)(\.)?\s*(\d+)([-_.]\d+)*(x\d+)?\b(?<!\s(\d+)([-_.]\d+)*(x\d+)?\s.*)"
+    r"\b(?<![\[\(\{])(%s)(\.)?\s*(\d+)([-_.]\d+)*(x\d+)?\b(?<!\s(\d+)([-_.]\d+)*(x\d+)?\s.*)"
     % chapter_regex_keywords,
-    r"(?<![A-Za-z]|%s)(((%s)([-_. ]+)?(\d+)([-_.]\d+)*(x\d+)?)|\s+(\d+)(\.\d+)?(x\d+((\.\d+)+)?)?(\s+|#\d+|%s))"
+    r"(?<![A-Za-z]|%s)(?<![\[\(\{])(((%s)([-_. ]+)?(\d+)([-_.]\d+)*(x\d+)?)|\s+(\d+)(\.\d+)?(x\d+((\.\d+)+)?)?(\s+|#\d+|%s))"
     % (exclusion_keywords_joined, chapter_regex_keywords, manga_extensions_regex),
     r"((?<!^)\b(\.)?\s*(%s)(\d+)([-_.]\d+)*((x|#)(\d+)([-_.]\d+)*)*\b)((\s+-|:)\s+).*?(?=\s*[\(\[\{](\d{4}|Digital)[\)\]\}])"
     % exclusion_keywords_regex,
@@ -1969,7 +1969,8 @@ def remove_brackets(string):
 
 # Pre-compile the volume pattern
 volume_regex = re.compile(
-    r"((\s?(\s-\s|)(Part|)+(?<![\[\(\{])(%s)(\.|)([-_. ]|)([0-9]+)\b)|\s?(\s-\s|)(Part|)(%s)(\.|)([-_. ]|)([0-9]+)([-_.])(\s-\s|)(Part|)(%s)([0-9]+)\s|\s?(\s-\s|)(Part|)(%s)(\.|)([-_. ]|)([0-9]+)([-_.])(\s-\s|)(Part|)(%s)([0-9]+)\s)" % (
+    r"((\s?(\s-\s|)(Part|)+(?<![\[\(\{])(%s)(\.|)([-_. ]|)([0-9]+)\b)|\s?(\s-\s|)(Part|)(%s)(\.|)([-_. ]|)([0-9]+)([-_.])(\s-\s|)(Part|)(%s)([0-9]+)\s|\s?(\s-\s|)(Part|)(%s)(\.|)([-_. ]|)([0-9]+)([-_.])(\s-\s|)(Part|)(%s)([0-9]+)\s)"
+    % (
         volume_regex_keywords,
         volume_regex_keywords,
         volume_regex_keywords,
@@ -2909,7 +2910,8 @@ chapter_number_search_pattern = re.compile(
 
 # Pre-compiled volume-keyword search for get_release_number()
 volume_number_search_pattern = re.compile(
-    r"\b(?<![\[\(\{])(%s)((\.)|)(\s+)?([0-9]+)(([-_.])([0-9]+)|)+\b" % volume_regex_keywords,
+    r"\b(?<![\[\(\{])(%s)((\.)|)(\s+)?([0-9]+)(([-_.])([0-9]+)|)+\b"
+    % volume_regex_keywords,
     re.IGNORECASE,
 )
 
