@@ -46,7 +46,7 @@ from settings import *
 import settings as settings_file
 
 # Version of the script
-script_version = (2, 5, 24)
+script_version = (2, 5, 25)
 script_version_text = "v{}.{}.{}".format(*script_version)
 
 # Paths = existing library
@@ -238,7 +238,7 @@ library_types = [
         "light novel",  # name
         novel_extensions,  # extensions
         [
-            r"\[[^\]]*(Lucaz|Stick|Oak|Yen (Press|On)|J-Novel|Seven Seas|Vertical|One Peace Books|Cross Infinite|Sol Press|Hanashi Media|Kodansha|Tentai Books|SB Creative|Hobby Japan|Impress Corporation|KADOKAWA)[^\]]*\]|(faratnis)"
+            r"\[[^\]]*(Lucaz|Stick|Oak|Yen (Press|On)|J-Novel|Seven Seas|Vertical|One Peace Books|Cross Infinite|Sol Press|Hanashi Media|Kodansha|Tentai Books|SB Creative|Hobby Japan|Impress Corporation|KADOKAWA|Viz Media)[^\]]*\]|(faratnis)"
         ],  # must_contain
         [],  # must_not_contain
     ),
@@ -2578,6 +2578,10 @@ def get_series_name_from_volume(name, root, test_mode=False, second=False):
     # replace _extra
     name = remove_dual_space(name.replace("_extra", ".5")).strip()
 
+    # Replace "- One-shot" after series name
+    if "one" in name.lower() and "shot" in name.lower():
+        name = re.sub(r"(-\s*)One(-|)shot\s*", "", name, flags=re.IGNORECASE).strip()
+
     # replace underscores
     name = replace_underscores(name) if "_" in name else name
 
@@ -2746,6 +2750,10 @@ def get_series_name_from_chapter(name, root, chapter_number="", second=False):
 
     # Replace _extra
     name = name.replace("_extra", ".5")
+
+    # Replace "- One-shot" after series name
+    if "one" in name.lower() and "shot" in name.lower():
+        name = re.sub(r"(-\s*)One(-|)shot\s*", "", name, flags=re.IGNORECASE).strip()
 
     # Remove dual space
     name = remove_dual_space(name).strip()
@@ -3268,6 +3276,69 @@ def get_publisher_from_meta(metadata):
     return publisher
 
 
+# Function to determine if an image is black and white with better handling for halftones
+def is_image_black_and_white(image, tolerance=15, threshold=200):
+    """
+    Determines if an image is black and white by verifying that
+    most pixels are grayscale (R == G == B) and fall within the black or white range.
+
+    Args:
+        image (PIL.Image): The image to check.
+        tolerance (int): The allowed difference between R, G, and B for a pixel to be considered grayscale.
+        threshold (int): The number of pixels that need to be grayscale or black/white to count as a valid black-and-white image.
+
+    Returns:
+        bool: True if the image is black and white or grayscale, False otherwise.
+    """
+    try:
+        # Convert the image to RGB (ensures consistent handling of image modes)
+        image_rgb = image.convert("RGB")
+
+        # Extract pixel data
+        pixels = list(image_rgb.getdata())
+
+        # Count pixels that are grayscale and black/white
+        grayscale_count = 0
+
+        for r, g, b in pixels:
+            # Check if the pixel is grayscale within the tolerance
+            if abs(r - g) <= tolerance and abs(g - b) <= tolerance:
+                # Further check if it is black or white
+                if r == 0 or r == 255:
+                    grayscale_count += 1
+                elif 0 < r < 255:
+                    grayscale_count += 1
+
+        # If enough pixels are grayscale or black/white, return True
+        if grayscale_count / len(pixels) > 0.9:
+            return True
+
+        return False  # Otherwise, it's not black and white
+    except Exception as e:
+        send_message(f"Error checking if image is black and white: {e}", error=True)
+        return False
+
+
+# Function to check if the first image in a zip file is black and white
+def is_first_image_black_and_white(zip_path):
+    try:
+        with zipfile.ZipFile(zip_path, "r") as zip_file:
+            # Sort files alphabetically and get the first one
+            sorted_files = sorted(zip_file.namelist())
+            if not sorted_files:
+                return False  # No files in the archive
+
+            first_file = sorted_files[0]
+            if get_file_extension(first_file) in image_extensions:
+                with zip_file.open(first_file) as image_file:
+                    image = Image.open(io.BytesIO(image_file.read()))
+                    return is_image_black_and_white(image)
+        return False
+    except Exception as e:
+        send_message(f"Error processing zip file {zip_path}: {e}", error=True)
+        return False
+
+
 # Trades out our regular files for file objects
 def upgrade_to_volume_class(
     files,
@@ -3380,6 +3451,16 @@ def upgrade_to_volume_class(
                 series_name=file_obj.series_name,
                 subtitle=file_obj.subtitle,
             )
+
+        if (
+            not test_mode
+            and file_obj.file_type != "chapter"
+            and not file_obj.volume_number
+            and check_for_exception_keywords(file_obj.name, exception_keywords)
+            and is_first_image_black_and_white(file_obj.path)
+        ):
+            file_obj.file_type = "chapter"
+            file_obj.is_one_shot = True
 
         if file_obj.is_one_shot:
             file_obj.volume_number = 1
