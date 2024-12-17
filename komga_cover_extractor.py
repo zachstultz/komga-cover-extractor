@@ -46,7 +46,7 @@ from settings import *
 import settings as settings_file
 
 # Version of the script
-script_version = (2, 5, 25)
+script_version = (2, 5, 26)
 script_version_text = "v{}.{}.{}".format(*script_version)
 
 # Paths = existing library
@@ -3454,6 +3454,7 @@ def upgrade_to_volume_class(
 
         if (
             not test_mode
+            and file_obj.extension in manga_extensions
             and file_obj.file_type != "chapter"
             and not file_obj.volume_number
             and check_for_exception_keywords(file_obj.name, exception_keywords)
@@ -5205,10 +5206,15 @@ def is_premium_volume(file):
     bonus_content_found = False
     try:
         with zipfile.ZipFile(file, "r") as zf:
-            if "bonus" in str(zf.namelist()).lower() and re.search(
-                r"((bonus)_?([0-9]+)?\.xhtml)",
-                str(zf.namelist()).lower(),
-                re.IGNORECASE,
+            lower_list = str(zf.namelist()).lower()
+            if (
+                "bonus" in lower_list
+                and "/signup" in lower_list
+                and re.search(
+                    r"((bonus)_?([0-9]+)?\.xhtml)",
+                    lower_list,
+                    re.IGNORECASE,
+                )
             ):
                 bonus_content_found = True
 
