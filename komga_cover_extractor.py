@@ -46,7 +46,7 @@ from settings import *
 import settings as settings_file
 
 # Version of the script
-script_version = (2, 5, 26)
+script_version = (2, 5, 27)
 script_version_text = "v{}.{}.{}".format(*script_version)
 
 # Paths = existing library
@@ -491,6 +491,10 @@ release_groups_joined = ""
 output_covers_as_webp = False
 
 series_cover_path = ""
+
+# The cutoff image count limit for a file to be
+# considered a chapter.
+average_chapter_image_count = 85
 
 
 # Folder Class
@@ -1864,9 +1868,6 @@ def contains_chapter_keywords(file_name):
         if "_" in file_name_clean
         else file_name_clean
     )
-
-    # Remove "c1fi7"
-    file_name_clean = file_name_clean.replace("c1fi7", "")
 
     # Remove dual spaces
     file_name_clean = remove_dual_space(file_name_clean).strip()
@@ -3277,7 +3278,7 @@ def get_publisher_from_meta(metadata):
 
 
 # Function to determine if an image is black and white with better handling for halftones
-def is_image_black_and_white(image, tolerance=15, threshold=200):
+def is_image_black_and_white(image, tolerance=15):
     """
     Determines if an image is black and white by verifying that
     most pixels are grayscale (R == G == B) and fall within the black or white range.
@@ -3285,7 +3286,6 @@ def is_image_black_and_white(image, tolerance=15, threshold=200):
     Args:
         image (PIL.Image): The image to check.
         tolerance (int): The allowed difference between R, G, and B for a pixel to be considered grayscale.
-        threshold (int): The number of pixels that need to be grayscale or black/white to count as a valid black-and-white image.
 
     Returns:
         bool: True if the image is black and white or grayscale, False otherwise.
@@ -3337,6 +3337,17 @@ def is_first_image_black_and_white(zip_path):
     except Exception as e:
         send_message(f"Error processing zip file {zip_path}: {e}", error=True)
         return False
+
+
+# Return the number of image files in the .cbz archive.
+def count_images_in_cbz(file_path):
+    try:
+        with zipfile.ZipFile(file_path, 'r') as archive:
+            images = [f for f in archive.namelist() if f.lower().endswith(('.jpg', '.jpeg', '.png', '.gif', '.webp'))]
+            return len(images)
+    except zipfile.BadZipFile:
+        send_message(f"Skipping corrupted file: {file_path}", error=True)
+        return 0
 
 
 # Trades out our regular files for file objects
@@ -3458,7 +3469,7 @@ def upgrade_to_volume_class(
             and file_obj.file_type != "chapter"
             and not file_obj.volume_number
             and check_for_exception_keywords(file_obj.name, exception_keywords)
-            and is_first_image_black_and_white(file_obj.path)
+            and (is_first_image_black_and_white(file_obj.path) or count_images_in_cbz(file.path) <= average_chapter_image_count)
         ):
             file_obj.file_type = "chapter"
             file_obj.is_one_shot = True
@@ -11673,15 +11684,13 @@ def move_series_to_correct_library(paths_to_search=paths_with_types):
 
                     if not moved_folder_status:
                         send_message(
-                            f"\t\t\tFailed to move {root} to {matching_path.path}",
+                            f"\t\t\tFailed to move {root} to {new_location}",
                             error=True,
                         )
                         check_and_delete_empty_folder(new_location)
                         continue
 
-                    send_message(
-                        f"\t\t\tMoved {root} to {matching_path.path}", discord=False
-                    )
+                    send_message(f"\t\t\tMoved {root} to {new_location}", discord=False)
 
                     if new_location not in moved_folders:
                         moved_folders.append(new_location)
@@ -11705,7 +11714,7 @@ def move_series_to_correct_library(paths_to_search=paths_with_types):
                             },
                             {
                                 "name": "To",
-                                "value": f"```{matching_path.path}```",
+                                "value": f"```{new_location}```",
                                 "inline": False,
                             },
                         ],
