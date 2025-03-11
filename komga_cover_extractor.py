@@ -46,7 +46,7 @@ from settings import *
 import settings as settings_file
 
 # Version of the script
-script_version = (2, 5, 27)
+script_version = (2, 5, 28)
 script_version_text = "v{}.{}.{}".format(*script_version)
 
 # Paths = existing library
@@ -321,6 +321,8 @@ exclusion_keywords = [
     r"(\]|\}|\)) -",
     r"\bZom(\s)",
     r"Tail -",
+    r"꞉",
+    r":",
 ]
 
 subtitle_exclusion_keywords = [r"-(\s)", r"-", r"-\s[A-Za-z]+\s"]
@@ -2581,7 +2583,7 @@ def get_series_name_from_volume(name, root, test_mode=False, second=False):
 
     # Replace "- One-shot" after series name
     if "one" in name.lower() and "shot" in name.lower():
-        name = re.sub(r"(-\s*)One(-|)shot\s*", "", name, flags=re.IGNORECASE).strip()
+        name = re.sub(r"(-\s*)Ones?(-|)shot\s*", "", name, flags=re.IGNORECASE).strip()
 
     # replace underscores
     name = replace_underscores(name) if "_" in name else name
@@ -2754,7 +2756,7 @@ def get_series_name_from_chapter(name, root, chapter_number="", second=False):
 
     # Replace "- One-shot" after series name
     if "one" in name.lower() and "shot" in name.lower():
-        name = re.sub(r"(-\s*)One(-|)shot\s*", "", name, flags=re.IGNORECASE).strip()
+        name = re.sub(r"(-\s*)Ones?(-|)shot\s*", "", name, flags=re.IGNORECASE).strip()
 
     # Remove dual space
     name = remove_dual_space(name).strip()
@@ -3467,12 +3469,13 @@ def upgrade_to_volume_class(
             not test_mode
             and file_obj.extension in manga_extensions
             and file_obj.file_type != "chapter"
-            and not file_obj.volume_number
-            and check_for_exception_keywords(file_obj.name, exception_keywords)
-            and (is_first_image_black_and_white(file_obj.path) or count_images_in_cbz(file.path) <= average_chapter_image_count)
+            and (not file_obj.volume_number or file_obj.is_one_shot)
+            and (check_for_exception_keywords(file_obj.name, exception_keywords) or file_obj.is_one_shot)
         ):
-            file_obj.file_type = "chapter"
-            file_obj.is_one_shot = True
+            if is_first_image_black_and_white(file_obj.path) or count_images_in_cbz(file_obj.path) <= average_chapter_image_count:
+                file_obj.file_type = "chapter"
+                file_obj.is_one_shot = True
+
 
         if file_obj.is_one_shot:
             file_obj.volume_number = 1
@@ -11747,6 +11750,26 @@ def move_series_to_correct_library(paths_to_search=paths_with_types):
         send_message(f"\n\t\tError: {e}", error=True)
 
 
+# Normalize path separators and remove Windows drive letters if present.
+def normalize_path(path):
+    path = os.path.normpath(path)
+    
+    # Remove Windows drive letters (e.g., "Z:\example\path" -> "\example\path")
+    if ":" in path:
+        path = re.sub(r"^[A-Za-z]:", "", path)
+    
+    # Convert backslashes to forward slashes for uniform comparison
+    return path.replace("\\", "/")
+
+
+# Check if root_path is a prefix of target_path, handling Windows and Linux paths.
+def is_root_present(root_path, target_path):
+    root_path = normalize_path(root_path)
+    target_path = normalize_path(target_path)
+    
+    return root_path in target_path
+
+
 # Optional features below, use at your own risk.
 # Activate them in settings.py
 def main():
@@ -11987,7 +12010,7 @@ def main():
                         if library["id"] in libraries_to_scan:
                             continue
 
-                        if library["root"] in path:
+                        if is_root_present(library["root"], path):
                             libraries_to_scan.append(library["id"])
 
         # Send scan requests to each komga library
