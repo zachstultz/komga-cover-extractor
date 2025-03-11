@@ -69,7 +69,7 @@ add_publisher_name_to_file_name_when_renaming = False
 # Case is ignored when checked.
 exception_keywords = [
     r"Extra",
-    r"One(-|)shot",
+    r"Ones?(-|)shot",
     r"Omake",
     r"Special",
     r"Bonus",
