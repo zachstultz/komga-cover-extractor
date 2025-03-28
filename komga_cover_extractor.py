@@ -46,7 +46,7 @@ from settings import *
 import settings as settings_file
 
 # Version of the script
-script_version = (2, 5, 28)
+script_version = (2, 5, 29)
 script_version_text = "v{}.{}.{}".format(*script_version)
 
 # Paths = existing library
@@ -323,6 +323,7 @@ exclusion_keywords = [
     r"Tail -",
     r"꞉",
     r":",
+    r"\d\."
 ]
 
 subtitle_exclusion_keywords = [r"-(\s)", r"-", r"-\s[A-Za-z]+\s"]
@@ -11011,7 +11012,7 @@ def has_one_set_of_numbers(string, chapter=False, file=None, subtitle=None):
 # Check if there is more than one set of numbers in the string
 @lru_cache(maxsize=3500)
 def has_multiple_numbers(file_name):
-    return len(re.findall(r"\d+\.0+[1-9]+|\d+\.[1-9]+|\d+", file_name)) > 1
+    return len(re.findall(r"\d+\.0+[0-9]+|\d+\.[0-9]+|\d+", file_name)) > 1
 
 
 # Extracts all the numbers from a string
