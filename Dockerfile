@@ -1,5 +1,5 @@
 # Use a specific version of the Python image
-FROM python:3.11.4-slim-bookworm
+FROM python:3.13.2-slim-bookworm
 
 # Set the working directory to /app
 WORKDIR /app
@@ -11,11 +11,11 @@ RUN useradd -m appuser
 ARG PUID=1000
 ARG PGID=1000
 
-# Set the PYTHONUNBUFFERED environment variable to avoid partial output in logs
+# To avoid partial output in logs
 ENV PYTHONUNBUFFERED=1
 
 # Add non-free to sources.list
-RUN echo "deb http://deb.debian.org/debian bullseye non-free" >> /etc/apt/sources.list
+RUN echo "deb http://deb.debian.org/debian bookworm non-free" >> /etc/apt/sources.list
 
 # Set ownership to appuser and switch to "appuser"
 RUN groupmod -o -g "$PGID" appuser && usermod -o -u "$PUID" appuser
