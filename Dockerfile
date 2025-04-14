@@ -29,7 +29,7 @@ COPY --chown=appuser:appuser . .
 
 # Install necessary packages and requirements for the main script
 RUN apt-get update
-RUN apt-get install -y unrar tzdata nano
+RUN apt-get install -y unrar tzdata nano build-essential
 RUN pip3 install --no-cache-dir -r requirements.txt
 
 # Install the requirements for the qbit_torrent_unchecker addon
