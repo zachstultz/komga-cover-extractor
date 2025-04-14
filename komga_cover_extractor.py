@@ -46,7 +46,7 @@ from settings import *
 import settings as settings_file
 
 # Version of the script
-script_version = (2, 5, 29)
+script_version = (2, 5, 30)
 script_version_text = "v{}.{}.{}".format(*script_version)
 
 # Paths = existing library
@@ -163,6 +163,7 @@ zip_extensions = [
     ".epub",
 ]
 
+# Rar extensions
 rar_extensions = [".rar", ".cbr"]
 
 # Accepted file extensions for novels
@@ -323,7 +324,7 @@ exclusion_keywords = [
     r"Tail -",
     r"꞉",
     r":",
-    r"\d\."
+    r"\d\.",
 ]
 
 subtitle_exclusion_keywords = [r"-(\s)", r"-", r"-\s[A-Za-z]+\s"]
@@ -349,13 +350,13 @@ chapter_regex_keywords = r"(?<![A-Za-z])" + (r"|(?<![A-Za-z])").join(chapter_key
 
 ### EXTENION REGEX ###
 # File extensions regex to be used throughout the script
-file_extensions_regex = "|".join(file_extensions).replace(".", "\.")
+file_extensions_regex = "|".join(file_extensions).replace(".", r"\.")
 # Manga extensions regex to be used throughout the script
-manga_extensions_regex = "|".join(manga_extensions).replace(".", "\.")
+manga_extensions_regex = "|".join(manga_extensions).replace(".", r"\.")
 # Novel extensions regex to be used throughout the script
-novel_extensions_regex = "|".join(novel_extensions).replace(".", "\.")
+novel_extensions_regex = "|".join(novel_extensions).replace(".", r"\.")
 # Image extensions regex to be used throughout the script
-image_extensions_regex = "|".join(image_extensions).replace(".", "\.")
+image_extensions_regex = "|".join(image_extensions).replace(".", r"\.")
 
 # REMINDER: ORDER IS IMPORTANT, Top to bottom is the order it will be checked in.
 # Once a match is found, it will stop checking the rest.
@@ -2595,7 +2596,7 @@ def get_series_name_from_volume(name, root, test_mode=False, second=False):
     if is_one_shot(name, root, test_mode=test_mode):
         name = re.sub(
             r"([-_ ]+|)(((\[|\(|\{).*(\]|\)|\}))|LN)([-_. ]+|)(%s|).*"
-            % file_extensions_regex.replace("\.", ""),
+            % file_extensions_regex.replace(r"\.", ""),
             "",
             name,
             flags=re.IGNORECASE,
@@ -3345,8 +3346,12 @@ def is_first_image_black_and_white(zip_path):
 # Return the number of image files in the .cbz archive.
 def count_images_in_cbz(file_path):
     try:
-        with zipfile.ZipFile(file_path, 'r') as archive:
-            images = [f for f in archive.namelist() if f.lower().endswith(('.jpg', '.jpeg', '.png', '.gif', '.webp'))]
+        with zipfile.ZipFile(file_path, "r") as archive:
+            images = [
+                f
+                for f in archive.namelist()
+                if f.lower().endswith(tuple(image_extensions))
+            ]
             return len(images)
     except zipfile.BadZipFile:
         send_message(f"Skipping corrupted file: {file_path}", error=True)
@@ -3471,12 +3476,17 @@ def upgrade_to_volume_class(
             and file_obj.extension in manga_extensions
             and file_obj.file_type != "chapter"
             and (not file_obj.volume_number or file_obj.is_one_shot)
-            and (check_for_exception_keywords(file_obj.name, exception_keywords) or file_obj.is_one_shot)
+            and (
+                check_for_exception_keywords(file_obj.name, exception_keywords)
+                or file_obj.is_one_shot
+            )
         ):
-            if is_first_image_black_and_white(file_obj.path) or count_images_in_cbz(file_obj.path) <= average_chapter_image_count:
+            if (
+                is_first_image_black_and_white(file_obj.path)
+                or count_images_in_cbz(file_obj.path) <= average_chapter_image_count
+            ):
                 file_obj.file_type = "chapter"
                 file_obj.is_one_shot = True
-
 
         if file_obj.is_one_shot:
             file_obj.volume_number = 1
@@ -4880,19 +4890,19 @@ def normalize_str(
             "kara",
             "to",
             "ya",
-            "no(?!\.)",
+            r"no(?!\.)",
             "ne",
             "yo",
         ]
         words_to_remove.extend(japanese_particles)
 
     if not skip_misc_words:
-        misc_words = ["((\d+)([-_. ]+)?th)", "x", "×", "HD"]
+        misc_words = [r"((\d+)([-_. ]+)?th)", "x", "×", "HD"]
         words_to_remove.extend(misc_words)
 
     if not skip_storefront_keywords:
         storefront_keywords = [
-            "Book(\s+)?walker",
+            r"Book(\s+)?walker",
         ]
         words_to_remove.extend(storefront_keywords)
 
@@ -11754,11 +11764,11 @@ def move_series_to_correct_library(paths_to_search=paths_with_types):
 # Normalize path separators and remove Windows drive letters if present.
 def normalize_path(path):
     path = os.path.normpath(path)
-    
+
     # Remove Windows drive letters (e.g., "Z:\example\path" -> "\example\path")
     if ":" in path:
         path = re.sub(r"^[A-Za-z]:", "", path)
-    
+
     # Convert backslashes to forward slashes for uniform comparison
     return path.replace("\\", "/")
 
@@ -11767,7 +11777,7 @@ def normalize_path(path):
 def is_root_present(root_path, target_path):
     root_path = normalize_path(root_path)
     target_path = normalize_path(target_path)
-    
+
     return root_path in target_path
 
 
