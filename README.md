@@ -64,11 +64,11 @@ We welcome contributions! If you'd like to contribute to the Komga Cover Extract
 ### 7. License
 
 ```markdown
-This project is licensed under the [MIT License](LICENSE).
+This project is licensed under the MIT License.
 ```
 
 ### 8. Support and Contact
 ```markdown
 
-If you need help or want to report issues, please [create an issue](https://github.com/zachstultz/komga-cover-extractor/issues) on GitHub.
+If you need help or want to report issues, please create an issue.
 ```
