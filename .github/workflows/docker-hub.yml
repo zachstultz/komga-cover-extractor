@@ -2,9 +2,9 @@ name: Build and Push Docker Image to Docker Hub
 
 on:
   push:
-    branches: [ "master" ]
+    branches: [ "${{ github.ref_name }}" ]
   pull_request:
-    branches: [ "master" ]
+    branches: [ "${{ github.ref_name }}" ]
 
 env:
   # Use docker.io for Docker Hub if empty
