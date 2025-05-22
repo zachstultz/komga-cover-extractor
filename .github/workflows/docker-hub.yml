@@ -9,8 +9,8 @@ on:
 env:
   # Use docker.io for Docker Hub if empty
   REGISTRY: docker.io
-  # github.repository as <account>/<repo>
-  IMAGE_NAME: zachstultz/komga-cover-extractor
+  # Dynamically set IMAGE_NAME using github.repository
+  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
   build:
