@@ -46,7 +46,7 @@ from settings import *
 import settings as settings_file
 
 # Version of the script
-script_version = (2, 5, 30)
+script_version = (2, 5, 31)
 script_version_text = "v{}.{}.{}".format(*script_version)
 
 # Paths = existing library
@@ -499,6 +499,24 @@ series_cover_path = ""
 # The cutoff image count limit for a file to be
 # considered a chapter.
 average_chapter_image_count = 85
+
+# The patterns used when finding a cover image
+#
+# REMINDER: ORDER IS IMPORTANT, Top to bottom is the order it will be checked in.
+# Once a match is found, it will stop checking the rest.
+cover_patterns = [
+    r"(cover\.([A-Za-z]+))$",
+    r"(\b(Cover([0-9]+|)|CoverDesign|page([-_. ]+)?cover)\b)",
+    r"(\b(p000|page_000)\b)",
+    r"((\s+)0+\.(.{2,}))",
+    r"(\bindex[-_. ]1[-_. ]1\b)",
+    r"(9([-_. :]+)?7([-_. :]+)?(8|9)(([-_. :]+)?[0-9]){10})",
+]
+
+# Pre-compiled regular expressions for cover patterns
+compiled_cover_patterns = [
+    re.compile(pattern, flags=re.IGNORECASE) for pattern in cover_patterns
+]
 
 
 # Folder Class
@@ -8430,22 +8448,6 @@ def get_novel_cover_path(file):
     return os.path.basename(novel_cover_path)
 
 
-# Regular expressions to match cover patterns
-cover_patterns = [
-    r"(cover\.([A-Za-z]+))$",
-    r"(\b(Cover([0-9]+|)|CoverDesign|page([-_. ]+)?cover)\b)",
-    r"(\b(p000|page_000)\b)",
-    r"((\s+)0+\.(.{2,}))",
-    r"(\bindex[-_. ]1[-_. ]1\b)",
-    r"(9([-_. :]+)?7([-_. :]+)?(8|9)(([-_. :]+)?[0-9]){10})",
-]
-
-# Pre-compiled regular expressions for cover patterns
-compiled_cover_patterns = [
-    re.compile(pattern, flags=re.IGNORECASE) for pattern in cover_patterns
-]
-
-
 # Finds and extracts the internal cover from a manga or novel file.
 def find_and_extract_cover(
     file,
@@ -8549,9 +8551,9 @@ def find_and_extract_cover(
         blank_images = set()
 
         # Iterate through the files in the zip archive
-        for image_file in zip_list:
+        for pattern in compiled_cover_patterns:
             # Check if the file matches any cover pattern
-            for pattern in compiled_cover_patterns:
+            for image_file in zip_list:
                 image_basename = os.path.basename(image_file)
                 is_novel_cover = novel_cover_path and image_basename == novel_cover_path
 
