@@ -5,6 +5,7 @@ import os
 import re
 import shutil
 import string
+import struct
 import subprocess
 import sys
 import tempfile
@@ -46,7 +47,7 @@ from settings import *
 import settings as settings_file
 
 # Version of the script
-script_version = (2, 5, 31)
+script_version = (2, 5, 32)
 script_version_text = "v{}.{}.{}".format(*script_version)
 
 # Paths = existing library
@@ -5651,15 +5652,41 @@ def remove_duplicates(items):
     return list(dict.fromkeys(items))
 
 
+# The signature for the End of Central Directory record.
+EOCD_SIGNATURE = b"\x50\x4b\x05\x06"
+
+
 # Return the zip comment for the passed zip file (cached)
 # Used on existing library files.
-@lru_cache(maxsize=3500)
+@lru_cache(maxsize=None)
 def get_zip_comment_cache(zip_file):
+    """
+    Quickly reads a ZIP file's comment by reading only the end of the file.
+    """
     comment = ""
     try:
-        with zipfile.ZipFile(zip_file, "r") as zip_ref:
-            if zip_ref.comment:
-                comment = zip_ref.comment.decode("utf-8")
+        with open(zip_file, "rb") as f:
+            # Seek to the end of the file to get its size.
+            f.seek(0, os.SEEK_END)
+            file_size = f.tell()
+
+            # Read a buffer large enough for the max comment size + EOCD record.
+            buffer_size = min(file_size, 65535 + 22)
+            f.seek(file_size - buffer_size, os.SEEK_SET)
+            end_data = f.read()
+
+            # Search backwards for the EOCD signature.
+            sig_pos = end_data.rfind(EOCD_SIGNATURE)
+
+            if sig_pos > -1:
+                comment_len_pos = sig_pos + 20
+                comment_len = struct.unpack(
+                    "<H", end_data[comment_len_pos : comment_len_pos + 2]
+                )[0]
+                comment_pos = sig_pos + 22
+
+                if comment_len == len(end_data) - comment_pos:
+                    comment = end_data[comment_pos:].decode("utf-8")
     except Exception as e:
         send_message(
             f"\tFailed to get zip comment for: {zip_file} - Error: {e}", error=True
@@ -5670,11 +5697,33 @@ def get_zip_comment_cache(zip_file):
 # Return the zip comment for the passed zip file (no cache)
 # Used on downloaded files. (more likely to change, hence no cache)
 def get_zip_comment(zip_file):
+    """
+    Quickly reads a ZIP file's comment by reading only the end of the file.
+    """
     comment = ""
     try:
-        with zipfile.ZipFile(zip_file, "r") as zip_ref:
-            if zip_ref.comment:
-                comment = zip_ref.comment.decode("utf-8")
+        with open(zip_file, "rb") as f:
+            # Seek to the end of the file to get its size.
+            f.seek(0, os.SEEK_END)
+            file_size = f.tell()
+
+            # Read a buffer large enough for the max comment size + EOCD record.
+            buffer_size = min(file_size, 65535 + 22)
+            f.seek(file_size - buffer_size, os.SEEK_SET)
+            end_data = f.read()
+
+            # Search backwards for the EOCD signature.
+            sig_pos = end_data.rfind(EOCD_SIGNATURE)
+
+            if sig_pos > -1:
+                comment_len_pos = sig_pos + 20
+                comment_len = struct.unpack(
+                    "<H", end_data[comment_len_pos : comment_len_pos + 2]
+                )[0]
+                comment_pos = sig_pos + 22
+
+                if comment_len == len(end_data) - comment_pos:
+                    comment = end_data[comment_pos:].decode("utf-8")
     except Exception as e:
         send_message(
             f"\tFailed to get zip comment for: {zip_file} - Error: {e}", error=True
@@ -6473,15 +6522,24 @@ def check_for_existing_series(
                     if done:
                         continue
 
-                    if unmatched_series and (
-                        (not match_through_identifiers or file.file_type == "chapter")
+                    skip_approved = False
+
+                    if (
+                        unmatched_series
+                        and f"{file.series_name} - {file.file_type} - {file.extension}"
+                        in unmatched_series
                     ):
-                        if (
-                            f"{file.series_name} - {file.file_type} - {file.extension}"
-                            in unmatched_series
-                        ):
-                            # print(f"\t\tSkipping: {file.name}...")
-                            continue
+                        if not match_through_identifiers or file.file_type == "chapter":
+                            skip_approved = True
+                        else:
+                            # Only pull the zip comment if the other conditions fail
+                            zip_comment = get_zip_comment(file.path)
+                            if not zip_comment or "@" in zip_comment:
+                                skip_approved = True
+
+                    if skip_approved:
+                        # print(f"\t\tSkipping: {file.name}...")
+                        continue
 
                     # 1.2 - Check cached identifier results
                     if cached_identifier_results and file.file_type == "volume":
@@ -6630,7 +6688,11 @@ def check_for_existing_series(
                         continue
 
                     dl_zip_comment = get_zip_comment(file.path) if not test_mode else ""
-                    dl_meta = get_identifiers(dl_zip_comment) if dl_zip_comment else []
+                    dl_meta = (
+                        get_identifiers(dl_zip_comment)
+                        if dl_zip_comment and "@" not in dl_zip_comment
+                        else []
+                    )
 
                     directories_found = []
                     matched_ids = []
@@ -6881,6 +6943,9 @@ def check_for_existing_series(
                                     print(
                                         f"\n\t\tMatching Identifier Search: {folder_accessor.root}"
                                     )
+
+                                    dl_meta_set = set(dl_meta) if dl_meta else set()
+
                                     for f in folder_accessor.files:
                                         if f.root in directories_found:
                                             break
@@ -6896,19 +6961,21 @@ def check_for_existing_series(
                                             existing_file_zip_comment
                                         )
 
-                                        if existing_file_meta:
+                                        if not existing_file_meta:
+                                            continue
+
+                                        if dl_meta:
                                             print(f"\t\t\t\t{existing_file_meta}")
-                                            if any(
-                                                d_meta in existing_file_meta
+
+                                            if (
+                                                dl_meta_set.intersection(
+                                                    set(existing_file_meta)
+                                                )
                                                 and f.root not in directories_found
-                                                for d_meta in dl_meta
                                             ):
                                                 directories_found.append(f.root)
                                                 matched_ids.extend(
-                                                    [
-                                                        dl_meta,
-                                                        existing_file_meta,
-                                                    ]
+                                                    [dl_meta, existing_file_meta]
                                                 )
                                                 print(
                                                     f"\n\t\t\t\tMatch found in: {f.root}"
@@ -7094,11 +7161,14 @@ def check_for_existing_series(
             passed_webhook=webhook_to_use,
         )
 
-    # clear lru_cache for parse_words
+    # clear lru_cache for parse_words()
     parse_words.cache_clear()
 
     # clear lru_ache for find_consecutive_items()
     find_consecutive_items.cache_clear()
+
+    # clear lru_cache for get_zip_comment_cache()
+    get_zip_comment_cache.cache_clear()
 
 
 # Removes any unnecessary junk through regex in the folder name and returns the result
@@ -8456,17 +8526,15 @@ def find_and_extract_cover(
     blank_image_check=compare_detected_cover_to_blank_images,
 ):
     # Helper function to filter and sort files in the zip archive
-    def filter_and_sort_files(zip_list):
-        return sorted(
-            [
-                x
-                for x in zip_list
-                if not x.endswith("/")
-                and "." in x
-                and get_file_extension(x) in image_extensions
-                and not os.path.basename(x).startswith((".", "__"))
-            ]
-        )
+    def filter_files(zip_list):
+        return [
+            x
+            for x in zip_list
+            if not x.endswith("/")
+            and "." in x
+            and get_file_extension(x) in image_extensions
+            and not os.path.basename(x).startswith((".", "__"))
+        ]
 
     # Helper function to read image data from the zip file
     def get_image_data(image_path):
@@ -8536,7 +8604,8 @@ def find_and_extract_cover(
     # Open the zip file
     with zipfile.ZipFile(file.path, "r") as zip_ref:
         # Filter and sort files in the zip archive
-        zip_list = filter_and_sort_files(zip_ref.namelist())
+        zip_list = filter_files(zip_ref.namelist())
+        zip_list = sorted(zip_list)
 
         # Move the novel cover to the front of the list, if it exists
         if novel_cover_path:
@@ -8559,6 +8628,7 @@ def find_and_extract_cover(
 
                 if (
                     is_novel_cover
+                    or file.extension in manga_extensions
                     or pattern.pattern == image_basename
                     or pattern.search(image_basename)
                 ):
