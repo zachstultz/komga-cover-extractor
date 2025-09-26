@@ -47,7 +47,7 @@ from settings import *
 import settings as settings_file
 
 # Version of the script
-script_version = (2, 5, 32)
+script_version = (2, 5, 33)
 script_version_text = "v{}.{}.{}".format(*script_version)
 
 # Paths = existing library
@@ -370,7 +370,7 @@ chapter_searches = [
     % (exclusion_keywords_joined, chapter_regex_keywords, manga_extensions_regex),
     r"((?<!^)\b(\.)?\s*(%s)(\d+)([-_.]\d+)*((x|#)(\d+)([-_.]\d+)*)*\b)((\s+-|:)\s+).*?(?=\s*[\(\[\{](\d{4}|Digital)[\)\]\}])"
     % exclusion_keywords_regex,
-    r"(\b(%s)?(\.)?\s*((%s)(\d{1,2})|\d{3,})([-_.]\d+)*(x\d+)?(#\d+([-_.]\d+)*)?\b)\s*((\[[^\]]*\]|\([^\)]*\)|\{[^}]*\})|((?<!\w(\s))|(?<!\w))(%s)(?!\w))"
+    r"(\b(%s)?(\.)?\s*((%s)(\b\d\b)|\d{2,})([-_.]\d+)*(x\d+)?(#\d+([-_.]\d+)*)?\b)\s*((\[[^\]]*\]|\([^\)]*\)|\{[^}]*\})|((?<!\w(\s))|(?<!\w))(%s)(?!\w))"
     % (chapter_regex_keywords, exclusion_keywords_regex, file_extensions_regex),
     r"^((#)?(\d+)([-_.]\d+)*((x|#)(\d+)([-_.]\d+)*)*)$",
 ]
