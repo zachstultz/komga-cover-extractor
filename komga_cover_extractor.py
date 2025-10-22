@@ -1,4 +1,5 @@
 import argparse
+import cProfile
 import hashlib
 import io
 import os
@@ -22,7 +23,6 @@ from functools import lru_cache
 from posixpath import join
 from urllib.parse import urlparse
 
-import cProfile
 import cv2
 import filetype
 import numpy as np
@@ -47,7 +47,7 @@ from settings import *
 import settings as settings_file
 
 # Version of the script
-script_version = (2, 5, 33)
+script_version = (2, 5, 34)
 script_version_text = "v{}.{}.{}".format(*script_version)
 
 # Paths = existing library
@@ -1332,6 +1332,20 @@ def process_path(path, paths_with_types, paths, is_download_folders=False):
             download_folders_with_types.append(path_obj)
 
 
+class KomgaLibrary:
+    def __init__(self, id, name, root):
+        self.id = id
+        self.name = name
+        self.root = root
+
+    # to string
+    def __str__(self):
+        return f"KomgaLibrary(id={self.id}, name={self.name}, root={self.root})"
+
+    def __repr__(self):
+        return str(self)
+
+
 # Parses the passed command-line arguments
 def parse_my_args():
     # Function to parse boolean arguments from string values
@@ -1626,9 +1640,12 @@ def parse_my_args():
         and watchdog_toggle
     ):
         komga_libraries = get_komga_libraries()
-        komga_library_paths = (
-            [x["root"] for x in komga_libraries] if komga_libraries else []
-        )
+        if komga_libraries:
+            komga_libraries = [
+                KomgaLibrary(library["id"], library["name"], library["root"])
+                for library in komga_libraries
+            ]
+            komga_library_paths = [x.root for x in komga_libraries]
         print(f"\tkomga_libraries: {komga_library_paths}")
 
 
@@ -10718,7 +10735,7 @@ def cache_existing_library_paths(
 
 # Sends scan requests to komga for all passed-in libraries
 # Reqiores komga settings to be set in settings.py
-def scan_komga_library(library_id):
+def scan_komga_library(library):
     if not komga_ip:
         send_message(
             "Komga IP is not set in settings.py. Please set it and try again.",
@@ -10745,7 +10762,7 @@ def scan_komga_library(library_id):
     print("\nSending Komga Scan Request:")
     try:
         request = requests.post(
-            f"{komga_url}/api/v1/libraries/{library_id}/scan",
+            f"{komga_url}/api/v1/libraries/{library.id}/scan",
             headers={
                 "Authorization": "Basic %s"
                 % b64encode(
@@ -10756,18 +10773,18 @@ def scan_komga_library(library_id):
         )
         if request.status_code == 202:
             send_message(
-                f"\t\tSuccessfully Initiated Scan for: {library_id} Library.",
+                f"\t\tSuccessfully Initiated Scan for: {library.name} Library.",
                 discord=False,
             )
         else:
             send_message(
-                f"\t\tFailed to Initiate Scan for: {library_id} Library "
+                f"\t\tFailed to Initiate Scan for: {library.name} ({library.id}) Library "
                 f"Status Code: {request.status_code} Response: {request.text}",
                 error=True,
             )
     except Exception as e:
         send_message(
-            f"Failed to Initiate Scan for: {library_id} Komga Library, ERROR: {e}",
+            f"Failed to Initiate Scan for: {library.name} ({library.id}) Komga Library, ERROR: {e}",
             error=True,
         )
 
@@ -11817,16 +11834,23 @@ def move_series_to_correct_library(paths_to_search=paths_with_types):
                     if not komga_libraries:
                         # Retrieve the Komga libraries
                         komga_libraries = get_komga_libraries()
+                        if komga_libraries:
+                            komga_libraries = [
+                                KomgaLibrary(
+                                    library["id"], library["name"], library["root"]
+                                )
+                                for library in komga_libraries
+                            ]
 
                     # Setup the old library to get scanned
                     # to reflect the changes
                     if komga_libraries:
                         for library in komga_libraries:
-                            if library["id"] in libraries_to_scan:
+                            if library in libraries_to_scan:
                                 continue
 
-                            if library["root"] in p.path:
-                                libraries_to_scan.append(library["id"])
+                            if library.root in p.path:
+                                libraries_to_scan.append(library)
             except Exception as e:
                 send_message(f"\n\t\tError: {e}", error=True)
     except Exception as e:
@@ -12083,6 +12107,11 @@ def main():
         if not komga_libraries:
             # Retrieve the Komga libraries
             komga_libraries = get_komga_libraries()
+            if komga_libraries:
+                komga_libraries = [
+                    KomgaLibrary(library["id"], library["name"], library["root"])
+                    for library in komga_libraries
+                ]
 
         for path in moved_files:
             if os.path.isfile(path):
@@ -12090,16 +12119,16 @@ def main():
                 # and trigger a scan.
                 if komga_libraries:
                     for library in komga_libraries:
-                        if library["id"] in libraries_to_scan:
+                        if library in libraries_to_scan:
                             continue
 
-                        if is_root_present(library["root"], path):
-                            libraries_to_scan.append(library["id"])
+                        if is_root_present(library.root, path):
+                            libraries_to_scan.append(library)
 
         # Send scan requests to each komga library
         if libraries_to_scan:
-            for library_id in libraries_to_scan:
-                scan_komga_library(library_id)
+            for library in libraries_to_scan:
+                scan_komga_library(library)
 
     # Reset libraries_to_scan
     libraries_to_scan = []

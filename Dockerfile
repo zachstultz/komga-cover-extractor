@@ -1,5 +1,5 @@
 # Use a specific version of the Python image
-FROM python:3.13.2-slim-bookworm
+FROM python:3.13.8-slim-bookworm
 
 # Set the working directory to /app
 WORKDIR /app
@@ -14,9 +14,6 @@ ARG PGID=1000
 # To avoid partial output in logs
 ENV PYTHONUNBUFFERED=1
 
-# Add non-free to sources.list
-RUN echo "deb http://deb.debian.org/debian bookworm non-free" >> /etc/apt/sources.list
-
 # Set ownership to appuser and switch to "appuser"
 RUN groupmod -o -g "$PGID" appuser && usermod -o -u "$PUID" appuser
 
@@ -26,6 +23,9 @@ RUN umask "$UMASK"
 
 # Copy the current directory contents into the container at /app
 COPY --chown=appuser:appuser . .
+
+# Add non-free to sources.list
+RUN echo "deb http://deb.debian.org/debian bookworm non-free" >> /etc/apt/sources.list
 
 # Install necessary packages and requirements for the main script
 RUN apt-get update
@@ -40,8 +40,7 @@ ARG MANGA_ISBN
 RUN if [ "$MANGA_ISBN" = "true" ]; then \
     apt-get update && \
     apt-get install -y wget && \
-    apt-get install -y build-essential && \
-    apt-get install -y xdg-utils xz-utils libopengl0 libegl1 libxcb-cursor0 && \
+    apt-get install -y xdg-utils libxcb-cursor0 libxcb-xinerama0 xz-utils libopengl0 libegl1 && \
     wget -nv -O- https://download.calibre-ebook.com/linux-installer.sh | sh /dev/stdin && \
     apt-get install -y libicu-dev pkg-config python3-icu && \
     apt-get install -y /app/addons/manga_isbn/chrome/google-chrome-stable_current_amd64.deb && \

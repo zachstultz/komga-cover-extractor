@@ -1,8 +1,8 @@
-certifi==2024.8.30
-charset-normalizer==3.3.2
-idna==3.10
-packaging==24.1
-qbittorrent-api==2024.9.67
-regex==2024.9.11
-requests==2.32.3
-urllib3==2.2.3
+certifi==2025.10.5
+charset-normalizer==3.4.4
+idna==3.11
+packaging==25.0
+qbittorrent-api==2025.7.0
+regex==2025.9.18
+requests==2.32.5
+urllib3==2.5.0
