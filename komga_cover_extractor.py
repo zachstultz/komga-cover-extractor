@@ -12,9 +12,9 @@ import subprocess
 import sys
 import tempfile
 import threading
-import traceback
 import time
-import urllib.request
+import traceback
+import unicodedata
 import xml.etree.ElementTree as ET
 import zipfile
 from base64 import b64encode
@@ -42,13 +42,12 @@ from unidecode import unidecode
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
-from settings import *
-
 # Get all the variables in settings.py
 import settings as settings_file
+from settings import *
 
 # Version of the script
-script_version = (2, 5, 34)
+script_version = (2, 5, 35)
 script_version_text = "v{}.{}.{}".format(*script_version)
 
 # Paths = existing library
@@ -99,12 +98,6 @@ release_groups = []
 # All the publishers stored in publishers.txt
 # Used when renaming files where it has a matching publisher.
 publishers = []
-
-# skipped files that don't have a release group
-skipped_release_group_files = []
-
-# skipped files that don't have a publisher
-skipped_publisher_files = []
 
 # A quick and dirty fix to avoid non-processed files from
 # being moved over to the existing library. Will be removed in the future.
@@ -3506,6 +3499,7 @@ def upgrade_to_volume_class(
                 chapter=file_obj.file_type == "chapter",
                 series_name=file_obj.series_name,
                 subtitle=file_obj.subtitle,
+                extension=file_obj.extension,
             )
 
         if (
@@ -4519,6 +4513,7 @@ def get_internal_metadata(file_path, extension):
         elif extension in novel_extensions:
             regex_searches = [
                 r"content.opf",
+                r"contents.opf",
                 r"package.opf",
                 r"standard.opf",
                 r"volume.opf",
@@ -7575,7 +7570,7 @@ def rename_dirs_in_download_folder(paths_to_process=download_folders):
 
 
 # Retrieves any bracketed information in the name that isn't the release year.
-def get_extras(file_name, chapter=False, series_name="", subtitle=""):
+def get_extras(file_name, chapter=False, series_name="", subtitle="", extension=""):
     # Helper function to remove matching patterns from text
     def remove_matching(text, pattern):
         return re.sub(
@@ -7600,7 +7595,7 @@ def get_extras(file_name, chapter=False, series_name="", subtitle=""):
         return items
 
     # Get the file extension
-    extension = get_file_extension(file_name)
+    extension = extension or get_file_extension(file_name)
 
     # Remove series name and subtitle if provided
     if series_name:
@@ -7712,29 +7707,69 @@ def get_file_from_zip(zip_file, searches, extension=None, allow_base=True):
                 if item.endswith(extension) or not extension
             ]
 
-            # Interate through it
-            for path in file_list:
-                # if allow_base, then change it to the base name of the file
-                # otherwise purge the base name
-                mod_file_name = (
-                    os.path.basename(path).lower()
-                    if allow_base
-                    else (
-                        re.sub(os.path.basename(path), "", path).lower()
-                        if re.sub(os.path.basename(path), "", path).lower()
-                        else path.lower()
+            if not file_list:
+                return None
+
+            # Search the file list paths for a non-regex match first
+            found = next(
+                (
+                    item
+                    for item in file_list
+                    if any(
+                        search.lower()
+                        in (
+                            os.path.basename(item).lower()
+                            if allow_base
+                            else (
+                                item.replace(os.path.basename(item), "").lower()
+                                if item.replace(os.path.basename(item), "").lower()
+                                else item.lower()
+                            )
+                        )
+                        for search in searches
                     )
-                )
-                found = any(
-                    (
-                        item
-                        for item in searches
-                        if re.search(item, mod_file_name, re.IGNORECASE)
-                    ),
-                )
-                if found:
-                    result = z.read(path)
-                    break
+                ),
+                None,
+            )
+
+            if found:
+                result = z.read(found)
+            else:
+                # Interate through it
+                for path in file_list:
+                    # if allow_base, then change it to the base name of the file
+                    # otherwise purge the base name
+                    mod_file_name = (
+                        os.path.basename(path).lower()
+                        if allow_base
+                        else (
+                            path.replace(os.path.basename(path), "").lower()
+                            if path.replace(os.path.basename(path), "").lower()
+                            else path.lower()
+                        )
+                    )
+                    # Low-compute search without regex
+                    found = any(
+                        (
+                            item
+                            for item in searches
+                            if item.lower() in mod_file_name.lower()
+                        )
+                    )
+
+                    # Regex search if not found
+                    if not found:
+                        found = any(
+                            (
+                                item
+                                for item in searches
+                                if re.search(item, mod_file_name, re.IGNORECASE)
+                            )
+                        )
+
+                    if found:
+                        result = z.read(path)
+                        break
     except (zipfile.BadZipFile, FileNotFoundError) as e:
         send_message(f"Attempted to read file: {zip_file}\nERROR: {e}", error=True)
     return result
@@ -8253,6 +8288,7 @@ def rename_files(
                                         file.name,
                                         series_name=file.series_name,
                                         subtitle=file.subtitle,
+                                        extension=file.extension,
                                     )
                                     if file.file_type != "chapter"
                                     else get_extras(
@@ -8260,6 +8296,7 @@ def rename_files(
                                         chapter=True,
                                         series_name=file.series_name,
                                         subtitle=file.subtitle,
+                                        extension=file.extension,
                                     )
                                 )
 
@@ -10735,8 +10772,8 @@ def cache_existing_library_paths(
 
 
 # Sends scan requests to komga for all passed-in libraries
-# Reqiores komga settings to be set in settings.py
-def scan_komga_library(library):
+# Requires komga settings to be set in settings.py
+def scan_komga_library(library_id, library_name):
     if not komga_ip:
         send_message(
             "Komga IP is not set in settings.py. Please set it and try again.",
@@ -10763,7 +10800,7 @@ def scan_komga_library(library):
     print("\nSending Komga Scan Request:")
     try:
         request = requests.post(
-            f"{komga_url}/api/v1/libraries/{library.id}/scan",
+            f"{komga_url}/api/v1/libraries/{library_id}/scan",
             headers={
                 "Authorization": "Basic %s"
                 % b64encode(
@@ -10774,18 +10811,18 @@ def scan_komga_library(library):
         )
         if request.status_code == 202:
             send_message(
-                f"\t\tSuccessfully Initiated Scan for: {library.name} Library.",
+                f"\t\tSuccessfully Initiated Scan for: '{library_name}' Library.",
                 discord=False,
             )
         else:
             send_message(
-                f"\t\tFailed to Initiate Scan for: {library.name} ({library.id}) Library "
+                f"\t\tFailed to Initiate Scan for: '{library_name}' ({library_id}) Library "
                 f"Status Code: {request.status_code} Response: {request.text}",
                 error=True,
             )
     except Exception as e:
         send_message(
-            f"Failed to Initiate Scan for: {library.name} ({library.id}) Komga Library, ERROR: {e}",
+            f"Failed to Initiate Scan for: '{library_name}' ({library_id}) Komga Library, ERROR: {e}",
             error=True,
         )
 
@@ -10853,14 +10890,32 @@ def get_komga_libraries(first_run=True):
 
 
 # Generates a list of all release groups or publishers.
-def generate_rename_lists():
-    global release_groups, publishers, skipped_release_group_files, skipped_publisher_files
+def generate_rename_lists(skipped_release_group_files=[], skipped_publisher_files=[]):
+    global release_groups, publishers
 
+    # A low-compute helper to strip the surrounding brackets without regex
+    def strip_brackets(s):
+        if s and s[0] in "([{":
+            s = s[1:]
+        if s and s[-1] in ")]}":
+            s = s[:-1]
+        return s
+
+    # Ensure the paths are defined before proceeding
+    if not paths:
+        send_message(
+            "No paths are set in settings.py. Please set them and try again.",
+            error=True,
+        )
+        return
+
+    # Initialize the variables
     skipped_files = []
     log_file_name = None
     skipped_file_name = None
     text_prompt = None
 
+    # Ask the user which mode to run in
     print("\nGenerating rename lists, with assistance of user.")
     mode = get_input_from_user(
         "\tEnter Mode",
@@ -10869,36 +10924,43 @@ def generate_rename_lists():
         use_timeout=True,
     )
 
+    # Map the user choice
     if mode == "1":
+        prefix = "release_group"
         mode = "r"
-        log_file_name = "release_groups.txt"
-        skipped_file_name = "skipped_release_group_files.txt"
         text_prompt = "release group"
-        if skipped_release_group_files:
-            skipped_files = skipped_release_group_files
     elif mode == "2":
+        prefix = "publisher"
         mode = "p"
-        log_file_name = "publishers.txt"
-        skipped_file_name = "skipped_publisher_files.txt"
         text_prompt = "publisher"
-        if skipped_publisher_files:
-            skipped_files = skipped_publisher_files
     else:
         print("\nExiting...")
         return
 
-    if not paths:
-        send_message(
-            "No paths are set in settings.py. Please set them and try again.",
-            error=True,
-        )
-        return
+    # Define the output filenames for the session
+    log_file_name = f"{prefix}s.txt"
+    skipped_file_name = f"skipped_{prefix}_files.txt"
 
+    # Select the corresponding skip list based on mode
+    skipped_map = {
+        "release_group": skipped_release_group_files,
+        "publisher": skipped_publisher_files,
+    }
+    skipped_files = skipped_map.get(prefix)
+
+    # Map the skipped filenames to their identifying attributes (extension + extras)
+    skipped_files_dict = {
+        x: f"{get_file_extension(x)} {str(sorted(get_extras(x))).lower()}"
+        for x in skipped_files
+    }
+
+    # Process all the paths
     for path in paths:
         if not os.path.exists(path):
             send_message(f"Path does not exist: {path}", error=True)
             continue
 
+        # Skip the chapter-marked paths when in publisher mode
         if mode == "p" and paths_with_types:
             is_in_path_with_types = [
                 x.path
@@ -10908,184 +10970,146 @@ def generate_rename_lists():
             if is_in_path_with_types:
                 continue
         try:
-            skipped_file_volumes = []
+            # Walk the directory tree
             for root, dirs, files in scandir.walk(path):
-                files, dirs = clean_and_sort(root, files, dirs, sort=True)
-
                 if not files:
                     continue
 
+                # Clean and sort the directory contents
+                files, dirs = clean_and_sort(root, files, dirs, sort=True)
+
+                # Upgrade to a volume class
                 volumes = upgrade_to_volume_class(
                     upgrade_to_file_class(
-                        [f for f in files if os.path.isfile(os.path.join(root, f))],
+                        [f for f in files if os.path.join(root, f)],
                         root,
-                    )
+                    ),
+                    skip_release_year=True,
+                    skip_file_part=True,
+                    skip_premium_content=True,
+                    skip_subtitle=True,
+                    skip_multi_volume=True,
                 )
+
+                # Iterate through all the volumes
                 for file in volumes:
-                    if mode == "p" and file.file_type == "chapter":
-                        continue
+                    try:
+                        # Skip chapters in publisher mode
+                        # (they're very unlikely to have one specified)
+                        if mode == "p" and file.file_type == "chapter":
+                            continue
 
-                    print(f"\n\tChecking: {file.name}")
-                    found = False
+                        print(f"\n\tChecking: {file.name}")
+                        found = False
 
-                    if file.name not in skipped_files:
-                        if skipped_files and not skipped_file_volumes:
-                            skipped_file_volumes = upgrade_to_volume_class(
-                                upgrade_to_file_class(
-                                    [f for f in skipped_files],
-                                    root,
-                                    clean=True,
-                                )
+                        # Skip an already processed file
+                        if file.name in skipped_files:
+                            print(f"\t\tSkipping... File is in {skipped_file_name}")
+                            continue
+
+                        # Determine the main identifier to use (release group or publisher)
+                        item_to_use = (
+                            file.release_group
+                            if mode == "r"
+                            else (file.publisher.from_name or file.publisher.from_meta)
+                        )
+
+                        # Check for an extras match from an already skipped file
+                        if skipped_files_dict and not item_to_use:
+                            value = (
+                                f"{file.extension} {str(sorted(file.extras)).lower()}"
                             )
-                        if skipped_file_volumes:
-                            for skipped_file in skipped_file_volumes:
-                                if skipped_file.extras:
-                                    # sort alphabetically
-                                    skipped_file.extras.sort()
-                                    # remove any year from the extras
-                                    skipped_file.extras = [
-                                        extra
-                                        for extra in skipped_file.extras
-                                        if not re.search(
-                                            r"([\[\(\{]\d{4}[\]\)\}])",
-                                            extra,
-                                            re.IGNORECASE,
-                                        )
-                                    ]
+                            if value in skipped_files_dict.values():
+                                found = True
+                                skipped_name = list(skipped_files_dict.keys())[
+                                    list(skipped_files_dict.values()).index(value)
+                                ]
+                                print(
+                                    f"\t\tSkipping: {file.name} because it has the same extras and extension as: {skipped_name} (in {skipped_file_name})"
+                                )
 
-                                if file.extras:
-                                    # sort alphabetically
-                                    file.extras.sort()
-                                    # remove any year from the extras
-                                    file.extras = [
-                                        extra
-                                        for extra in file.extras
-                                        if not re.search(
-                                            r"([\[\(\{]\d{4}[\]\)\}])",
-                                            extra,
-                                            re.IGNORECASE,
-                                        )
-                                    ]
-
-                                if (
-                                    file.extras == skipped_file.extras
-                                    and file.extension == skipped_file.extension
-                                ):
-                                    print(
-                                        f"\t\tSkipping: {file.name} because it has the same extras and extension as: {skipped_file.name} (in {skipped_file_name})"
+                                # Log and mark as skipped
+                                write_to_file(
+                                    skipped_file_name,
+                                    file.name,
+                                    without_timestamp=True,
+                                    check_for_dup=True,
+                                )
+                                if file.name not in skipped_files:
+                                    skipped_files.append(file.name)
+                                    skipped_files_dict[file.name] = (
+                                        f"{file.extension} {str(sorted(file.extras)).lower()}"
                                     )
-                                    found = True
-                                    write_to_file(
-                                        skipped_file_name,
-                                        file.name,
-                                        without_timestamp=True,
-                                        check_for_dup=True,
-                                    )
-                                    if file.name not in skipped_files:
-                                        skipped_files.append(file.name)
-                                        skipped_file_volume = upgrade_to_volume_class(
-                                            upgrade_to_file_class([file.name], root)
-                                        )
-                                        if (
-                                            skipped_file_volume
-                                            and skipped_file_volume
-                                            not in skipped_file_volumes
-                                        ):
-                                            skipped_file_volumes.append(
-                                                skipped_file_volume[0]
-                                            )
-                                    break
+                                continue
 
-                        left_brackets = r"(\(|\[|\{)"
-                        right_brackets = r"(\)|\]|\})"
+                        # Choose the correct global list to check against
                         groups_to_use = release_groups if mode == "r" else publishers
 
-                        if groups_to_use and not found:
-                            found = next(
-                                (
-                                    group
-                                    for group in groups_to_use
-                                    if re.search(
-                                        rf"{left_brackets}{re.escape(group)}{right_brackets}",
-                                        file.name,
-                                        re.IGNORECASE,
-                                    )
-                                ),
-                                None,
+                        # Create a lowercase set for case-insensitive comparison
+                        groups_lower_set = set(map(str.lower, groups_to_use))
+
+                        # Check if the file’s current group/publisher matches any known entries
+                        if item_to_use and item_to_use.lower() in groups_lower_set:
+                            found = item_to_use
+                        else:
+                            # Otherwise, compare against extras
+                            extras_lower_set = set(
+                                map(str.lower, map(strip_brackets, file.extras))
                             )
-                            if found:
-                                print(f'\t\tFound: "{found}", skipping file.')
+                            matches = extras_lower_set & groups_lower_set
+                            found = next(iter(matches), "")
 
-                        if not found:
-                            # ask the user what the release group or publisher is, then write it to the file, add it to the list, and continue. IF the user inputs "none" then skip it.
-                            # loop until the user inputs a valid response
-                            while True:
-                                print(
-                                    f"\t\tCould not find a {text_prompt} for: \n\t\t\t{file.name}"
+                        # Skip if we found a match
+                        if found:
+                            print(f'\t\tFound: "{found}", skipping file.')
+                            continue
+
+                        print(f"\t\tCould not find a {text_prompt}.")
+
+                        # Get the user to specify the release group/publisher
+                        group_input = ""
+
+                        while not group_input:
+                            group_input = input(
+                                f'\t\tPlease enter the {text_prompt} ("none" to add to {skipped_file_name}, "skip" to skip): '
+                            )
+
+                        # Handle avoiding this file in the future
+                        if group_input == "none":
+                            print(
+                                f"\t\t\tAdding to {skipped_file_name} and skipping in the future..."
+                            )
+                            write_to_file(
+                                skipped_file_name,
+                                file.name,
+                                without_timestamp=True,
+                                check_for_dup=True,
+                            )
+                            # Avoid the file within this session too
+                            if file.name not in skipped_files:
+                                skipped_files.append(file.name)
+                                skipped_files_dict[file.name] = (
+                                    f"{file.extension} {str(sorted(file.extras)).lower()}"
                                 )
-                                group = input(
-                                    f'\n\t\tPlease enter the {text_prompt} ("none" to add to {skipped_file_name}, "skip" to skip): '
-                                )
-                                if group == "none":
-                                    print(
-                                        f"\t\t\tAdding to {skipped_file_name} and skipping in the future..."
-                                    )
-                                    write_to_file(
-                                        skipped_file_name,
-                                        file.name,
-                                        without_timestamp=True,
-                                        check_for_dup=True,
-                                    )
-                                    if file.name not in skipped_files:
-                                        skipped_files.append(file.name)
-                                        skipped_file_vol = upgrade_to_volume_class(
-                                            upgrade_to_file_class([file.name], root)
-                                        )
-                                        if (
-                                            skipped_file_vol
-                                            and skipped_file_vol
-                                            not in skipped_file_volumes
-                                        ):
-                                            skipped_file_volumes.append(
-                                                skipped_file_vol[0]
-                                            )
-                                    break
-                                elif group == "skip":
-                                    print("\t\t\tSkipping...")
-                                    break
-                                elif group:
-                                    # print back what the user entered
-                                    print(f"\t\t\tYou entered: {group}")
-                                    write_to_file(
-                                        log_file_name,
-                                        group,
-                                        without_timestamp=True,
-                                        check_for_dup=True,
-                                    )
-                                    if mode == "r":
-                                        if group not in release_groups:
-                                            release_groups.append(group)
-                                    elif mode == "p":
-                                        if group not in publishers:
-                                            publishers.append(group)
-                                    break
-                                else:
-                                    print("\t\t\tInvalid input.")
-                    else:
-                        print(f"\t\tSkipping... File is in {skipped_file_name}")
+                        # The user isn't sure, just skip for now
+                        elif group_input == "skip":
+                            print("\t\t\tSkipping...")
+                        # Add the new release group/publisher to the list
+                        else:
+                            print(f"\t\t\tYou entered: '{group_input}'")
+                            write_to_file(
+                                log_file_name,
+                                group_input,
+                                without_timestamp=True,
+                                check_for_dup=True,
+                            )
+                            target = release_groups if mode == "r" else publishers
+                            if group_input not in target:
+                                target.append(group_input)
+                    except Exception as e:
+                        send_message(e, error=True)
         except Exception as e:
-            send_message(str(e), error=True)
-
-    # Reassign the global arrays if anything new new got added to the local one.
-    if skipped_files:
-        if (
-            mode == "r"
-            and skipped_files
-            and skipped_files != skipped_release_group_files
-        ):
-            skipped_release_group_files = skipped_files
-        elif mode == "p" and skipped_files and skipped_files != skipped_publisher_files:
-            skipped_publisher_files = skipped_files
+            send_message(e, error=True)
 
 
 # Checks if a string only contains one set of numbers
@@ -11886,8 +11910,6 @@ def main():
     global moved_files
     global release_groups
     global publishers
-    global skipped_release_group_files
-    global skipped_publisher_files
     global transferred_files
     global transferred_dirs
     global komga_libraries
@@ -12016,7 +12038,7 @@ def main():
                 print(
                     f"\tLoaded {len(skipped_publisher_files)} skipped publisher files from skipped_publisher_files.txt"
                 )
-        generate_rename_lists()
+        generate_rename_lists(skipped_release_group_files, skipped_publisher_files)
 
     # Rename the files in the download folders
     if rename_files_in_download_folders_toggle:
@@ -12129,7 +12151,7 @@ def main():
         # Send scan requests to each komga library
         if libraries_to_scan:
             for library in libraries_to_scan:
-                scan_komga_library(library)
+                scan_komga_library(library.id, library.name)
 
     # Reset libraries_to_scan
     libraries_to_scan = []
