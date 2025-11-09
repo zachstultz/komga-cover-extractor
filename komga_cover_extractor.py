@@ -14,7 +14,7 @@ import tempfile
 import threading
 import time
 import traceback
-import unicodedata
+import urllib.request
 import xml.etree.ElementTree as ET
 import zipfile
 from base64 import b64encode
@@ -47,7 +47,7 @@ import settings as settings_file
 from settings import *
 
 # Version of the script
-script_version = (2, 5, 35)
+script_version = (2, 5, 36)
 script_version_text = "v{}.{}.{}".format(*script_version)
 
 # Paths = existing library
@@ -1882,12 +1882,17 @@ def starts_with_bracket(s):
     return s.startswith(("(", "[", "{"))
 
 
+# Determines if the string ends with a starting bracket
+def ends_with_starting_bracket(s):
+    return s.endswith(("(", "[", "{"))
+
+
 # Determines if the string ends with a bracket
 def ends_with_bracket(s):
     return s.endswith((")", "]", "}"))
 
 
-volume_year_regex = r"(\(|\[|\{)(\d{4})(\)|\]|\})"
+volume_year_pattern = re.compile(r"(\(|\[|\{)(\d{4})(\)|\]|\})")
 
 
 # check if volume file name is a chapter
@@ -1922,16 +1927,21 @@ def contains_chapter_keywords(file_name):
 
     if not found and not contains_volume_keywords(file_name):
         # Remove volume year
-        without_year = re.sub(volume_year_regex, "", file_name, flags=re.IGNORECASE)
+        without_year = volume_year_pattern.sub("", file_name)
+        chapter_numbers_found = None
 
         # Remove any 2000-2999 numbers at the end
-        without_year = re.sub(r"\b(?:2\d{3})\b$", "", without_year, flags=re.IGNORECASE)
+        if any(map(str.isdigit, without_year)):
+            without_year = re.sub(
+                r"\b(?:2\d{3})\b$", "", without_year, flags=re.IGNORECASE
+            )
 
-        # Check for chapter numbers
-        chapter_numbers_found = re.search(
-            r"(?<!^)(?<!\d\.)\b([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?(#([0-9]+)(([-_.])([0-9]+)|)+)?(\.\d+)?\b",
-            without_year,
-        )
+            # Check for chapter numbers
+            chapter_numbers_found = re.search(
+                r"(?<!^)(?<!\d\.)\b([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?(#([0-9]+)(([-_.])([0-9]+)|)+)?(\.\d+)?\b",
+                without_year,
+            )
+
         if chapter_numbers_found:
             found = True
 
@@ -2382,6 +2392,9 @@ def get_novel_cover(novel_path):
 # Checks if the passed string is a volume one.
 @lru_cache(maxsize=3500)
 def is_volume_one(volume_name):
+    if "1" not in volume_name and "one" not in volume_name.lower():
+        return False
+
     keywords = volume_regex_keywords
 
     if contains_chapter_keywords(volume_name) and not contains_volume_keywords(
@@ -2660,8 +2673,9 @@ def get_series_name_from_volume(name, root, test_mode=False, second=False):
     if name.endswith(","):
         name = name[:-1].strip()
 
-    # remove the file extension if still remaining
-    name = re.sub(r"(%s)$" % file_extensions_regex, "", name).strip()
+    # Remove the file extension if still remaining
+    if get_file_extension(name) in file_extensions:
+        name = re.sub(r"(%s)$" % file_extensions_regex, "", name).strip()
 
     # Remove "- Complete" from the end
     # "Series Name - Complete" -> "Series Name"
@@ -2698,17 +2712,19 @@ def get_series_name_from_volume(name, root, test_mode=False, second=False):
 def chapter_file_name_cleaning(
     file_name, chapter_number="", skip=False, regex_matched=False
 ):
-    # removes any brackets and their contents
+    # Removes any brackets and their contents
     file_name = (
         remove_brackets(file_name) if contains_brackets(file_name) else file_name
     )
 
     # Remove any single brackets at the end of the file_name
-    # EX: "Death Note - Bonus Chapter (" -> "Death Note - Bonus Chapter"
-    file_name = re.sub(r"(\s(([\(\[\{])|([\)\]\}])))$", "", file_name).strip()
+    # EX: "Series Name - Bonus Chapter (" -> "Series Name - Bonus Chapter"
+    if ends_with_starting_bracket(file_name):
+        # drop the last character
+        file_name = file_name[:-1].strip()
 
-    # EX: "006.3 - One Piece" -> "One Piece"
-    if regex_matched != 2:
+    # EX: "006.3 - Series Name" -> "Series Name"
+    if regex_matched != 2 and file_name[0].isdigit():
         file_name = re.sub(
             r"(^([0-9]+)(([-_.])([0-9]+)|)+(\s+)?([-_]+)(\s+))", "", file_name
         ).strip()
@@ -2723,7 +2739,7 @@ def chapter_file_name_cleaning(
         ).strip()
 
     # Remove - at the end of the file_name
-    # EX: " One Piece -" -> "One Piece"
+    # EX: " Series Name -" -> "Series Name"
     if file_name.endswith("-"):
         file_name = re.sub(r"(?<![A-Za-z])(-\s*)$", "", file_name).strip()
 
@@ -2734,25 +2750,17 @@ def chapter_file_name_cleaning(
         return ""
 
     # if chapter_number and it's at the end of the file_name, remove it
-    # EX: "One Piece 001" -> "One Piece"
-    if not regex_matched:
-        if chapter_number != "" and re.search(
+    # EX: "Series Name 001" -> "Series Name"
+    if not regex_matched and chapter_number != "" and file_name[-1].isdigit():
+        file_name = re.sub(
             r"-?(\s+)?((?<!({})(\s+)?)(\s+)?\b#?((0+)?({}|{}))#?$)".format(
                 chapter_regex_keywords,
                 chapter_number,
                 chapter_number,
             ),
+            "",
             file_name,
-        ):
-            file_name = re.sub(
-                r"-?(\s+)?((?<!({})(\s+)?)(\s+)?\b#?((0+)?({}|{}))#?$)".format(
-                    chapter_regex_keywords,
-                    chapter_number,
-                    chapter_number,
-                ),
-                "",
-                file_name,
-            ).strip()
+        ).strip()
 
     # Remove any season keywords
     if "s" in file_name.lower() and re.search(
@@ -2905,7 +2913,7 @@ def get_min_and_max_numbers(string):
     numbers = []
 
     # replace hyphens and underscores with spaces using regular expressions
-    numbers_search = re.sub(r"[-_,]", " ", string)
+    numbers_search = string.translate(str.maketrans("-_,", "   "))
 
     # remove any duplicate spaces
     numbers_search = remove_dual_space(numbers_search).strip()
@@ -2998,12 +3006,17 @@ def get_release_number(file, chapter=False):
         # Removes the - characters.extension from the end of the string, with
         # the dash and characters being optional
         # EX:  - prologue.extension or .extension
-        name = re.sub(
-            r"(((\s+)?-(\s+)?([A-Za-z]+))?(%s))" % file_extensions_regex,
-            "",
-            name,
-            re.IGNORECASE,
-        ).strip()
+        name_extension = get_file_extension(name)
+        if name_extension in file_extensions:
+            if "-" in name:
+                name = re.sub(
+                    r"(((\s+)?-(\s+)?([A-Za-z]+))?(%s))" % file_extensions_regex,
+                    "",
+                    name,
+                    re.IGNORECASE,
+                ).strip()
+            else:
+                name = name.replace(name_extension, "").strip()
 
         if "-" in name:
             # - #404 - -> #404
@@ -3037,13 +3050,13 @@ def get_release_number(file, chapter=False):
     if not chapter:  # Search for a volume number
         result = volume_number_search_pattern.search(file)
     else:  # Prep for a chapter search
-        if has_multiple_numbers(file):
+        if has_multiple_numbers(file) and ("-" in file or "#" in file):
             extension_less_file = get_extensionless_name(file)
 
             if chapter_number_search_pattern.search(extension_less_file):
                 file = chapter_number_search_pattern.sub("", extension_less_file)
 
-                # remove - at the end of the string
+                # Remove - at the end of the string
                 if file.endswith("-") and not re.search(
                     r"-(\s+)?(#)?([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?(\s+)?-", file
                 ):
@@ -3149,23 +3162,29 @@ def get_release_number_cache(file, chapter=False):
 def get_release_year(name, metadata=None):
     result = None
 
-    match = re.search(volume_year_regex, name, re.IGNORECASE)
+    # Drop the bracketed year from the file name
+    match = volume_year_pattern.search(name)
     if match:
-        result = int(re.sub(r"(\(|\[|\{)|(\)|\]|\})", "", match.group()))
+        result = match.group()[1:-1]
 
+    # Check the internal metadata for a year if the file name didn't have one
     if not result and metadata:
         release_year_from_file = None
 
+        # Avoid the metadata year if there's no summary/description
+        # (likely a wrong year since there's no proper metadata)
         if "Summary" in metadata and "Year" in metadata:
             release_year_from_file = metadata["Year"]
         elif "dc:description" in metadata and "dc:date" in metadata:
             release_year_from_file = metadata["dc:date"].strip()
-            release_year_from_file = re.search(r"\d{4}", release_year_from_file)
-            release_year_from_file = (
-                release_year_from_file.group() if release_year_from_file else None
-            )
+            release_year_from_file = release_year_from_file.split("-")[0]
 
-        if release_year_from_file and release_year_from_file.isdigit():
+        if release_year_from_file and not (
+            len(release_year_from_file) == 4 and release_year_from_file.isdigit()
+        ):
+            release_year_from_file = None
+
+        if release_year_from_file:
             result = int(release_year_from_file)
             if result < 1950:
                 result = None
@@ -4538,11 +4557,16 @@ def get_internal_metadata(file_path, extension):
 # Checks if the epub file contains any premium content.
 def check_for_premium_content(file_path, extension):
     result = False
-    if extension in novel_extensions:
-        if re.search(r"\bPremium\b", os.path.basename(file_path), re.IGNORECASE):
-            result = True
-        elif is_premium_volume(file_path):
-            result = True
+    path_base_lower = os.path.basename(file_path).lower()
+
+    if extension not in novel_extensions:
+        return result
+
+    if "(premium)" in path_base_lower or "[premium]" in path_base_lower:
+        result = True
+    elif contains_premium_content(file_path):
+        result = True
+
     return result
 
 
@@ -5259,7 +5283,7 @@ class Result:
 # Checks the novel for bonus.xhtml or bonus[0-9].xhtml, otherwise it
 # gets the toc.xhtml or copyright.xhtml file from the novel file and checks
 # that for premium content
-def is_premium_volume(file):
+def contains_premium_content(file):
     bonus_content_found = False
     try:
         with zipfile.ZipFile(file, "r") as zf:
@@ -5292,7 +5316,7 @@ def is_premium_volume(file):
                                 bonus_content_found = True
                                 break
                         elif base_name == "copyright.xhtml":
-                            if re.search(
+                            if "premium" in file_contents.lower() and re.search(
                                 r"(Premium(\s)+(E?-?Book|Epub))",
                                 file_contents,
                                 re.IGNORECASE,
@@ -8314,12 +8338,13 @@ def rename_files(
                                 replacement.replace("_", " ")
                             ).strip()
 
-                            # replace : with - in dir_clean
-                            replacement = re.sub(
-                                r"([A-Za-z])(\:|：)", r"\1 -", replacement
-                            )
+                            # Replace : with - in dir_clean
+                            if ":" in replacement or "：" in replacement:
+                                replacement = re.sub(
+                                    r"([A-Za-z])(\:|：)", r"\1 -", replacement
+                                )
 
-                            # remove dual spaces from dir_clean
+                            # Remove dual spaces from dir_clean
                             replacement = remove_dual_space(replacement)
                             processed_files.append(replacement)
 
@@ -11887,8 +11912,8 @@ def normalize_path(path):
     path = os.path.normpath(path)
 
     # Remove Windows drive letters (e.g., "Z:\example\path" -> "\example\path")
-    if ":" in path:
-        path = re.sub(r"^[A-Za-z]:", "", path)
+    if len(path) >= 2 and path[1] == ":" and path[0].isalpha():
+        path = path[2:]
 
     # Convert backslashes to forward slashes for uniform comparison
     return path.replace("\\", "/")
@@ -11928,6 +11953,8 @@ def main():
         LOGS_DIR, "skipped_release_group_files.txt"
     )
     skipped_publisher_files_path = os.path.join(LOGS_DIR, "skipped_publisher_files.txt")
+    skipped_release_group_files = []
+    skipped_publisher_files = []
 
     # Determines when the cover_extraction should be run
     if download_folders and paths:
