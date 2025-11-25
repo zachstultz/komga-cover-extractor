@@ -47,7 +47,7 @@ import settings as settings_file
 from settings import *
 
 # Version of the script
-script_version = (2, 5, 36)
+script_version = (2, 5, 37)
 script_version_text = "v{}.{}.{}".format(*script_version)
 
 # Paths = existing library
@@ -1893,6 +1893,10 @@ def ends_with_bracket(s):
 
 
 volume_year_pattern = re.compile(r"(\(|\[|\{)(\d{4})(\)|\]|\})")
+without_year_pattern = re.compile(r"\b(?:2\d{3})\b$", flags=re.IGNORECASE)
+chapter_numbers_check_pattern = re.compile(
+    r"(?<!^)(?<!\d\.)\b([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?(#([0-9]+)(([-_.])([0-9]+)|)+)?(\.\d+)?\b"
+)
 
 
 # check if volume file name is a chapter
@@ -1917,10 +1921,11 @@ def contains_chapter_keywords(file_name):
         result = pattern.search(file_name_clean)
         if result:
             result = result.group()
+
             if not (
                 starts_with_bracket(result)
                 and ends_with_bracket(result)
-                and re.search(r"^((\(|\{|\[)\d{4}(\]|\}|\)))$", result)
+                and (len(result[1:-1]) == 4 and result[1:-1].isdigit())
             ):
                 found = True
                 break
@@ -1932,15 +1937,10 @@ def contains_chapter_keywords(file_name):
 
         # Remove any 2000-2999 numbers at the end
         if any(map(str.isdigit, without_year)):
-            without_year = re.sub(
-                r"\b(?:2\d{3})\b$", "", without_year, flags=re.IGNORECASE
-            )
+            without_year = without_year_pattern.sub("", without_year)
 
             # Check for chapter numbers
-            chapter_numbers_found = re.search(
-                r"(?<!^)(?<!\d\.)\b([0-9]+)(([-_.])([0-9]+)|)+(x[0-9]+)?(#([0-9]+)(([-_.])([0-9]+)|)+)?(\.\d+)?\b",
-                without_year,
-            )
+            chapter_numbers_found = chapter_numbers_check_pattern.search(without_year)
 
         if chapter_numbers_found:
             found = True
@@ -1948,13 +1948,9 @@ def contains_chapter_keywords(file_name):
     return found
 
 
-# Pre-compile the bracket pattern
-brackets_pattern = re.compile(r"[(){}\[\]]")
-
-
 # Determines if the string contains brackets
 def contains_brackets(s):
-    return bool(brackets_pattern.search(s))
+    return "(" in s or ")" in s or "{" in s or "}" in s or "[" in s or "]" in s
 
 
 # Pre-combiled remove_brackets() patterns
@@ -2763,9 +2759,9 @@ def chapter_file_name_cleaning(
         ).strip()
 
     # Remove any season keywords
-    if "s" in file_name.lower() and re.search(
-        r"(Season|Sea| S)(\s+)?([0-9]+)$", file_name, re.IGNORECASE
-    ):
+    if (" s" in file_name.lower() or "sea" in file_name.lower()) and file_name[
+        -1
+    ].isdigit():
         file_name = re.sub(
             r"(Season|Sea| S)(\s+)?([0-9]+)$", "", file_name, flags=re.IGNORECASE
         )
@@ -2773,9 +2769,7 @@ def chapter_file_name_cleaning(
     # Remove any subtitle
     # EX: "Series Name 179.1 - Epilogue 01 (2023) (Digital) (release_group).cbz"
     # "179.1 - Epilogue 01" -> "179.1"
-    if ("-" in file_name or ":" in file_name) and re.search(
-        r"(^\d+)", file_name.strip()
-    ):
+    if ("-" in file_name or ":" in file_name) and file_name[0].isdigit():
         file_name = re.sub(r"((\s+(-)|:)\s+).*$", "", file_name, re.IGNORECASE).strip()
 
     return file_name
@@ -2991,7 +2985,7 @@ def get_release_number(file, chapter=False):
 
             # Removes # from bewteen the numbers
             # EX: 154#3 -> 154
-            if re.search(r"(\d+#\d+)", name):
+            if "#" in name and re.search(r"(\d+#\d+)", name):
                 name = re.sub(r"((#)([0-9]+)(([-_.])([0-9]+)|)+)", "", name).strip()
 
         # removes part from chapter number
@@ -4657,9 +4651,9 @@ def reorganize_and_rename(files, dir):
                         for item in file.extras
                         if not (
                             str(file.volume_year) in item
+                            or (len(item[1:-1]) == 4 and item[1:-1].isdigit())
                             or similar(item, str(file.volume_year))
                             >= required_similarity_score
-                            or re.search(r"([\[\(\{]\d{4}[\]\)\}])", item)
                         )
                     ]
 
@@ -4668,9 +4662,8 @@ def reorganize_and_rename(files, dir):
                 ) and add_publisher_name_to_file_name_when_renaming:
                     for item in file.extras[:]:
                         for publisher in publishers:
-                            item_without_special_chars = re.sub(
-                                r"[\(\[\{\)\]\}]", "", item
-                            )
+                            # remove first and last charcter to remove brackets
+                            item_without_special_chars = item[1:-1]
                             meta_similarity = (
                                 similar(
                                     item_without_special_chars, file.publisher.from_meta
@@ -4718,9 +4711,7 @@ def reorganize_and_rename(files, dir):
                         item
                         for item in file.extras
                         if not (
-                            similar(
-                                re.sub(r"[\(\[\{\)\]\}]", "", item), file.release_group
-                            )
+                            similar(item[1:-1], file.release_group)
                             >= release_group_similarity_score
                             or re.search(
                                 rf"{left_brackets}{re.escape(item)}{right_brackets}",
@@ -4974,7 +4965,11 @@ def normalize_str(
 # Removes the s from any words that end in s
 @lru_cache(maxsize=3500)
 def remove_s(s):
-    return re.sub(r"\b(\w+)(s)\b", r"\1", s, flags=re.IGNORECASE).strip()
+    return (
+        re.sub(r"\b(\w+)(s)\b", r"\1", s, flags=re.IGNORECASE).strip()
+        if "s" in s.lower()
+        else s
+    )
 
 
 # Precompiled
@@ -4989,7 +4984,7 @@ def contains_punctuation(s):
 # Returns a string without punctuation.
 @lru_cache(maxsize=3500)
 def remove_punctuation(s):
-    return re.sub(r"[^\w\s+]", " ", s).strip()
+    return punctuation_pattern.sub(" ", s).strip()
 
 
 # Cleans the string by removing punctuation, bracketed info, and replacing underscores with periods.
@@ -7380,14 +7375,26 @@ def rename_dirs_in_download_folder(paths_to_process=download_folders):
             # Cleans up the folder name
             def clean_folder_name(folder_name):
                 folder_name = get_series_name(folder_name)  # start with the folder name
-                folder_name = re.sub(r"([A-Za-z])(_)", r"\1 ", folder_name)  # A_ -> A
-                folder_name = re.sub(
-                    r"([A-Za-z])(\:)", r"\1 -", folder_name  # A: -> A -
-                )
-                folder_name = folder_name.replace("?", "")  # remove question marks
+
+                # Cleanup
+                if "_" in folder_name:
+                    folder_name = re.sub(
+                        r"([A-Za-z])(_)", r"\1 ", folder_name
+                    )  # A_ -> A
+                if "-" in folder_name:
+                    folder_name = re.sub(
+                        r"([A-Za-z])(-)", r"\1 ", folder_name
+                    )  # A- -> A
+                if ":" in folder_name:
+                    folder_name = re.sub(
+                        r"([A-Za-z])(\:)", r"\1 -", folder_name  # A: -> A -
+                    )
+                if "?" in folder_name:
+                    folder_name = folder_name.replace("?", "")  # remove question marks
                 folder_name = remove_dual_space(
                     folder_name
                 ).strip()  # remove dual spaces
+
                 return folder_name
 
             # Searches for a matching regex in the folder name
@@ -8029,7 +8036,9 @@ def rename_files(
                                         result = None
 
                                     if result:
-                                        if re.search(r"(\d+_\d+)", result):
+                                        if "_" in result and re.search(
+                                            r"(\d+_\d+)", result
+                                        ):
                                             result = result.replace("_", ".")
 
                                     if result:
