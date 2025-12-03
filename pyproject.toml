@@ -1,0 +1,53 @@
+[project]
+name = "komga-cover-extractor"
+version = "2.5.37"
+description = "Detects and extracts the cover from your zip, cbz, and epub files."
+authors = [{ name = "Zach Stultz", email = "hcazs4@live.com" }]
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "beautifulsoup4==4.14.2",
+    "brotli==1.1.0",
+    "certifi==2025.10.5",
+    "charset-normalizer==3.4.4",
+    "discord-webhook==1.4.1",
+    "filetype==1.2.0",
+    "idna==3.11",
+    "imageio==2.37.0",
+    "inflate64==1.0.3",
+    "lazy-loader==0.4",
+    "loguru==0.7.3",
+    "lxml==6.0.2",
+    "multivolumefile==0.2.3",
+    "networkx==3.4.2",
+    "numpy==2.2.6",
+    "opencv-python-headless==4.12.0.88",
+    "packaging==25.0",
+    "pillow==12.0.0",
+    "psutil==7.1.0",
+    "py7zr==1.0.0",
+    "pybcj==1.0.6",
+    "pycryptodomex==3.23.0",
+    "pyppmd==1.2.0",
+    "pyzstd==0.18.0",
+    "rarfile==4.2",
+    "regex==2025.9.18",
+    "requests==2.32.5",
+    "scandir==1.10.0",
+    "scikit-image==0.25.2",
+    "scipy==1.15.3",
+    "soupsieve==2.8",
+    "texttable==1.7.0",
+    "tifffile==2025.5.10",
+    "titlecase==2.4.1",
+    "typing-extensions==4.15.0",
+    "unidecode==1.4.0",
+    "urllib3==2.5.0",
+    "watchdog==6.0.0",
+]
+license = { file = "LICENSE.md" }
+
+[project.urls]
+Homepage = "https://github.com/zachstultz/komga-cover-extractor"
+Source = "https://github.com/zachstultz/komga-cover-extractor"
+Issues = "https://github.com/zachstultz/komga-cover-extractor/issues"
