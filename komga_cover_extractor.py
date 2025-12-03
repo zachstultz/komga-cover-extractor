@@ -4,6 +4,7 @@ import cProfile
 import hashlib
 import io
 import os
+from pathlib import Path
 import re
 import shutil
 import string
@@ -828,7 +829,7 @@ def get_all_files_recursively_in_dir_watchdog(dir_path):
     for root, dirs, files in scandir.walk(dir_path):
         files = remove_hidden_files(files)
         for file in files:
-            file_path = os.path.join(root, file)
+            file_path = Path(root) / file
             if file_path not in results:
                 extension = get_file_extension(file_path)
                 if extension not in image_extensions:
@@ -1863,7 +1864,7 @@ def remove_unaccepted_file_types(files, root, accepted_extensions, test_mode=Fal
         file
         for file in files
         if get_file_extension(file) in accepted_extensions
-        and (os.path.isfile(os.path.join(root, file)) or test_mode)
+        and (os.path.isfile(str(Path(root) / file)) or test_mode)
     ]
 
 
@@ -2197,7 +2198,7 @@ def process_files_and_folders(
 
 # Retrieves the file extension on the passed file
 def get_file_extension(file):
-    return os.path.splitext(file)[1]
+    return Path(file).suffix
 
 
 # Gets the predicted file extension from the file header using filetype
@@ -2223,7 +2224,7 @@ def get_header_extension(file):
 
 # Returns an extensionless name
 def get_extensionless_name(file):
-    return os.path.splitext(file)[0]
+    return str(Path(file).with_suffix(''))
 
 
 # Retrives the series name from matching the folder name and the file names
@@ -2309,12 +2310,12 @@ def upgrade_to_file_class(
             or get_series_name_from_contents(os.path.basename(root), [file]),
             get_file_extension(file),
             root,
-            os.path.join(root, file),
-            get_extensionless_name(os.path.join(root, file)),
+            str(Path(root) / file),
+            get_extensionless_name(str(Path(root) / file)),
             chapter_number,
             file_type,
             (
-                get_header_extension(os.path.join(root, file))
+                get_header_extension(str(Path(root) / file))
                 if not skip_get_header_extension
                 else None
             ),
@@ -3630,7 +3631,7 @@ def is_upgradeable(downloaded_release, current_release):
 # Deletes hidden files, used when checking if a folder is empty.
 def delete_hidden_files(files, root):
     for file in files:
-        path = os.path.join(root, file)
+        path = Path(root) / file
         if (str(file)).startswith(".") and os.path.isfile(path):
             remove_file(path, silent=True)
 
@@ -8577,7 +8578,7 @@ def delete_chapters_from_downloads():
                             grouped_notifications = group_notification(
                                 grouped_notifications, Embed(embed, None)
                             )
-                            remove_file(os.path.join(root, file))
+                            remove_file(str(Path(root) / file))
             for root, dirs, files in scandir.walk(path):
                 files, dirs = process_files_and_folders(
                     root,
@@ -9061,7 +9062,7 @@ def extract_covers(paths_to_process=paths):
 # returns the path of the new .jpg file or none if the conversion failed
 def convert_webp_to_jpg(webp_file_path):
     if webp_file_path:
-        extenionless_webp_file = os.path.splitext(webp_file_path)[0]
+        extenionless_webp_file = str(Path(webp_file_path).with_suffix(''))
         jpg_file_path = f"{extenionless_webp_file}.jpg"
 
         try:
@@ -9538,7 +9539,7 @@ def delete_unacceptable_files():
                     keep_images_in_just_these_files=True,
                 )
                 for file in files:
-                    file_path = os.path.join(root, file)
+                    file_path = Path(root) / file
                     if not os.path.isfile(file_path):
                         continue
 
@@ -11345,8 +11346,8 @@ def compress(temp_dir, cbz_filename):
             for root, dirs, files in scandir.walk(temp_dir):
                 for file in files:
                     zip.write(
-                        os.path.join(root, file),
-                        os.path.join(root[len(temp_dir) + 1 :], file),
+                        str(Path(root) / file),
+                        str(Path(root[len(temp_dir) + 1 :]) / file),
                     )
             successfull = True
     except Exception as e:
