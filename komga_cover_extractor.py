@@ -11,7 +11,7 @@ import struct
 import subprocess
 import sys
 import tempfile
-from typing import List, Optional
+from typing import Annotated, List, Optional
 import threading
 import time
 import traceback
@@ -1234,8 +1234,17 @@ def configure_from_cli(
                 expanded.append(item)
         return expanded
 
-    console.print(f"\nScript Version: {script_version_text}")
-    console.print("\nRun Settings:")
+    from rich.panel import Panel
+    from rich.table import Table
+    
+    console.print()
+    console.print(Panel(f"[bold cyan]Script Version:[/bold cyan] {script_version_text}", 
+                       title="Komga Cover Extractor", border_style="blue"))
+    console.print()
+    
+    config_table = Table(title="Run Settings", show_header=True, header_style="bold magenta")
+    config_table.add_column("Setting", style="cyan", width=30)
+    config_table.add_column("Value", style="green")
 
     global paths, download_folders, discord_webhook_url, paths_with_types
     global komga_libraries, watchdog_toggle, output_covers_as_webp
@@ -1291,7 +1300,7 @@ def configure_from_cli(
                 error=True,
             )
 
-    console.print(f"\twatchdog: {watchdog_toggle}")
+    config_table.add_row("Watchdog", "✓" if watchdog_toggle else "✗")
 
     if watchdog_toggle:
         if watchdog_discover_new_files_check_interval_opt is not None:
@@ -1302,16 +1311,18 @@ def configure_from_cli(
             watchdog_file_transferred_check_interval = int(
                 watchdog_file_transferred_check_interval_opt
             )
-        console.print(
-            f"\t\twatchdog_discover_new_files_check_interval: {watchdog_discover_new_files_check_interval}"
+        config_table.add_row(
+            "  ↳ Discover Check Interval", 
+            f"{watchdog_discover_new_files_check_interval}s"
         )
-        console.print(
-            f"\t\twatchdog_file_transferred_check_interval: {watchdog_file_transferred_check_interval}"
+        config_table.add_row(
+            "  ↳ Transfer Check Interval", 
+            f"{watchdog_file_transferred_check_interval}s"
         )
 
     if output_covers_as_webp_opt is not None:
         output_covers_as_webp = parse_bool_argument(output_covers_as_webp_opt)
-    console.print(f"\toutput_covers_as_webp: {output_covers_as_webp}")
+    config_table.add_row("Output as WebP", "✓" if output_covers_as_webp else "✗")
 
     if not paths and not download_folders:
         console.print("No paths or download folders were passed to the script.")
@@ -1328,15 +1339,16 @@ def configure_from_cli(
 
     if bookwalker_check_opt is not None:
         bookwalker_check = parse_bool_argument(bookwalker_check_opt)
-    console.print(f"\tbookwalker_check: {bookwalker_check}")
+    config_table.add_row("BookWalker Check", "✓" if bookwalker_check else "✗")
 
     if compress_opt is not None:
         compress_image_option = parse_bool_argument(compress_opt)
-    console.print(f"\tcompress: {compress_image_option}")
+    config_table.add_row("Compress Images", "✓" if compress_image_option else "✗")
 
     if compress_quality_opt is not None:
         image_quality = int(compress_quality_opt)
-    console.print(f"\tcompress_quality: {image_quality}")
+    if compress_image_option:
+        config_table.add_row("  ↳ Quality", str(image_quality))
 
     bookwalker_hooks = expand_items(bookwalker_webhook_urls_opt)
     if bookwalker_hooks:
@@ -1345,15 +1357,18 @@ def configure_from_cli(
             for single_hook in hook_list:
                 if single_hook and single_hook not in bookwalker_webhook_urls:
                     bookwalker_webhook_urls.append(single_hook)
-        console.print(f"\tbookwalker_webhook_urls: {bookwalker_webhook_urls}")
 
     if new_volume_webhook_opt:
         new_volume_webhook = new_volume_webhook_opt
-    console.print(f"\tnew_volume_webhook: {new_volume_webhook}")
+    config_table.add_row("New Volume Webhook", new_volume_webhook or "[dim]None[/dim]")
 
     if log_to_file_opt is not None:
         log_to_file = parse_bool_argument(log_to_file_opt)
-    console.print(f"\tlog_to_file: {log_to_file}")
+    config_table.add_row("Log to File", "✓" if log_to_file else "✗")
+    
+    # Print the config table
+    console.print(config_table)
+    console.print()
 
     console.print("\nExternal Settings:")
     sensitive_keywords = ["password", "email", "_ip", "token", "user"]
@@ -1389,71 +1404,98 @@ def configure_from_cli(
         console.print(f"\tkomga_libraries: {komga_library_paths}")
 
 
-@app.command("run")
+@app.command()
 def run_cli(
-    paths: Optional[List[str]] = typer.Option(
-        None, "--path", "-p", help="Path(s) to scan for cover extraction."
-    ),
-    download_folders: Optional[List[str]] = typer.Option(
-        None,
-        "--download-folder",
-        "-df",
-        help="Download folder(s) for processing/renaming/moving files.",
-    ),
-    webhook: Optional[List[str]] = typer.Option(
-        None,
-        "--webhook",
-        "-wh",
-        help="Discord webhook url(s) for notifications about changes and errors.",
-    ),
-    bookwalker_check_opt: Optional[bool] = typer.Option(
-        None, "--bookwalker-check", "-bwc", help="Check for new releases on bookwalker."
-    ),
-    compress_opt: Optional[bool] = typer.Option(
-        None, "--compress", "-c", help="Compress the extracted cover images."
-    ),
-    compress_quality_opt: Optional[int] = typer.Option(
-        None, "--compress-quality", "-cq", help="Quality of the compressed cover images."
-    ),
-    bookwalker_webhook_urls_opt: Optional[List[str]] = typer.Option(
-        None,
-        "--bookwalker-webhook",
-        "-bwk-whs",
-        help="Webhook url(s) for the bookwalker check.",
-    ),
-    watchdog_opt: Optional[bool] = typer.Option(
-        None,
-        "--watchdog",
-        "-wd",
-        help="Watch for file changes in download folders using watchdog.",
-    ),
-    new_volume_webhook_opt: Optional[str] = typer.Option(
-        None,
-        "--new-volume-webhook",
-        "-nw",
-        help="Redirect new volume release notifications to a single discord webhook channel.",
-    ),
-    log_to_file_opt: Optional[bool] = typer.Option(
-        None,
-        "--log-to-file",
-        "-ltf",
-        help="Toggle logging changes and errors to a file.",
-    ),
-    watchdog_discover_new_files_check_interval_opt: Optional[int] = typer.Option(
-        None,
-        "--watchdog-discover-new-files-check-interval",
-        help="Seconds to sleep before re-checking if all files are fully transferred.",
-    ),
-    watchdog_file_transferred_check_interval_opt: Optional[int] = typer.Option(
-        None,
-        "--watchdog-file-transferred-check-interval",
-        help="Seconds between file size checks when determining if a file is fully transferred.",
-    ),
-    output_covers_as_webp_opt: Optional[bool] = typer.Option(
-        None,
-        "--output-covers-as-webp",
-        help="Output covers as WebP instead of jpg.",
-    ),
+    paths: Annotated[
+        Optional[List[str]],
+        typer.Option("--path", "-p", help="Path(s) to scan for cover extraction."),
+    ] = None,
+    download_folders: Annotated[
+        Optional[List[str]],
+        typer.Option(
+            "--download-folder",
+            "-df",
+            help="Download folder(s) for processing/renaming/moving files.",
+        ),
+    ] = None,
+    webhook: Annotated[
+        Optional[List[str]],
+        typer.Option(
+            "--webhook",
+            "-wh",
+            help="Discord webhook url(s) for notifications about changes and errors.",
+        ),
+    ] = None,
+    bookwalker_check_opt: Annotated[
+        Optional[bool],
+        typer.Option(
+            "--bookwalker-check", "-bwc", help="Check for new releases on BookWalker."
+        ),
+    ] = None,
+    compress_opt: Annotated[
+        Optional[bool],
+        typer.Option("--compress", "-c", help="Compress the extracted cover images."),
+    ] = None,
+    compress_quality_opt: Annotated[
+        Optional[int],
+        typer.Option(
+            "--compress-quality",
+            "-cq",
+            help="Quality of the compressed cover images (1-100).",
+            min=1,
+            max=100,
+        ),
+    ] = None,
+    bookwalker_webhook_urls_opt: Annotated[
+        Optional[List[str]],
+        typer.Option(
+            "--bookwalker-webhook",
+            "-bwk-whs",
+            help="Webhook url(s) for the BookWalker check.",
+        ),
+    ] = None,
+    watchdog_opt: Annotated[
+        Optional[bool],
+        typer.Option(
+            "--watchdog",
+            "-wd",
+            help="Watch for file changes in download folders using watchdog.",
+        ),
+    ] = None,
+    new_volume_webhook_opt: Annotated[
+        Optional[str],
+        typer.Option(
+            "--new-volume-webhook",
+            "-nw",
+            help="Redirect new volume release notifications to a single discord webhook channel.",
+        ),
+    ] = None,
+    log_to_file_opt: Annotated[
+        Optional[bool],
+        typer.Option("--log-to-file", "-ltf", help="Log changes and errors to a file."),
+    ] = None,
+    watchdog_discover_new_files_check_interval_opt: Annotated[
+        Optional[int],
+        typer.Option(
+            "--watchdog-discover-new-files-check-interval",
+            help="Seconds to sleep before re-checking if all files are fully transferred.",
+            min=1,
+        ),
+    ] = None,
+    watchdog_file_transferred_check_interval_opt: Annotated[
+        Optional[int],
+        typer.Option(
+            "--watchdog-file-transferred-check-interval",
+            help="Seconds between file size checks when determining if a file is fully transferred.",
+            min=1,
+        ),
+    ] = None,
+    output_covers_as_webp_opt: Annotated[
+        Optional[bool],
+        typer.Option(
+            "--output-covers-as-webp", help="Output covers as WebP instead of JPG."
+        ),
+    ] = None,
 ):
     configure_from_cli(
         paths_opt=paths,
