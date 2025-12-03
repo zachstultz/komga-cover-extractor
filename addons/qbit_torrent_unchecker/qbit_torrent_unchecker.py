@@ -2,16 +2,17 @@
 import time
 import os
 import sys
+from pathlib import Path
 
 from qbittorrentapi import Client
 import regex as re
 import argparse
 
 # Scripts root
-ROOT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)))
+ROOT_DIR = Path(__file__).parent
 
 # Get two folders below ROOT_DIR
-MAIN_SCRIPT_DIR = os.path.abspath(os.path.join(ROOT_DIR, "..", ".."))
+MAIN_SCRIPT_DIR = (ROOT_DIR / ".." / "..").resolve()
 sys.path.append(MAIN_SCRIPT_DIR)
 
 log_file_name = "qbit_torrent_unchecker_log"
