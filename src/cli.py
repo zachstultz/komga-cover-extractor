@@ -1,13 +1,12 @@
 """
 CLI module for Komga Cover Extractor using Typer and Rich.
 """
+
 from dataclasses import dataclass
-from pathlib import Path
 from typing import List, Optional
 
 import typer
 from rich.console import Console
-from rich.panel import Panel
 from rich.table import Table
 from typing_extensions import Annotated
 
@@ -22,6 +21,7 @@ console = Console()
 @dataclass
 class CLIConfig:
     """Configuration object returned by CLI parsing."""
+
     paths: List[str]
     download_folders: List[str]
     webhook: List[str]
@@ -147,7 +147,7 @@ def extract_covers(
 ):
     """
     Extract covers from manga/novel files.
-    
+
     Scans specified paths for supported archive files and extracts their cover images.
     """
     # Validate that at least paths or download_folders are provided
@@ -158,7 +158,7 @@ def extract_covers(
         )
         console.print("Please provide at least one path (-p) or download folder (-df).")
         raise typer.Exit(1)
-    
+
     # Display configuration
     _display_config(
         paths=paths,
@@ -175,7 +175,7 @@ def extract_covers(
         watchdog_file_transferred_check_interval=watchdog_file_transferred_check_interval,
         output_covers_as_webp=output_covers_as_webp,
     )
-    
+
     # Return configuration for use by main script
     return CLIConfig(
         paths=paths or [],
@@ -199,15 +199,15 @@ def _display_config(**kwargs):
     console.print()
     console.print("[bold blue]Run Settings:[/bold blue]")
     console.print()
-    
+
     table = Table(show_header=True, header_style="bold magenta")
     table.add_column("Setting", style="cyan", width=40)
     table.add_column("Value", style="green")
-    
+
     for key, value in kwargs.items():
         # Format the key nicely
         display_key = key.replace("_", " ").title()
-        
+
         # Format the value
         if isinstance(value, list):
             if value:
@@ -220,9 +220,9 @@ def _display_config(**kwargs):
             display_value = "[dim]None[/dim]"
         else:
             display_value = str(value)
-        
+
         table.add_row(display_key, display_value)
-    
+
     console.print(table)
     console.print()
 
@@ -230,25 +230,24 @@ def _display_config(**kwargs):
 def parse_args() -> CLIConfig:
     """
     Parse command line arguments and return configuration.
-    
+
     This is the main entry point for integrating with the existing script.
     """
-    import sys
-    
+
     # Store the result here
     config_result = []
-    
+
     # Temporarily replace extract_covers to capture its return value
     original_extract = app.registered_commands[0].callback
-    
+
     def wrapper(*args, **kwargs):
         result = original_extract(*args, **kwargs)
         config_result.append(result)
         return result
-    
+
     # Replace temporarily
     app.registered_commands[0].callback = wrapper
-    
+
     try:
         # Run the app - it will call wrapper which captures the result
         app()
@@ -260,7 +259,7 @@ def parse_args() -> CLIConfig:
     finally:
         # Restore original callback
         app.registered_commands[0].callback = original_extract
-    
+
     # If we got here, return the config
     if config_result:
         return config_result[0]

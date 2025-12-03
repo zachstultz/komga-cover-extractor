@@ -37,7 +37,6 @@ from bs4 import BeautifulSoup
 from discord_webhook import DiscordEmbed, DiscordWebhook
 import typer
 from rich.console import Console
-from rich.progress import track
 from lxml import etree
 from PIL import Image
 from skimage.metrics import structural_similarity as ssim
@@ -45,9 +44,6 @@ from titlecase import titlecase
 from unidecode import unidecode
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
-import typer
-from rich.console import Console
-from rich.progress import track
 from src.logging_config import configure_logging, logger
 from src.models import (
     BookwalkerBook,
@@ -56,13 +52,11 @@ from src.models import (
     File,
     Folder,
     IdentifierResult,
-    Image_Result,
     KomgaLibrary,
     LibraryType,
     NewReleaseNotification,
     Publisher,
     RankedKeywordResult,
-    Result,
     TypedPath,
     UpgradeResult,
     Volume,
@@ -76,7 +70,9 @@ from settings import *
 script_version = (2, 5, 37)
 script_version_text = "v{}.{}.{}".format(*script_version)
 console = Console()
-app = typer.Typer(add_completion=False, help="Komga cover extraction and library utilities.")
+app = typer.Typer(
+    add_completion=False, help="Komga cover extraction and library utilities."
+)
 
 # Paths = existing library
 # Download_folders = newly acquired manga/novels
@@ -527,8 +523,6 @@ cover_patterns = [
 compiled_cover_patterns = [
     re.compile(pattern, flags=re.IGNORECASE) for pattern in cover_patterns
 ]
-
-
 
 
 # Custom sorting key function, sort by index_number
@@ -1236,13 +1230,20 @@ def configure_from_cli(
 
     from rich.panel import Panel
     from rich.table import Table
-    
+
     console.print()
-    console.print(Panel(f"[bold cyan]Script Version:[/bold cyan] {script_version_text}", 
-                       title="Komga Cover Extractor", border_style="blue"))
+    console.print(
+        Panel(
+            f"[bold cyan]Script Version:[/bold cyan] {script_version_text}",
+            title="Komga Cover Extractor",
+            border_style="blue",
+        )
+    )
     console.print()
-    
-    config_table = Table(title="Run Settings", show_header=True, header_style="bold magenta")
+
+    config_table = Table(
+        title="Run Settings", show_header=True, header_style="bold magenta"
+    )
     config_table.add_column("Setting", style="cyan", width=30)
     config_table.add_column("Value", style="green")
 
@@ -1312,12 +1313,12 @@ def configure_from_cli(
                 watchdog_file_transferred_check_interval_opt
             )
         config_table.add_row(
-            "  ↳ Discover Check Interval", 
-            f"{watchdog_discover_new_files_check_interval}s"
+            "  ↳ Discover Check Interval",
+            f"{watchdog_discover_new_files_check_interval}s",
         )
         config_table.add_row(
-            "  ↳ Transfer Check Interval", 
-            f"{watchdog_file_transferred_check_interval}s"
+            "  ↳ Transfer Check Interval",
+            f"{watchdog_file_transferred_check_interval}s",
         )
 
     if output_covers_as_webp_opt is not None:
@@ -1365,7 +1366,7 @@ def configure_from_cli(
     if log_to_file_opt is not None:
         log_to_file = parse_bool_argument(log_to_file_opt)
     config_table.add_row("Log to File", "✓" if log_to_file else "✗")
-    
+
     # Print the config table
     console.print(config_table)
     console.print()
@@ -2108,7 +2109,7 @@ def get_header_extension(file):
 
 # Returns an extensionless name
 def get_extensionless_name(file):
-    return str(Path(file).with_suffix(''))
+    return str(Path(file).with_suffix(""))
 
 
 # Retrives the series name from matching the folder name and the file names
@@ -4326,7 +4327,7 @@ def get_input_from_user(
     # Format the prompt with example values if provided
     if example:
         if isinstance(example, list):
-            example = f" or ".join(
+            example = " or ".join(
                 [f"{example_item}" for example_item in example[:-1]]
                 + [f"{example[-1]}"]
             )
@@ -8885,7 +8886,7 @@ def extract_covers(paths_to_process=paths):
 # returns the path of the new .jpg file or none if the conversion failed
 def convert_webp_to_jpg(webp_file_path):
     if webp_file_path:
-        extenionless_webp_file = str(Path(webp_file_path).with_suffix(''))
+        extenionless_webp_file = str(Path(webp_file_path).with_suffix(""))
         jpg_file_path = f"{extenionless_webp_file}.jpg"
 
         try:
