@@ -42,6 +42,24 @@ from titlecase import titlecase
 from unidecode import unidecode
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
+from src.models import (
+    BookwalkerBook,
+    BookwalkerSeries,
+    Embed,
+    File,
+    Folder,
+    IdentifierResult,
+    Image_Result,
+    KomgaLibrary,
+    LibraryType,
+    NewReleaseNotification,
+    Publisher,
+    RankedKeywordResult,
+    Result,
+    TypedPath,
+    UpgradeResult,
+    Volume,
+)
 
 # Get all the variables in settings.py
 import settings as settings_file
@@ -201,22 +219,6 @@ settings = [
 
 # Libraries to be scanned after files have been moved over.
 libraries_to_scan = []
-
-
-# Library Type class
-class LibraryType:
-    def __init__(
-        self, name, extensions, must_contain, must_not_contain, match_percentage=90
-    ):
-        self.name = name
-        self.extensions = extensions
-        self.must_contain = must_contain
-        self.must_not_contain = must_not_contain
-        self.match_percentage = match_percentage
-
-    # Convert the object to a string representation
-    def __str__(self):
-        return f"LibraryType(name={self.name}, extensions={self.extensions}, must_contain={self.must_contain}, must_not_contain={self.must_not_contain}, match_percentage={self.match_percentage})"
 
 
 # The Library Entertainment types
@@ -515,112 +517,6 @@ compiled_cover_patterns = [
 ]
 
 
-# Folder Class
-class Folder:
-    def __init__(self, root, dirs, basename, folder_name, files):
-        self.root = root
-        self.dirs = dirs
-        self.basename = basename
-        self.folder_name = folder_name
-        self.files = files
-
-    # to string
-    def __str__(self):
-        return f"Folder(root={self.root}, dirs={self.dirs}, basename={self.basename}, folder_name={self.folder_name}, files={self.files})"
-
-    def __repr__(self):
-        return str(self)
-
-
-# File Class
-class File:
-    def __init__(
-        self,
-        name,
-        extensionless_name,
-        basename,
-        extension,
-        root,
-        path,
-        extensionless_path,
-        volume_number,
-        file_type,
-        header_extension,
-    ):
-        self.name = name
-        self.extensionless_name = extensionless_name
-        self.basename = basename
-        self.extension = extension
-        self.root = root
-        self.path = path
-        self.extensionless_path = extensionless_path
-        self.volume_number = volume_number
-        self.file_type = file_type
-        self.header_extension = header_extension
-
-
-class Publisher:
-    def __init__(self, from_meta, from_name):
-        self.from_meta = from_meta
-        self.from_name = from_name
-
-    # to string
-    def __str__(self):
-        return f"Publisher(from_meta={self.from_meta}, from_name={self.from_name})"
-
-    def __repr__(self):
-        return str(self)
-
-
-# Volume Class
-class Volume:
-    def __init__(
-        self,
-        file_type,
-        series_name,
-        shortened_series_name,
-        volume_year,
-        volume_number,
-        volume_part,
-        index_number,
-        release_group,
-        name,
-        extensionless_name,
-        basename,
-        extension,
-        root,
-        path,
-        extensionless_path,
-        extras,
-        publisher,
-        is_premium,
-        subtitle,
-        header_extension,
-        multi_volume=None,
-        is_one_shot=None,
-    ):
-        self.file_type = file_type
-        self.series_name = series_name
-        self.shortened_series_name = shortened_series_name
-        self.volume_year = volume_year
-        self.volume_number = volume_number
-        self.volume_part = volume_part
-        self.index_number = index_number
-        self.release_group = release_group
-        self.name = name
-        self.extensionless_name = extensionless_name
-        self.basename = basename
-        self.extension = extension
-        self.root = root
-        self.path = path
-        self.extensionless_path = extensionless_path
-        self.extras = extras
-        self.publisher = publisher
-        self.is_premium = is_premium
-        self.subtitle = subtitle
-        self.header_extension = header_extension
-        self.multi_volume = multi_volume
-        self.is_one_shot = is_one_shot
 
 
 # Custom sorting key function, sort by index_number
@@ -640,32 +536,6 @@ def sort_volumes(volumes):
     else:
         # sort by the index number
         return sorted(volumes, key=lambda x: get_sort_key(x.index_number))
-
-
-# Path Class
-class Path:
-    def __init__(
-        self,
-        path,
-        path_formats=file_formats,
-        path_extensions=file_extensions,
-        library_types=library_types,
-        translation_source_types=translation_source_types,
-        source_languages=source_languages,
-    ):
-        self.path = path
-        self.path_formats = path_formats
-        self.path_extensions = path_extensions
-        self.library_types = library_types
-        self.translation_source_types = translation_source_types
-        self.source_languages = source_languages
-
-    # to string
-    def __str__(self):
-        return f"Path(path={self.path}, path_formats={self.path_formats}, path_extensions={self.path_extensions}, library_types={self.library_types}, translation_source_types={self.translation_source_types}, source_languages={self.source_languages})"
-
-    def __repr__(self):
-        return str(self)
 
 
 # Watches the download directory for any changes.
@@ -693,13 +563,6 @@ class Watcher:
             for observer in self.observers:
                 observer.join()
                 print("Observer Joined")
-
-
-# Handles our embed object along with any associated file
-class Embed:
-    def __init__(self, embed, file=None):
-        self.embed = embed
-        self.file = file
 
 
 # Our array of file extensions and how many files have that extension
@@ -1292,7 +1155,7 @@ def process_path(path, paths_with_types, paths, is_download_folders=False):
             and not (download_folders and path_str in download_folders)
         ):
             process_auto_classification()
-            path_obj = Path(
+            path_obj = TypedPath(
                 path_str,
                 path_formats=path_formats or [],
                 path_extensions=path_extensions or [],
@@ -1305,7 +1168,7 @@ def process_path(path, paths_with_types, paths, is_download_folders=False):
         for path_to_process in path[1:]:
             process_single_type_path(path_to_process)
 
-        path_obj = Path(
+        path_obj = TypedPath(
             path_str,
             path_formats=path_formats or file_formats,
             path_extensions=path_extensions or file_extensions,
@@ -1325,20 +1188,6 @@ def process_path(path, paths_with_types, paths, is_download_folders=False):
 
         if path_obj:
             download_folders_with_types.append(path_obj)
-
-
-class KomgaLibrary:
-    def __init__(self, id, name, root):
-        self.id = id
-        self.name = name
-        self.root = root
-
-    # to string
-    def __str__(self):
-        return f"KomgaLibrary(id={self.id}, name={self.name}, root={self.root})"
-
-    def __repr__(self):
-        return str(self)
 
 
 # Parses the passed command-line arguments
@@ -3552,20 +3401,6 @@ def upgrade_to_volume_class(
     return results
 
 
-# The RankedKeywordResult class is a container for the total score and the keywords
-class RankedKeywordResult:
-    def __init__(self, total_score, keywords):
-        self.total_score = total_score
-        self.keywords = keywords
-
-    # to string
-    def __str__(self):
-        return f"Total Score: {self.total_score}\nKeywords: {self.keywords}"
-
-    def __repr__(self):
-        return str(self)
-
-
 compiled_searches = [
     re.compile(keyword.name, re.IGNORECASE) for keyword in ranked_keywords
 ]
@@ -3591,21 +3426,6 @@ def get_keyword_scores(releases):
         results.append(RankedKeywordResult(score, tags))
 
     return results
-
-
-# > This class represents the result of an upgrade check
-class UpgradeResult:
-    def __init__(self, is_upgrade, downloaded_ranked_result, current_ranked_result):
-        self.is_upgrade = is_upgrade
-        self.downloaded_ranked_result = downloaded_ranked_result
-        self.current_ranked_result = current_ranked_result
-
-    # to string
-    def __str__(self):
-        return f"Is Upgrade: {self.is_upgrade}\nDownloaded Ranked Result: {self.downloaded_ranked_result}\nCurrent Ranked Result: {self.current_ranked_result}"
-
-    def __repr__(self):
-        return str(self)
 
 
 # Checks if the downloaded release is an upgrade for the current release.
@@ -5263,19 +5083,6 @@ def complete_num_array(arr):
     return complete_arr
 
 
-class Result:
-    def __init__(self, dir, score):
-        self.dir = dir
-        self.score = score
-
-    # to string
-    def __str__(self):
-        return f"dir: {self.dir}, score: {self.score}"
-
-    def __repr__(self):
-        return str(self)
-
-
 # Checks the novel for bonus.xhtml or bonus[0-9].xhtml, otherwise it
 # gets the toc.xhtml or copyright.xhtml file from the novel file and checks
 # that for premium content
@@ -5322,17 +5129,6 @@ def contains_premium_content(file):
     except Exception as e:
         send_message(str(e), error=True)
     return bonus_content_found
-
-
-class NewReleaseNotification:
-    def __init__(self, number, title, color, fields, webhook, series_name, volume_obj):
-        self.number = number
-        self.title = title
-        self.color = color
-        self.fields = fields
-        self.webhook = webhook
-        self.series_name = series_name
-        self.volume_obj = volume_obj
 
 
 # Determines if the downloaded file is an upgrade or not to the existing library.
@@ -6084,14 +5880,6 @@ def organize_by_first_letter(array_list, string, position_to_insert_at, exclude=
         array_list.insert(position_to_insert_at, item)
 
     return array_list
-
-
-class IdentifierResult:
-    def __init__(self, series_name, identifiers, path, matches):
-        self.series_name = series_name
-        self.identifiers = identifiers
-        self.path = path
-        self.matches = matches
 
 
 # get identifiers from the passed zip comment
@@ -9596,44 +9384,6 @@ def delete_unacceptable_files():
         send_message(str(e), error=True)
 
 
-class BookwalkerBook:
-    def __init__(
-        self,
-        title,
-        original_title,
-        volume_number,
-        part,
-        date,
-        is_released,
-        price,
-        url,
-        thumbnail,
-        book_type,
-        description,
-        preview_image_url,
-    ):
-        self.title = title
-        self.original_title = original_title
-        self.volume_number = volume_number
-        self.part = part
-        self.date = date
-        self.is_released = is_released
-        self.price = price
-        self.url = url
-        self.thumbnail = thumbnail
-        self.book_type = book_type
-        self.description = description
-        self.preview_image_url = preview_image_url
-
-
-class BookwalkerSeries:
-    def __init__(self, title, books, book_count, book_type):
-        self.title = title
-        self.books = books
-        self.book_count = book_count
-        self.book_type = book_type
-
-
 # our session objects, one for each domain
 session_objects = {}
 
@@ -11212,14 +10962,6 @@ def extract_all_numbers(string, subtitle=None):
                 new_numbers.append(new_range)
 
     return new_numbers
-
-
-# Result class that is used for our image_comparison results from our
-# image comparison function
-class Image_Result:
-    def __init__(self, ssim_score, image_source):
-        self.ssim_score = ssim_score
-        self.image_source = image_source
 
 
 # Preps the image for comparison
