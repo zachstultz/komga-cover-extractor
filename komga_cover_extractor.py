@@ -42,6 +42,7 @@ from titlecase import titlecase
 from unidecode import unidecode
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
+from src.logging_config import configure_logging, logger
 from src.models import (
     BookwalkerBook,
     BookwalkerSeries,
@@ -130,6 +131,9 @@ ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # Where logs are written to.
 LOGS_DIR = os.path.join(ROOT_DIR, "logs")
+
+# Configure application logging
+configure_logging(LOGS_DIR)
 
 # Where the addon scripts are located.
 ADDONS_DIR = os.path.join(ROOT_DIR, "addons")
@@ -578,17 +582,19 @@ def send_message(
     error_file_name="errors.txt",
     changes_file_name="changes.txt",
 ):
-    print(message)
+    message_str = message if isinstance(message, str) else str(message)
+    log_fn = logger.error if error else logger.info
+    log_fn(message_str)
     if discord:
-        send_discord_message(message)
+        send_discord_message(message_str)
     if error:
-        errors.append(message)
+        errors.append(message_str)
         if log:
-            write_to_file(error_file_name, message)
+            write_to_file(error_file_name, message_str)
     else:
-        items_changed.append(message)
+        items_changed.append(message_str)
         if log:
-            write_to_file(changes_file_name, message)
+            write_to_file(changes_file_name, message_str)
 
 
 # Determines the files library type

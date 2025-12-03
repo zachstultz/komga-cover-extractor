@@ -35,3 +35,4 @@ typing_extensions==4.15.0
 Unidecode==1.4.0
 urllib3==2.5.0
 watchdog==6.0.0
+loguru==0.7.3
