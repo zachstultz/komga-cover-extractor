@@ -33,6 +33,7 @@ dependencies = [
     "rarfile==4.2",
     "regex==2025.9.18",
     "requests==2.32.5",
+    "rich>=14.2.0",
     "scandir==1.10.0",
     "scikit-image==0.25.2",
     "scipy==1.15.3",
@@ -40,10 +41,13 @@ dependencies = [
     "texttable==1.7.0",
     "tifffile==2025.5.10",
     "titlecase==2.4.1",
+    "typer>=0.20.0",
     "typing-extensions==4.15.0",
     "unidecode==1.4.0",
     "urllib3==2.5.0",
     "watchdog==6.0.0",
+    "rich==14.2.0",
+    "typer==0.20.0",
 ]
 license = { file = "LICENSE.md" }
 

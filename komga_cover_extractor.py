@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-import argparse
 import cProfile
 import hashlib
 import io
@@ -12,6 +11,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+from typing import List, Optional
 import threading
 import time
 import traceback
@@ -35,6 +35,9 @@ import requests
 import scandir
 from bs4 import BeautifulSoup
 from discord_webhook import DiscordEmbed, DiscordWebhook
+import typer
+from rich.console import Console
+from rich.progress import track
 from lxml import etree
 from PIL import Image
 from skimage.metrics import structural_similarity as ssim
@@ -42,6 +45,9 @@ from titlecase import titlecase
 from unidecode import unidecode
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
+import typer
+from rich.console import Console
+from rich.progress import track
 from src.logging_config import configure_logging, logger
 from src.models import (
     BookwalkerBook,
@@ -69,6 +75,8 @@ from settings import *
 # Version of the script
 script_version = (2, 5, 37)
 script_version_text = "v{}.{}.{}".format(*script_version)
+console = Console()
+app = typer.Typer(add_completion=False, help="Komga cover extraction and library utilities.")
 
 # Paths = existing library
 # Download_folders = newly acquired manga/novels
@@ -1197,275 +1205,157 @@ def process_path(path, paths_with_types, paths, is_download_folders=False):
 
 
 # Parses the passed command-line arguments
-def parse_my_args():
-    # Function to parse boolean arguments from string values
+def configure_from_cli(
+    paths_opt: Optional[List[str]] = None,
+    download_folders_opt: Optional[List[str]] = None,
+    webhook_opt: Optional[List[str]] = None,
+    bookwalker_check_opt: Optional[bool] = None,
+    compress_opt: Optional[bool] = None,
+    compress_quality_opt: Optional[int] = None,
+    bookwalker_webhook_urls_opt: Optional[List[str]] = None,
+    watchdog_opt: Optional[bool] = None,
+    new_volume_webhook_opt: Optional[str] = None,
+    log_to_file_opt: Optional[bool] = None,
+    watchdog_discover_new_files_check_interval_opt: Optional[int] = None,
+    watchdog_file_transferred_check_interval_opt: Optional[int] = None,
+    output_covers_as_webp_opt: Optional[bool] = None,
+):
     def parse_bool_argument(arg_value):
+        if isinstance(arg_value, bool):
+            return arg_value
         return str(arg_value).lower().strip() == "true"
 
-    global paths
-    global download_folders
-    global discord_webhook_url
-    global paths_with_types
-    global komga_libraries
-    global watchdog_toggle
+    def expand_items(items):
+        expanded = []
+        for item in items or []:
+            if r"\1" in item:
+                expanded.extend([x for x in item.split(r"\1") if x])
+            else:
+                expanded.append(item)
+        return expanded
 
-    parser = argparse.ArgumentParser(
-        description=f"Scans for and extracts covers from {', '.join(file_extensions)} files."
-    )
-    parser.add_argument(
-        "-p",
-        "--paths",
-        help="The path/paths to be scanned for cover extraction.",
-        action="append",
-        nargs="*",
-        required=False,
-    )
-    parser.add_argument(
-        "-df",
-        "--download_folders",
-        help="The download folder/download folders for processing, renaming, and moving of downloaded files. (Optional, still in testing, requires manual uncommenting of optional method calls at the bottom of the script.)",
-        action="append",
-        nargs="*",
-        required=False,
-    )
-    parser.add_argument(
-        "-wh",
-        "--webhook",
-        action="append",
-        nargs="*",
-        help="The discord webhook url for notifications about changes and errors.",
-        required=False,
-    )
-    parser.add_argument(
-        "-bwc",
-        "--bookwalker_check",
-        help="Checks for new releases on bookwalker.",
-        required=False,
-    )
-    parser.add_argument(
-        "-c",
-        "--compress",
-        help="Compresses the extracted cover images.",
-        required=False,
-    )
-    parser.add_argument(
-        "-cq",
-        "--compress_quality",
-        help="The quality of the compressed cover images.",
-        required=False,
-    )
-    parser.add_argument(
-        "-bwk_whs",
-        "--bookwalker_webhook_urls",
-        help="The webhook urls for the bookwalker check.",
-        action="append",
-        nargs="*",
-        required=False,
-    )
-    parser.add_argument(
-        "-wd",
-        "--watchdog",
-        help="Uses the watchdog library to watch for file changes in the download folders.",
-        required=False,
-    )
-    parser.add_argument(
-        "-nw",
-        "--new_volume_webhook",
-        help="If passed in, the new volume release notification will be redirected to this single discord webhook channel.",
-        required=False,
-    )
-    parser.add_argument(
-        "-ltf",
-        "--log_to_file",
-        help="Whether or not to log the changes and errors to a file.",
-        required=False,
-    )
-    parser.add_argument(
-        "--watchdog_discover_new_files_check_interval",
-        help="The amount of seconds to sleep before checking again if all the files are fully transferred.",
-        required=False,
-    )
-    parser.add_argument(
-        "--watchdog_file_transferred_check_interval",
-        help="The seconds to sleep between file size checks when determining if a file is fully transferred.",
-        required=False,
-    )
-    parser.add_argument(
-        "--output_covers_as_webp",
-        help="Outputs the covers as WebP format instead of jpg format.",
-        required=False,
-    )
+    console.print(f"\nScript Version: {script_version_text}")
+    console.print("\nRun Settings:")
 
-    parser = parser.parse_args()
+    global paths, download_folders, discord_webhook_url, paths_with_types
+    global komga_libraries, watchdog_toggle, output_covers_as_webp
+    global compress_image_option, image_quality, bookwalker_webhook_urls
+    global bookwalker_check, new_volume_webhook, log_to_file
+    global watchdog_discover_new_files_check_interval
+    global watchdog_file_transferred_check_interval
 
-    print(f"\nScript Version: {script_version_text}")
-
-    print("\nRun Settings:")
-
-    if parser.download_folders is not None:
-        new_download_folders = []
-        for download_folder in parser.download_folders:
-            if download_folder:
-                if r"\1" in download_folder[0]:
-                    split_download_folders = download_folder[0].split(r"\1")
-                    new_download_folders.extend(
-                        [split_download_folder]
-                        for split_download_folder in split_download_folders
-                    )
-                else:
-                    new_download_folders.append(download_folder)
-
-        parser.download_folders = new_download_folders
-
-        print("\tdownload_folders:")
-        for download_folder in parser.download_folders:
-            if download_folder:
-                if r"\0" in download_folder[0]:
-                    download_folder = download_folder[0].split(r"\0")
-                process_path(
-                    download_folder,
-                    download_folders_with_types,
-                    download_folders,
-                    is_download_folders=True,
-                )
+    expanded_downloads = expand_items(download_folders_opt)
+    if expanded_downloads:
+        console.print("\tdownload_folders:")
+        for download_folder in expanded_downloads:
+            df_parts = (
+                download_folder.split(r"\0")
+                if r"\0" in download_folder
+                else [download_folder]
+            )
+            process_path(
+                df_parts,
+                download_folders_with_types,
+                download_folders,
+                is_download_folders=True,
+            )
+            console.print(f"\t\t{df_parts[0]}")
 
         if download_folders_with_types:
-            print("\n\tdownload_folders_with_types:")
+            console.print("\n\tdownload_folders_with_types:")
             for item in download_folders_with_types:
-                print(f"\t\tpath: {str(item.path)}")
-                print(f"\t\t\tformats: {str(item.path_formats)}")
-                print(f"\t\t\textensions: {str(item.path_extensions)}")
+                console.print(f"\t\tpath: {str(item.path)}")
+                console.print(f"\t\t\tformats: {str(item.path_formats)}")
+                console.print(f"\t\t\textensions: {str(item.path_extensions)}")
 
-    if parser.watchdog:
-        if download_folders:
-            watchdog_toggle = parse_bool_argument(parser.watchdog)
-        else:
+    expanded_paths = expand_items(paths_opt)
+    if expanded_paths:
+        console.print("\tpaths:")
+        for path in expanded_paths:
+            p_parts = path.split(r"\0") if r"\0" in path else [path]
+            process_path(p_parts, paths_with_types, paths)
+            console.print(f"\t\t{p_parts[0]}")
+
+        if paths_with_types:
+            console.print("\n\tpaths_with_types:")
+            for item in paths_with_types:
+                console.print(f"\t\tpath: {str(item.path)}")
+                console.print(f"\t\t\tformats: {str(item.path_formats)}")
+                console.print(f"\t\t\textensions: {str(item.path_extensions)}")
+
+    if watchdog_opt is not None:
+        watchdog_toggle = parse_bool_argument(watchdog_opt)
+        if watchdog_toggle and not download_folders:
             send_message(
                 "Watchdog was toggled, but no download folders were passed to the script.",
                 error=True,
             )
 
-    if parser.paths is not None:
-        new_paths = []
-        for path in parser.paths:
-            if path and r"\1" in path[0]:
-                split_paths = path[0].split(r"\1")
-                new_paths.extend([split_path] for split_path in split_paths)
-            else:
-                new_paths.append(path)
-
-        parser.paths = new_paths
-        print("\tpaths:")
-        for path in parser.paths:
-            if path:
-                if r"\0" in path[0]:
-                    path = path[0].split(r"\0")
-                process_path(path, paths_with_types, paths)
-
-        if paths_with_types:
-            print("\n\tpaths_with_types:")
-            for item in paths_with_types:
-                print(f"\t\tpath: {str(item.path)}")
-                print(f"\t\t\tformats: {str(item.path_formats)}")
-                print(f"\t\t\textensions: {str(item.path_extensions)}")
-
-    print(f"\twatchdog: {watchdog_toggle}")
+    console.print(f"\twatchdog: {watchdog_toggle}")
 
     if watchdog_toggle:
-        global watchdog_discover_new_files_check_interval, watchdog_file_transferred_check_interval
-        if parser.watchdog_discover_new_files_check_interval:
-            if parser.watchdog_discover_new_files_check_interval.isdigit():
-                watchdog_discover_new_files_check_interval = int(
-                    parser.watchdog_discover_new_files_check_interval
-                )
-
-        if parser.watchdog_file_transferred_check_interval:
-            if parser.watchdog_file_transferred_check_interval.isdigit():
-                watchdog_file_transferred_check_interval = int(
-                    parser.watchdog_file_transferred_check_interval
-                )
-        print(
+        if watchdog_discover_new_files_check_interval_opt is not None:
+            watchdog_discover_new_files_check_interval = int(
+                watchdog_discover_new_files_check_interval_opt
+            )
+        if watchdog_file_transferred_check_interval_opt is not None:
+            watchdog_file_transferred_check_interval = int(
+                watchdog_file_transferred_check_interval_opt
+            )
+        console.print(
             f"\t\twatchdog_discover_new_files_check_interval: {watchdog_discover_new_files_check_interval}"
         )
-        print(
+        console.print(
             f"\t\twatchdog_file_transferred_check_interval: {watchdog_file_transferred_check_interval}"
         )
 
-    if parser.output_covers_as_webp:
-        global output_covers_as_webp
-        output_covers_as_webp = parse_bool_argument(parser.output_covers_as_webp)
-    print(f"\toutput_covers_as_webp: {output_covers_as_webp}")
+    if output_covers_as_webp_opt is not None:
+        output_covers_as_webp = parse_bool_argument(output_covers_as_webp_opt)
+    console.print(f"\toutput_covers_as_webp: {output_covers_as_webp}")
 
-    if not parser.paths and not parser.download_folders:
-        print("No paths or download folders were passed to the script.")
-        print("Exiting...")
-        exit()
+    if not paths and not download_folders:
+        console.print("No paths or download folders were passed to the script.")
+        raise typer.Exit(code=1)
 
-    if parser.webhook is not None:
-        for item in parser.webhook:
-            if item:
-                for hook in item:
-                    if hook:
-                        if r"\1" in hook:
-                            hook = hook.split(r"\1")
-                        if isinstance(hook, str):
-                            if hook and hook not in discord_webhook_url:
-                                discord_webhook_url.append(hook)
-                        elif isinstance(hook, list):
-                            for url in hook:
-                                if url and url not in discord_webhook_url:
-                                    discord_webhook_url.append(url)
-        print(f"\twebhooks: {str(discord_webhook_url)}")
+    webhook_values = expand_items(webhook_opt)
+    if webhook_values:
+        for hook in webhook_values:
+            hook_list = hook.split(r"\1") if r"\1" in hook else [hook]
+            for single_hook in hook_list:
+                if single_hook and single_hook not in discord_webhook_url:
+                    discord_webhook_url.append(single_hook)
+        console.print(f"\twebhooks: {str(discord_webhook_url)}")
 
-    if parser.bookwalker_check:
-        global bookwalker_check
-        bookwalker_check = parse_bool_argument(parser.bookwalker_check)
-    print(f"\tbookwalker_check: {bookwalker_check}")
+    if bookwalker_check_opt is not None:
+        bookwalker_check = parse_bool_argument(bookwalker_check_opt)
+    console.print(f"\tbookwalker_check: {bookwalker_check}")
 
-    if parser.compress:
-        global compress_image_option
-        compress_image_option = parse_bool_argument(parser.compress)
-    print(f"\tcompress: {compress_image_option}")
+    if compress_opt is not None:
+        compress_image_option = parse_bool_argument(compress_opt)
+    console.print(f"\tcompress: {compress_image_option}")
 
-    if parser.compress_quality:
-        global image_quality
-        image_quality = int(parser.compress_quality)
-    print(f"\tcompress_quality: {image_quality}")
+    if compress_quality_opt is not None:
+        image_quality = int(compress_quality_opt)
+    console.print(f"\tcompress_quality: {image_quality}")
 
-    if parser.bookwalker_webhook_urls is not None:
-        global bookwalker_webhook_urls
-        for url in parser.bookwalker_webhook_urls:
-            if url:
-                for hook in url:
-                    if hook:
-                        if r"\1" in hook:
-                            hook = hook.split(r"\1")
-                        if isinstance(hook, str):
-                            if hook and hook not in bookwalker_webhook_urls:
-                                bookwalker_webhook_urls.append(hook)
-                        elif isinstance(hook, list):
-                            for url_in_hook in hook:
-                                if (
-                                    url_in_hook
-                                    and url_in_hook not in bookwalker_webhook_urls
-                                ):
-                                    bookwalker_webhook_urls.append(url_in_hook)
-        print(f"\tbookwalker_webhook_urls: {bookwalker_webhook_urls}")
+    bookwalker_hooks = expand_items(bookwalker_webhook_urls_opt)
+    if bookwalker_hooks:
+        for hook in bookwalker_hooks:
+            hook_list = hook.split(r"\1") if r"\1" in hook else [hook]
+            for single_hook in hook_list:
+                if single_hook and single_hook not in bookwalker_webhook_urls:
+                    bookwalker_webhook_urls.append(single_hook)
+        console.print(f"\tbookwalker_webhook_urls: {bookwalker_webhook_urls}")
 
-    if parser.new_volume_webhook:
-        global new_volume_webhook
-        new_volume_webhook = parser.new_volume_webhook
-    print(f"\tnew_volume_webhook: {new_volume_webhook}")
+    if new_volume_webhook_opt:
+        new_volume_webhook = new_volume_webhook_opt
+    console.print(f"\tnew_volume_webhook: {new_volume_webhook}")
 
-    if parser.log_to_file:
-        global log_to_file
-        log_to_file = parse_bool_argument(parser.log_to_file)
-    print(f"\tlog_to_file: {log_to_file}")
+    if log_to_file_opt is not None:
+        log_to_file = parse_bool_argument(log_to_file_opt)
+    console.print(f"\tlog_to_file: {log_to_file}")
 
-    # Print all the settings from settings.py
-    print("\nExternal Settings:")
-
-    # print all of the variables
+    console.print("\nExternal Settings:")
     sensitive_keywords = ["password", "email", "_ip", "token", "user"]
     ignored_settings = ["ranked_keywords", "unacceptable_keywords"]
 
@@ -1478,11 +1368,11 @@ def parse_my_args():
         if value and any(keyword in setting.lower() for keyword in sensitive_keywords):
             value = "********"
 
-        print(f"\t{setting}: {value}")
+        console.print(f"\t{setting}: {value}")
 
-    print(f"\tin_docker: {in_docker}")
-    print(f"\tblank_black_image_path: {blank_black_image_path}")
-    print(f"\tblank_white_image_path: {blank_white_image_path}")
+    console.print(f"\tin_docker: {in_docker}")
+    console.print(f"\tblank_black_image_path: {blank_black_image_path}")
+    console.print(f"\tblank_white_image_path: {blank_white_image_path}")
 
     if (
         send_scan_request_to_komga_libraries_toggle
@@ -1496,7 +1386,104 @@ def parse_my_args():
                 for library in komga_libraries
             ]
             komga_library_paths = [x.root for x in komga_libraries]
-        print(f"\tkomga_libraries: {komga_library_paths}")
+        console.print(f"\tkomga_libraries: {komga_library_paths}")
+
+
+@app.command("run")
+def run_cli(
+    paths: Optional[List[str]] = typer.Option(
+        None, "--path", "-p", help="Path(s) to scan for cover extraction."
+    ),
+    download_folders: Optional[List[str]] = typer.Option(
+        None,
+        "--download-folder",
+        "-df",
+        help="Download folder(s) for processing/renaming/moving files.",
+    ),
+    webhook: Optional[List[str]] = typer.Option(
+        None,
+        "--webhook",
+        "-wh",
+        help="Discord webhook url(s) for notifications about changes and errors.",
+    ),
+    bookwalker_check_opt: Optional[bool] = typer.Option(
+        None, "--bookwalker-check", "-bwc", help="Check for new releases on bookwalker."
+    ),
+    compress_opt: Optional[bool] = typer.Option(
+        None, "--compress", "-c", help="Compress the extracted cover images."
+    ),
+    compress_quality_opt: Optional[int] = typer.Option(
+        None, "--compress-quality", "-cq", help="Quality of the compressed cover images."
+    ),
+    bookwalker_webhook_urls_opt: Optional[List[str]] = typer.Option(
+        None,
+        "--bookwalker-webhook",
+        "-bwk-whs",
+        help="Webhook url(s) for the bookwalker check.",
+    ),
+    watchdog_opt: Optional[bool] = typer.Option(
+        None,
+        "--watchdog",
+        "-wd",
+        help="Watch for file changes in download folders using watchdog.",
+    ),
+    new_volume_webhook_opt: Optional[str] = typer.Option(
+        None,
+        "--new-volume-webhook",
+        "-nw",
+        help="Redirect new volume release notifications to a single discord webhook channel.",
+    ),
+    log_to_file_opt: Optional[bool] = typer.Option(
+        None,
+        "--log-to-file",
+        "-ltf",
+        help="Toggle logging changes and errors to a file.",
+    ),
+    watchdog_discover_new_files_check_interval_opt: Optional[int] = typer.Option(
+        None,
+        "--watchdog-discover-new-files-check-interval",
+        help="Seconds to sleep before re-checking if all files are fully transferred.",
+    ),
+    watchdog_file_transferred_check_interval_opt: Optional[int] = typer.Option(
+        None,
+        "--watchdog-file-transferred-check-interval",
+        help="Seconds between file size checks when determining if a file is fully transferred.",
+    ),
+    output_covers_as_webp_opt: Optional[bool] = typer.Option(
+        None,
+        "--output-covers-as-webp",
+        help="Output covers as WebP instead of jpg.",
+    ),
+):
+    configure_from_cli(
+        paths_opt=paths,
+        download_folders_opt=download_folders,
+        webhook_opt=webhook,
+        bookwalker_check_opt=bookwalker_check_opt,
+        compress_opt=compress_opt,
+        compress_quality_opt=compress_quality_opt,
+        bookwalker_webhook_urls_opt=bookwalker_webhook_urls_opt,
+        watchdog_opt=watchdog_opt,
+        new_volume_webhook_opt=new_volume_webhook_opt,
+        log_to_file_opt=log_to_file_opt,
+        watchdog_discover_new_files_check_interval_opt=watchdog_discover_new_files_check_interval_opt,
+        watchdog_file_transferred_check_interval_opt=watchdog_file_transferred_check_interval_opt,
+        output_covers_as_webp_opt=output_covers_as_webp_opt,
+    )
+
+    if settings:
+        check_required_settings()
+
+    if watchdog_toggle and download_folders:
+        while True:
+            console.print("\nWatchdog is enabled, watching for changes...")
+            watch = Watcher()
+            watch.run()
+    else:
+        if profile_code == "main()":
+            cProfile.run(profile_code, sort="cumtime")
+        else:
+            main()
 
 
 # Converts the passed volume_number into a float or an int.
@@ -11977,20 +11964,4 @@ def check_required_settings():
 
 
 if __name__ == "__main__":
-    parse_my_args()  # parses the user's arguments
-
-    if settings:
-        check_required_settings()
-
-    if watchdog_toggle and download_folders:
-        while True:
-            print("\nWatchdog is enabled, watching for changes...")
-            watch = Watcher()
-            watch.run()
-    else:
-        if profile_code == "main()":
-            # run with cprofile and sort by cumulative time
-            cProfile.run(profile_code, sort="cumtime")
-            exit()
-        else:
-            main()
+    app()

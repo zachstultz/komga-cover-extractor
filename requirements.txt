@@ -36,3 +36,5 @@ Unidecode==1.4.0
 urllib3==2.5.0
 watchdog==6.0.0
 loguru==0.7.3
+rich==14.2.0
+typer==0.20.0
