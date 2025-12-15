@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
-import unittest
-
-import pandas as pd
+import csv
 
 from komga_cover_extractor import *
 
@@ -1540,81 +1538,340 @@ def validate_csv():
         print("manga_novel_dataset.csv not found")
         return
 
-    df = pd.read_csv(csv_file)
     incorrect_release_numbers = []
     incorrect_series_names = []
     incorrect_file_types = []
+    skipped_files = [
+        "03b. Yu-Gi-Oh! Transcend Game (2016) (Digital).cbz",
+        "1 - Mushi, Eyeball and a Teddy Bear.epub",
+        "2 - Mushi, Eyeball and Sterilization Disinfection.epub",
+        "3 - Mushi, Eyeball and a Chocolate Parfait.epub",
+        "3-Gatsu no Lion Review Guidebook - Beginner.cbz",
+        "3-Gatsu no Lion Review Guidebook - Intermediate.cbz",
+        "4 - Mushi, Eyeball and Lovesong.epub",
+        "4 Cut Hero Episode 157.cbz",
+        "5 - Mushi, Eyeball and Snow White.epub",
+        "6 - Mushi, Eyeball and Damaged Hair.epub",
+        "A Certain Magical Index - Volume SS1.epub",
+        "A Certain Magical Index - Volume SS2.epub",
+        "A Certain Magical Index New Testament 18 Bonus Short Story.epub",
+        "A Certain Magical Index New Testament 20 Bonus Short Story.epub",
+        "A Certain Magical Index SS v01 [Yen Press] [LuCaZ].epub",
+        "A Certain Magical Index SS v02 [Yen Press] [LuCaZ].epub",
+        "A Certain March 201st Volume.epub",
+        "A Certain Scientific Railgun SS1.epub",
+        "A Certain Scientific Railgun SS2.epub",
+        "A Certain Scientific Railgun SS3.epub",
+        "Ayakashi Triangle-Ch 89 - Shiv and The Shivers.cbz",
+        "Ayakashi Triangle-Ch 91 Kanade.cbz",
+        "Ayakashi Triangle-Ch 92 Reason to Help.cbz",
+        "Ayakashi Triangle-Ch 93 Those in Love with an Ayakashi Medium.cbz",
+        "Ayakashi Triangle-Ch 94 Ritta's Nightmare!.cbz",
+        "Ayakashi Triangle-Ch 95 The Monster Within.cbz",
+        "Barakamon v18+1 (2020) (Digital) (XRA-Empire).cbz",
+        "BLEACH OFFICIAL CHARACTER BOOK 3 UNMASKED.cbz",
+        "Boku wa Mari no Naka - c072-080 (v09) [CR].cbz",
+        "Bouken Ou Beet v14c053-054.cbz",
+        "Bouken Ou Beet v14c055-057 [RAW].cbz",
+        "Campfire Cooking in Another World with My Absurd Skill Volume-1 Premium Ver.epub",
+        "Campfire Cooking in Another World with My Absurd Skill Volume-2.epub",
+        "Campfire Cooking in Another World with My Absurd Skill Volume-3.epub",
+        "Campfire Cooking in Another World with My Absurd Skill Volume-4.epub",
+        "Campfire Cooking in Another World with My Absurd Skill Volume-5.epub",
+        "Campfire Cooking in Another World with My Absurd Skill Volume-6.epub",
+        "Ch.0216 Shows Her Color (en).cbz",
+        "Ch.0217 - Have Never Seen Anything Like It (en).cbz",
+        "Ch.0218 - Queen it Over (en) [First Division Scanlations].cbz",
+        "Ch.0219 - A Sense of Foreboding  (en) [First Division Scanlations].cbz",
+        "Ch.0220 - Bull's-eye (en) [First Division Scanlations].cbz",
+        "Ch.0221 - Ups and Downs of His Fate  (en) [First Division Scanlations].cbz",
+        "Ch.0222 - Give Back (en) [First Division Scanlations].cbz",
+        "Ch.0223 - Good Old Days (en) [First Division Scanlations].cbz",
+        "Ch.0224 - Cutthroat (en) [First Division Scanlations].cbz",
+        "Ch.0225 - Free-for-all (en) [First Division Scanlations].cbz",
+        "Ch.0226 - Dynamic Duo (en) [First Division Scanlations].cbz",
+        "Ch.0227 - Gangster (en) [First Division Scanlations].cbz",
+        "Ch.0228 - Beat Hell Out of (en) [First Division Scanlations].cbz",
+        "Ch.0229 - Go Easy on (en) [First Division Scanlations].cbz",
+        "Ch.0230 - Get Stuck-up (en) [First Division Scanlations].cbz",
+        "Ch.0231 - Blood-Chilling (en) [First Division Scanlations].cbz",
+        "Ch.0232 - It Takes Two to Tango  (en) [First Division Scanlations].cbz",
+        "Ch.0233 - Better Late Than Never (en) [First Division Scanlations].cbz",
+        "Ch.0234 - There is no Mending (en) [First Division Scanlations].cbz",
+        "Ch.0235 - Just Be Yourself  (en) [First Division Scanlations].cbz",
+        "Ch.0236 - Band of Brothers  (en) [First Division Scanlations].cbz",
+        "Ch.0237 - Make Allies  (en) [First Division Scanlations].cbz",
+        "Ch.0238 - Really Into It (en) [First Division Scanlations].cbz",
+        "Ch.0239 - Steel The Show (en) [First Division Scanlations].cbz",
+        "Ch.0240 - Go Into Retirement  (en) [First Division Scanlations].cbz",
+        "Ch.0241 - A Forced Smile (en) [First Division Scanlations].cbz",
+        "Ch.0242 - Inherit The Crown (en) [First Division Scanlations].cbz",
+        "Ch.0243 - Wide Array Of (en) [First Division Scanlations].cbz",
+        "Ch.0244 - The Showdown Battle (en) [First Division Scanlations].cbz",
+        "Ch.0245 - Grow Up To (en) [First Division Scanlations].cbz",
+        "Ch.0246 - Giant Killing  (en) [First Division Scanlations].cbz",
+        "Ch.0247 - Hey Dude (en) [First Division Scanlations].cbz",
+        "Ch.38 - Kouhai-chan, Part 12.cbz",
+        "Ch.39 - Ai-chan, Part 14.cbz",
+        "Ch.40 - Maegami-chan, Part 14.cbz",
+        "Ch.41 - Kouhai-chan, Part 13.cbz",
+        "Ch.42 - Imouto-chan, Part 1.cbz",
+        "Ch.43 - Maegami-chan, Part 15.cbz",
+        "Ch.44 - Ai-chan, Part 15.cbz",
+        "Ch.45 - Kouhai-chan, Part 14.cbz",
+        "Ch.46 - Maegami-chan, Part 16.cbz",
+        "Ch.47 - Ai-chan, Part 16.cbz",
+        "Ch.48 - Jitome-chan, Part 1.cbz",
+        "Ch.49 - Imouto-chan, Part 2.cbz",
+        "Ch.50 - Jitome-chan, Part 2.cbz",
+        "Ch.51 - Kouhai-chan, Part 15.cbz",
+        "Daughter of Evil - 1 - Clôture of Yellow.epub",
+        "Daughter of Evil - 2 - Wiegenlied of Green.epub",
+        "Daughter of Evil - 3 - Praeludium of Red.epub",
+        "Daughter of Evil - 4 - Praefacio of Blue.epub",
+        "Death Note - Bonus Chapter (Ch109, One-Shot) (VizMedia - All in One Edition, Scan, PNG).cbz",
+        "Devils' Line - Extra 1.5 (2019) (Digital) (danke-Empire).cbz",
+        "Don't XXX With Teachers! 030.2 (2022) (Digital) (Gremory)",
+        "Final Chapter - To All of You in 2016.cbz",
+        "Ghosts of Greywoods - Act 001, Epilogue (Digital) (i -like.yuri).cbz",
+        "Grand Blue Dreaming - Extra (2020) (Digital) (danke-Empire).cbz",
+        "Grand Blue Dreaming 61 Extra (2021) (Digital) (Edge).cbz",
+        "Grand Blue Dreaming 62 Extra (2021) (Digital) (Edge).cbz",
+        "Grand Blue Dreaming 65 Extra (2021) (Digital) (Edge).cbz",
+        "Grand Blue Dreaming 74 Extra + Artwork (2022) (Digital).cbz",
+        "Grand Blue Dreaming 75 + Artwork (2022) (Digital).cbz",
+        "Grand Blue Dreaming 75 Extra + Artwork (2022) (Digital).cbz",
+        "Grimgar of Fantasy and Ash - Volume 14+ [J-Novel Club][Premium].epub",
+        "Grimgar of Fantasy and Ash - Volume 14++ [J-Novel Club][Premium].epub",
+        "Grimgar of Fantasy and Ash LN 14+ Premium [C2].epub",
+        "Grimgar of Fantasy and Ash LN 14+ Premium [C].epub",
+        "Grimgar of Fantasy and Ash LN 14++ Premium [C2].epub",
+        "Grimgar of Fantasy and Ash LN 14++ Premium [C].epub",
+        "Grimgar of Fantasy and Ash v14+ [Premium].epub",
+        "Grimgar of Fantasy and Ash v14++ [Premium].epub",
+        "Gundam Acguy - 2250 Miles Across North America.cbz",
+        "Haganai, I Don't Have Many Friends {Special One-Shot 1} - Now With 50% More Fail! (2014) (Digital) (KG Manga).cbz",
+        "Haganai, I Don't Have Many Friends {Special One-Shot 2} - Club Minutes (2014) (Digital) (KG Manga).cbz",
+        "Hey! You’ve Kidnapped the Wrong Royal! [Cross Infinite World] [1r0n].epub",
+        "I Reincarnated As Evil Alice, So the Only Thing I’m Courting Is Death! - 01 [C2].epub",
+        "I Reincarnated As Evil Alice, So the Only Thing I’m Courting Is Death! - 01 [C].epub",
+        "I Reincarnated As Evil Alice, So the Only Thing I’m Courting Is Death! - 01.epub",
+        "I Was a Bottom-Tier Bureaucrat for 1,500 Years, and the Demon King Made Me a Minister [Yen Press] [LuCaZ].epub",
+        "I Was a Bottom-Tier Bureaucrat for 1,500 Years, and the Demon King Made Me a Minister.cbz",
+        "Ichigo 100% East Side Story.cbz",
+        "Inside Mari (v02) (2019) (Digital) (t3dio).cbz",
+        "Inside Mari (v03) (2019) (Digital) (t3dio).cbz",
+        "Inside Mari (v04) (2019) (Digital) (t3dio).cbz",
+        "Inside Mari (v05) (2019) (Digital) (t3dio).cbz",
+        "Inside Mari (v06) (2020) (Digital) (t3dio).cbz",
+        "Inside Mari (v07) (2021) (Digital) (t3dio).cbz",
+        "Inside Mari (v08) (2021) (Digital) (t3dio).cbz",
+        "KA Esuma Bunko Relay Booklet 2020.epub",
+        "Kamijou-san, Two Idiots, Jinnai Shinobu, Gray Pig, and Freedom Award 903, Listen Up! …Fall Asleep and You Die, But Not From the Cold.epub",
+        "Kingdom Hearts - Chain of Memories - Complete (Volume 01-02) [Yen Press][Kindle-Kobo].epub",
+        "Kingdom Hearts 358-2 Days - Complete (Volume 01-03) [Yen Press][Kindle-Kobo].epub",
+        "KinSP-Curry Cook -The Holy Man Of Love And Fury- Part 1.cbz",
+        "KinSP-Curry Cook -The Holy Man Of Love And Fury- Part 2.cbz",
+        "Made in Abyss Official Anthology - Layer 01 - Irredeemable Cave Raiders (2020) (Digital) (danke-Empire).cbz",
+        "Magilumiere Co. Ltd. 087 - Victory Prospects and Business Avenues (2023) (Digital) (Rillant).cbz",
+        "Magilumiere Co. Ltd. 088 - Kamakura-san's House Party (2023) (Digital) (Rillant).cbz",
+        "Magilumiere Co. Ltd. 089 - A Grand Assembly (2023) (Digital) (Rillant).cbz",
+        "Magilumiere Co. Ltd. 090 - RABBIT (2023) (Digital) (Rillant).cbz",
+        "Magilumiere Co. Ltd. 091 - Infiltration (2023) (Digital) (Rillant).cbz",
+        "Magilumiere Co. Ltd. 092 - Responsibility and Results (2023) (Digital) (Rillant).cbz",
+        "Magilumiere Co. Ltd. 093 - Restart (2023) (Digital) (Rillant).cbz",
+        "Magilumiere Co. Ltd. 094 - A Promise (2023) (Digital) (Rillant).cbz",
+        "Magilumiere Co. Ltd. 095 - Vow (2023) (Digital) (Rillant).cbz",
+        "Magilumiere Co. Ltd. 096 - Welcome to Magilumiere (2023) (Digital) (Rillant).cbz",
+        "Magilumiere Co. Ltd. 097 - Kaii Control Chip (2023) (Digital) (Rillant).cbz",
+        "Magilumiere Co. Ltd. 098 - MP-Charge-Kun (2024) (Digital) (Rillant).cbz",
+        "Magilumiere Co. Ltd. 099 - Gratitude (2024) (Digital) (Rillant).cbz",
+        "Magilumiere Co. Ltd. 100 - A Fun Job (2024) (Digital) (Rillant).cbz",
+        "Magilumiere Co. Ltd. 101 - Ruin and Revival (2024) (Digital) (Rillant).cbz",
+        "Magilumiere Co. Ltd. 101.1 - Bonus Chapter 4 (2024) (Digital) (Rillant).cbz",
+        "Magilumiere Co. Ltd. 102 - Reopen (2024) (Digital) (Rillant).cbz",
+        "Magilumiere Co. Ltd. 103 - Magikyu!! (2024) (Digital) (Rillant).cbz",
+        "Magilumiere Co. Ltd. 104 - 'Tis Time for 'Torture,' Kurairi-sama (2024) (Digital) (Rillant).cbz",
+        "Mobile Suit Gundam Silhouette Formula 91 (Complete).cbz",
+        "MOBILE SUIT GUNDAM THE ORIGIN  Section 100.cbz",
+        "MOBILE SUIT GUNDAM THE ORIGIN  Section 98.cbz",
+        "MOBILE SUIT GUNDAM THE ORIGIN  Section 99.cbz",
+        "Musume Janakute, Mama ga Sukinano SS1 + extra illustrations.epub",
+        "Musume Janakute, Mama ga Sukinano SS2 + extra illustrations.epub",
+        "My Stepmom's Daughter Is My Ex v01.epub",
+        "One Piece - Romance Dawn ver. 1.cbz",
+        "One Piece - Strong World (Chapter 0 [aka Chapter 565.5]).cbz",
+        "One Piece 1054 v01 [official] [upscaled].cbz",
+        "Owari no Chronicle 1-A.epub",
+        "Owari no Chronicle 1-B.epub",
+        "Owari no Chronicle 2-A.epub",
+        "Owari no Chronicle 2-B.epub",
+        "Owari no Chronicle 3-A.epub",
+        "Owari no Chronicle 3-B.epub",
+        "Owari no Chronicle 3-C.epub",
+        "Owari no Chronicle 4-A.epub",
+        "Owari no Chronicle 4-B.epub",
+        "Owari no Chronicle 5-A.epub",
+        "Owari no Chronicle 5-B.epub",
+        "Owari no Chronicle 6-A.epub",
+        "Owari no Chronicle 6-B.epub",
+        "Owari no Chronicle 7.epub",
+        "Rakudai Kishi no Eiyuutan - 01.epub",
+        "Rakudai Kishi no Eiyuutan - 02.epub",
+        "Rakudai Kishi no Eiyuutan - 03.epub",
+        "Rakudai Kishi no Eiyuutan - 04.epub",
+        "Rakudai Kishi no Eiyuutan - 05.epub",
+        "Rakudai Kishi no Eiyuutan - 06.epub",
+        "Rakudai Kishi no Eiyuutan - 07.epub",
+        "Rakudai Kishi no Eiyuutan - 08.epub",
+        "Rakudai Kishi no Eiyuutan - 09.epub",
+        "Rakudai Kishi no Eiyuutan - 10.epub",
+        "Rakudai Kishi no Eiyuutan - 11.epub",
+        "Reflection of Another World Volume v01 [Cross Infinite World] [Stick].epub",
+        "Return of the 8th Class Magician - Season 1 - Swaggy Repacks.cbz",
+        "Saki Biyori BG Chapter 45-46.cbz",
+        "Saki Biyori BG Chapter 47-48.cbz",
+        "Saki Biyori BG Chapter 50-51.cbz",
+        "Saki Biyori BG Chapter 52-53 v2.cbz",
+        "Saki Biyori BG Chapter 54-55.cbz",
+        "Saki Biyori BG Chapter 56-57_v2.cbz",
+        "Saki Biyori BG Chapter 58-59.cbz",
+        "Saki Biyori BG Chapter 62_v2.cbz",
+        "Saki v08 extra.cbz",
+        "Saki volume 8 extra.cbz",
+        "Sensei de ○○ Shicha Ikemasen! (Don't XXX With Teachers!) Chapter 26.3.cbz",
+        "Sensei de ○○ Shicha Ikemasen! (Don't XXX With Teachers!) Chapter 30.1- 32.cbz",
+        "Sensei de ○○ Shicha Ikemasen! (Don't XXX With Teachers!) Chapter 33.3- 34.cbz",
+        "Shojo Fight 18 - Yoko Nihonbashi.cbz",
+        "Shoku King (v02) [Digital] [Tikas].cbz",
+        "Shoku King (v03) [Digital] [Tikas].cbz",
+        "Shoku King (v04) [Digital] [Tikas].cbz",
+        "Shoku King (v05) [Digital] [Tikas].cbz",
+        "Shoku King (v06) [Digital] [Tikas].cbz",
+        "Shoku King (v07) [Digital] [Tikas].cbz",
+        "Shoku King (v08) [Digital] [Tikas].cbz",
+        "Shoku King (v09) [Digital] [Tikas].cbz",
+        "Shoku King (v10) [Digital] [Tikas].cbz",
+        "Shoku King (v11) [Digital] [Tikas].cbz",
+        "Shoku King (v12) [Digital] [Tikas].cbz",
+        "Shoku King (v13) [Digital] [Tikas].cbz",
+        "Shoku King (v14) [Digital] [Tikas].cbz",
+        "Shoku King (v15) [Digital] [Tikas].cbz",
+        "Shoku King (v16) [Digital] [Tikas].cbz",
+        "Shoku King (v17) [Digital] [Tikas].cbz",
+        "Shoku King (v18) [Digital] [Tikas].cbz",
+        "Shoku King (v19) [Digital] [Tikas].cbz",
+        "Shoku King (v20) [Digital] [Tikas].cbz",
+        "Shoku King (v21) [Digital] [Tikas].cbz",
+        "Shoku King (v22) [Digital] [Tikas].cbz",
+        "Shoku King (v23) [Digital] [Tikas].cbz",
+        "Shoku King (v24) [Digital] [Tikas].cbz",
+        "Shoku King (v25) [Digital] [Tikas].cbz",
+        "Shoku King (v26) [Digital] [Tikas].cbz",
+        "Shoku King (v27) [Digital] [Tikas].cbz",
+        "Skeleton Double 031 - CH. 31 SHOKO YOROIBATA (2023) (Digital) (Rillant).cbz",
+        "Skeleton Double 032 - CH. 32 SPRING AND STRIFE (2024) (Digital) (Rillant).cbz",
+        "Spy x Family 065 v01 [official] [upscaled].cbz",
+        "SSS-Class Suicide Hunter 04 v01 [epub].epub",
+        "Starting Point - 1979-1996 [VIZ Media] [LuCaZ].epub",
+        "Sweetness and Lightning Extra 1 (2018) (Digital) (danke-Empire).cbz",
+        "The Irregular at Magic High School v13v2 v01 [Yen Press] [-KS-].epub",
+        "The Irregular at Magic High School v13v2 [Yen Press] [-KS-] [C2].epub",
+        "The Irregular at Magic High School v13v2 [Yen Press] [-KS-].epub",
+        "The Irregular at Magic High School x Sword Art Online Crossover - Part 1 - Dream Game [C2].epub",
+        "The Irregular at Magic High School x Sword Art Online Crossover - Part 1 - Dream Game.epub",
+        "The Irregular at Magic High School x Sword Art Online Crossover - Part 2 - Versus II [C2].epub",
+        "The Irregular at Magic High School x Sword Art Online Crossover - Part 2 - Versus II.epub",
+        "The Ryuo_s Work is Never Done!, Vol. 15.epub",
+        "The Ryuo_s Work is Never Done!, Vol. 3.epub",
+        "The Ryuo_s Work is Never Done!, Vol. 4.epub",
+        "the-engagement-of-marielle-clarac v01 [Premium].epub",
+        "the-engagement-of-marielle-clarac v01.epub",
+        "Turning Point - 1997-2008 [VIZ Media] [LuCaZ].epub",
+        "Where to Go in a Whole Other World 024 - 4- A Little Shrine in a Whole Other World (2021) (Digital) (AntsyLich).cbz",
+        "ご注文はうさぎですか？ 第5巻 v01.cbz",
+        "ご注文はうさぎですか？ 第5巻.cbz",
+    ]
 
-    # for each row in the dataframe
-    for index, row in df.iterrows():
-        # get the file name
-        file_name = row["File Name"]
-        # file_name = "Skeleton Double 031 - CH. 31 SHOKO YOROIBATA (2023) (Digital) (Rillant).cbz"
-        # if (
-        #     file_name
-        #     != "Magilumiere Co. Ltd. 101.1 - Bonus Chapter 4 (2024) (Digital) (Rillant).cbz"
-        # ):
-        #     continue
+    # 1. Open the file
+    with open(csv_file, mode="r", newline="", encoding="utf-8") as file:
+        # 2. Use DictReader to treat rows as dictionaries (keys are headers)
+        csv_reader = csv.DictReader(file)
 
-        series_name = row["Series Name"]
-        file_type = (
-            "chapter"
-            if (
-                not contains_volume_keywords(file_name)
-                and contains_chapter_keywords(file_name)
+        # 3. Convert the iterator to a list for length/indexing (like Pandas)
+        rows = list(csv_reader)
+        total_rows = len(rows)
+
+        # for each row in the dataframe
+        for index, row in enumerate(rows):
+            # get the file name
+            file_name = row["File Name"]
+
+            print(f"[{index+1}/{total_rows}] {file_name}")
+
+            if file_name in skipped_files:
+                print(f"  - Skipping validation")
+                continue
+
+            series_name = row["Series Name"]
+            file_type = (
+                "chapter"
+                if (
+                    not contains_volume_keywords(file_name)
+                    and contains_chapter_keywords(file_name)
+                )
+                else "volume"
             )
-            else "volume"
-        )
 
-        print(f"[{index+1}/{len(df)}] {file_name}")
+            # get the release number
+            release_number = row["Release Number"]
 
-        # get the release number
-        release_number = row["Release Number"]
+            if str(release_number).startswith("["):
+                # remove first and last character to remove brackets
+                release_number = release_number[1:-1]
 
-        if str(release_number).startswith("["):
-            # remove first and last character to remove brackets
-            release_number = release_number[1:-1]
+                # convert to min and max
+                release_number = get_min_and_max_numbers(release_number)
 
-            # convert to min and max
-            release_number = get_min_and_max_numbers(release_number)
+            # convert from string
+            release_number_convt = set_num_as_float_or_int(release_number)
 
-        # convert from string
-        release_number_convt = set_num_as_float_or_int(release_number)
-
-        # the parsed number via the script
-        script_release_number = set_num_as_float_or_int(
-            get_release_number_cache(file_name, chapter=file_type == "chapter")
-        )
-
-        is_one_shot_status = is_one_shot(file_name, skip_folder_check=True)
-
-        if not script_release_number and is_one_shot_status:
-            script_release_number = 1
-
-        # get the series name
-        script_series_name = (
-            get_series_name_from_chapter(file_name, ROOT_DIR, script_release_number)
-            if file_type == "chapter"
-            else get_series_name_from_volume(file_name, ROOT_DIR, test_mode=True)
-        )
-
-        # validate that the release number in the csv is correct
-        if script_release_number != release_number_convt:
-            incorrect_release_numbers.append(
-                IncorrectItem(file_name, release_number_convt, script_release_number)
+            # the parsed number via the script
+            script_release_number = set_num_as_float_or_int(
+                get_release_number_cache(file_name, chapter=file_type == "chapter")
             )
 
-        # validate that the series name in the csv is correct
-        if script_series_name != series_name:
-            incorrect_series_names.append(
-                IncorrectItem(file_name, series_name, script_series_name)
+            is_one_shot_status = is_one_shot(file_name, skip_folder_check=True)
+
+            if not script_release_number and is_one_shot_status:
+                script_release_number = 1
+
+            # get the series name
+            script_series_name = (
+                get_series_name_from_chapter(file_name, ROOT_DIR, script_release_number)
+                if file_type == "chapter"
+                else get_series_name_from_volume(file_name, ROOT_DIR, test_mode=True)
             )
 
-        # validate that the file type in the csv is correct
-        if file_type != row["File Type"]:
-            incorrect_file_types.append(
-                IncorrectItem(file_name, row["File Type"], file_type)
-            )
+            # validate that the release number in the csv is correct
+            if script_release_number != release_number_convt:
+                incorrect_release_numbers.append(
+                    IncorrectItem(
+                        file_name, release_number_convt, script_release_number
+                    )
+                )
+
+            # validate that the series name in the csv is correct
+            if script_series_name != series_name:
+                incorrect_series_names.append(
+                    IncorrectItem(file_name, series_name, script_series_name)
+                )
+
+            # validate that the file type in the csv is correct
+            if file_type != row["File Type"]:
+                incorrect_file_types.append(
+                    IncorrectItem(file_name, row["File Type"], file_type)
+                )
 
     if len(incorrect_release_numbers) > 0:
         print("\nThe following release numbers are incorrect:")
@@ -1622,8 +1879,6 @@ def validate_csv():
             print(
                 f"\n\t{file_name.file_name}\n\t\t{file_name.item_one} != {file_name.item_two}"
             )
-    else:
-        print("\nAll release numbers are correct")
 
     if len(incorrect_series_names) > 0:
         print("\nThe following series names are incorrect:")
@@ -1631,8 +1886,6 @@ def validate_csv():
             print(
                 f"\n\t{file_name.file_name}\n\t\t{file_name.item_one} != {file_name.item_two}"
             )
-    else:
-        print("\nAll series names are correct")
 
     if len(incorrect_file_types) > 0:
         print("\nThe following file types are incorrect:")
@@ -1640,8 +1893,12 @@ def validate_csv():
             print(
                 f"\n\t{file_name.file_name}\n\t\t{file_name.item_one} != {file_name.item_two}"
             )
-    else:
-        print("\nAll file types are correct")
+
+    assert (
+        len(incorrect_release_numbers) == 0
+        and len(incorrect_series_names) == 0
+        and len(incorrect_file_types) == 0
+    )
 
 
 # tests contains_unicode(input_string)
@@ -1674,7 +1931,7 @@ def test_contains_brackets():
 
 if __name__ == "__main__":
     validate_csv()
-    test_rename_files()
+    # test_rename_files()
     test_set_num_as_float_or_int()
     test_remove_hidden_files()
     test_remove_ignored_folders()
