@@ -2083,7 +2083,11 @@ def process_files_and_folders(
 
 # Retrieves the file extension on the passed file
 def get_file_extension(file):
-    return Path(file).suffix
+    suffix = Path(file).suffix
+    # Handle edge case where filename ends with a dot (e.g., "test.")
+    if not suffix and file.endswith("."):
+        return "."
+    return suffix
 
 
 # Gets the predicted file extension from the file header using filetype
@@ -2109,7 +2113,11 @@ def get_header_extension(file):
 
 # Returns an extensionless name
 def get_extensionless_name(file):
-    return str(Path(file).with_suffix(""))
+    result = str(Path(file).with_suffix(""))
+    # Handle edge case where filename ends with a dot (e.g., "test.")
+    if result.endswith("."):
+        result = result.rstrip(".")
+    return result
 
 
 # Retrives the series name from matching the folder name and the file names

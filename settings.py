@@ -143,7 +143,7 @@ ranked_keywords = []
 
 ############################# MISC #############################
 # Folder names to be ignored
-ignored_folder_names = []
+ignored_folder_names = ["test"]
 
 # Outputs errors and changes to a log file
 log_to_file = False
