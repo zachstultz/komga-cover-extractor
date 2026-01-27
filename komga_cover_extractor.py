@@ -47,7 +47,7 @@ import settings as settings_file
 from settings import *
 
 # Version of the script
-script_version = (2, 5, 37)
+script_version = (2, 5, 38)
 script_version_text = "v{}.{}.{}".format(*script_version)
 
 # Paths = existing library
@@ -223,7 +223,7 @@ library_types = [
     LibraryType(
         "manga",  # name
         manga_extensions,  # extensions
-        [r"\(Digital\)"],  # must_contain
+        [r"\(Digital(\s(SD|HD))?\)"],  # must_contain
         [
             r"Webtoon",
             r"^(?=.*Digital)((?=.*Compilation)|(?=.*danke-repack))",
@@ -3202,16 +3202,12 @@ release_group_end_regex = re.compile(
 def get_extra_from_group(
     name, groups, publisher_m=False, release_group_m=False, series_name=None
 ):
-    if (
-        not groups
-        or (publisher_m and not publishers_joined)
-        or (release_group_m and not release_groups_joined)
-    ):
+    if publisher_m and not publishers_joined:
         return ""
 
     search = ""
 
-    if publisher_m and publishers_joined_regex and contains_brackets(name):
+    if groups and publisher_m and publishers_joined_regex and contains_brackets(name):
         search = publishers_joined_regex.search(name)
         if search:
             search = search.group()
@@ -3233,7 +3229,12 @@ def get_extra_from_group(
         if search:
             search = search.group(1)
 
-        if not search and release_groups_joined_regex and contains_brackets(name):
+        if (
+            not search
+            and groups
+            and release_groups_joined_regex
+            and contains_brackets(name)
+        ):
             search = release_groups_joined_regex.findall(name)
             if search:
                 search = search[-1]  # use the last element
@@ -4271,7 +4272,7 @@ def write_to_file(
 
                     with open(log_file_path, append_write) as f:
                         if without_timestamp:
-                            f.write(f"\n {message}")
+                            f.write(f"\n{message}")
                         else:
                             f.write(f"\n{dt_string} {message}")
                     write_status = True
@@ -6053,11 +6054,14 @@ def replace_underscores(name):
 
 # Reorganizes the passed array list by pulling the first letter of the string passed
 # and inserting all matched items into the passed position of the array list
-def organize_by_first_letter(array_list, string, position_to_insert_at, exclude=None):
+def organize_by_first_letter(
+    array_list, string, position_to_insert_at, exclude=None, silent=False
+):
     if not string:
-        print(
-            "First letter of file name was not found, skipping reorganization of array list."
-        )
+        if not silent:
+            print(
+                "First letter of file name was not found, skipping reorganization of array list."
+            )
         return array_list
 
     if position_to_insert_at < 0 or position_to_insert_at >= len(array_list):
@@ -10928,6 +10932,7 @@ def generate_rename_lists(skipped_release_group_files=[], skipped_publisher_file
     global release_groups, publishers
 
     # A low-compute helper to strip the surrounding brackets without regex
+    @lru_cache(maxsize=2)
     def strip_brackets(s):
         if s and s[0] in "([{":
             s = s[1:]
