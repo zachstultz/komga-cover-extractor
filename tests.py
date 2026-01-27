@@ -482,6 +482,12 @@ def test_get_series_name_from_chapter():
         == "A Cursed Sword's Daily Life"
     )
     assert get_series_name_from_chapter("4 Cut Hero c100.4.cbz", 100.4) == "4 Cut Hero"
+    assert (
+        get_series_name_from_chapter(
+            "2.5 Dimensional Seduction 199-200 (2025) (Digital) (Rillant).cbz", 199
+        )
+        == "2.5 Dimensional Seduction"
+    )
 
 
 # test def get_folder_type(files, file_type):
@@ -619,6 +625,12 @@ def test_check_for_multi_volume_file():
     assert check_for_multi_volume_file("DAR Volumes.01 (2022).cbz") == False
     assert check_for_multi_volume_file("DAR Volumes. 01 (2022).cbz") == False
     assert check_for_multi_volume_file("4 Cut Hero c100.4.cbz") == False
+    assert (
+        check_for_multi_volume_file(
+            "2.5 Dimensional Seduction 199-200 (2025) (Digital) (Rillant).cbz", True
+        )
+        == True
+    )
 
 
 # test def get_min_and_max_numbers(string):
@@ -952,6 +964,9 @@ def test_get_release_number_cache():
         )
         == ""
     )
+    assert get_release_number_cache(
+        "2.5 Dimensional Seduction 199-200 (2025) (Digital) (Rillant).cbz", True
+    ) == [199, 200]
 
 
 # test def get_volume_year(name):
@@ -1396,7 +1411,9 @@ def test_organize_by_first_letter():
     exclude = None
     expected_result = ["apple", "banana", "cherry"]
     assert (
-        organize_by_first_letter(array_list, string, position_to_insert_at, exclude)
+        organize_by_first_letter(
+            array_list, string, position_to_insert_at, exclude, silent=True
+        )
         == expected_result
     )
 
@@ -1407,7 +1424,9 @@ def test_organize_by_first_letter():
     exclude = "banana"
     expected_result = ["apple", "cherry", "banana"]
     assert (
-        organize_by_first_letter(array_list, string, position_to_insert_at, exclude)
+        organize_by_first_letter(
+            array_list, string, position_to_insert_at, exclude, silent=True
+        )
         == expected_result
     )
 
@@ -1418,7 +1437,9 @@ def test_organize_by_first_letter():
     exclude = None
     expected_result = ["apple", "banana", "cherry"]
     assert (
-        organize_by_first_letter(array_list, string, position_to_insert_at, exclude)
+        organize_by_first_letter(
+            array_list, string, position_to_insert_at, exclude, silent=True
+        )
         == expected_result
     )
 
@@ -1429,7 +1450,9 @@ def test_organize_by_first_letter():
     exclude = None
     expected_result = ["apple", "banana"]
     assert (
-        organize_by_first_letter(array_list, string, position_to_insert_at, exclude)
+        organize_by_first_letter(
+            array_list, string, position_to_insert_at, exclude, silent=True
+        )
         == expected_result
     )
 
@@ -1440,7 +1463,9 @@ def test_organize_by_first_letter():
     exclude = "banana"
     expected_result = ["apple", "banana"]
     assert (
-        organize_by_first_letter(array_list, string, position_to_insert_at, exclude)
+        organize_by_first_letter(
+            array_list, string, position_to_insert_at, exclude, silent=True
+        )
         == expected_result
     )
 
@@ -1451,7 +1476,9 @@ def test_organize_by_first_letter():
     exclude = None
     expected_result = ["apple", "banana"]
     assert (
-        organize_by_first_letter(array_list, string, position_to_insert_at, exclude)
+        organize_by_first_letter(
+            array_list, string, position_to_insert_at, exclude, silent=True
+        )
         == expected_result
     )
 
@@ -1462,7 +1489,9 @@ def test_organize_by_first_letter():
     exclude = None
     expected_result = ["apple"]
     assert (
-        organize_by_first_letter(array_list, string, position_to_insert_at, exclude)
+        organize_by_first_letter(
+            array_list, string, position_to_insert_at, exclude, silent=True
+        )
         == expected_result
     )
 
@@ -1473,7 +1502,9 @@ def test_organize_by_first_letter():
     exclude = "banana"
     expected_result = ["apple"]
     assert (
-        organize_by_first_letter(array_list, string, position_to_insert_at, exclude)
+        organize_by_first_letter(
+            array_list, string, position_to_insert_at, exclude, silent=True
+        )
         == expected_result
     )
 
@@ -1484,7 +1515,9 @@ def test_organize_by_first_letter():
     exclude = None
     expected_result = ["apple"]
     assert (
-        organize_by_first_letter(array_list, string, position_to_insert_at, exclude)
+        organize_by_first_letter(
+            array_list, string, position_to_insert_at, exclude, silent=True
+        )
         == expected_result
     )
 
@@ -1495,7 +1528,9 @@ def test_organize_by_first_letter():
     exclude = None
     expected_result = ["apple", "banana", "cherry"]
     assert (
-        organize_by_first_letter(array_list, string, position_to_insert_at, exclude)
+        organize_by_first_letter(
+            array_list, string, position_to_insert_at, exclude, silent=True
+        )
         == expected_result
     )
 
@@ -1506,7 +1541,9 @@ def test_organize_by_first_letter():
     exclude = ""
     expected_result = ["apple", "cherry", "banana"]
     assert (
-        organize_by_first_letter(array_list, string, position_to_insert_at, exclude)
+        organize_by_first_letter(
+            array_list, string, position_to_insert_at, exclude, silent=True
+        )
         == expected_result
     )
 
@@ -1517,7 +1554,9 @@ def test_organize_by_first_letter():
     exclude = None
     expected_result = ["apple", "banana", "cherry"]
     assert (
-        organize_by_first_letter(array_list, string, position_to_insert_at, exclude)
+        organize_by_first_letter(
+            array_list, string, position_to_insert_at, exclude, silent=True
+        )
         == expected_result
     )
 
