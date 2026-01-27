@@ -199,12 +199,13 @@ def get_torrents(qb):
 
 
 # Returns a list of any files containing unacceptable keywords
-def exclude_unacceptable_files(files, unacceptable_regexes):
+def exclude_unacceptable_files(files, precompiled_regexes):
     return [
         file
         for file in files
-        if re.search(
-            "|".join(unacceptable_regexes), os.path.basename(file.name), re.IGNORECASE
+        if any(
+            pattern.search(os.path.basename(file.name))
+            for pattern in precompiled_regexes
         )
     ]
 
@@ -236,10 +237,9 @@ def check_upgrade_or_new(volume, existing_files):
     return [volume.name]
 
 
-# Joins all the unacceptable keywords into a single regex
-# for faster searching
-modified_keywords = (
-    [rf"({keyword})" for keyword in unacceptable_keywords]
+# Precompile each unacceptable keyword regex individually for faster searching
+precompiled_unacceptable_patterns = (
+    [re.compile(rf"{keyword}", re.IGNORECASE) for keyword in unacceptable_keywords]
     if unacceptable_keywords
     else []
 )
@@ -247,12 +247,14 @@ modified_keywords = (
 
 # Checks if the torrent name contains unacceptable keywords
 def has_unacceptable_keywords(torrent):
-    if re.search("|".join(modified_keywords), torrent.name, re.IGNORECASE):
+    found = any(
+        pattern.search(torrent.name) for pattern in precompiled_unacceptable_patterns
+    )
+    if found:
         send_message_alt(
             f"\n\t\tTorrent: `{torrent.name}` contains an unacceptable keyword."
         )
-        return True
-    return False
+    return found
 
 
 # Processes file names, removing excluded files
@@ -361,7 +363,7 @@ def check_files(torrent, files, qb):
     files_to_exclude = []
 
     # Check for unacceptable keywords and delete corresponding files if toggle is enabled
-    if modified_keywords and delete_unacceptable_files_toggle:
+    if precompiled_unacceptable_patterns and delete_unacceptable_files_toggle:
         print("\n\tChecking for unacceptable keywords")
 
         # check torent title first
@@ -371,7 +373,9 @@ def check_files(torrent, files, qb):
             files_to_exclude = files
             return files_to_exclude
 
-        files_to_exclude.extend(exclude_unacceptable_files(files, modified_keywords))
+        files_to_exclude.extend(
+            exclude_unacceptable_files(files, precompiled_unacceptable_patterns)
+        )
         for excluded_file in files_to_exclude:
             base_name = os.path.basename(excluded_file.name)
             print(f"\n\t\tFile: {base_name} contains an unacceptable keyword.")
