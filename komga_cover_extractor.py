@@ -47,7 +47,7 @@ import settings as settings_file
 from settings import *
 
 # Version of the script
-script_version = (2, 5, 38)
+script_version = (2, 5, 39)
 script_version_text = "v{}.{}.{}".format(*script_version)
 
 # Paths = existing library
@@ -234,7 +234,7 @@ library_types = [
         "light novel",  # name
         novel_extensions,  # extensions
         [
-            r"\[[^\]]*(Lucaz|Stick|Oak|Yen (Press|On)|J-Novel|Seven Seas|Vertical|One Peace Books|Cross Infinite|Sol Press|Hanashi Media|Kodansha|Tentai Books|SB Creative|Hobby Japan|Impress Corporation|KADOKAWA|Viz Media)[^\]]*\]|(faratnis)"
+            r"\[[^\]]*(Lucaz|Stick|Oak|Yen (Press|On)|J-Novel|Seven Seas|Vertical|One Peace Books|Cross Infinite|Sol Press|Hanashi Media|Kodansha|Tentai Books|SB Creative|Hobby Japan|Impress Corporation|KADOKAWA|Viz Media|Tokyopop|Inori Books|Wuxiaworld)[^\]]*\]|(faratnis)"
         ],  # must_contain
         [],  # must_not_contain
     ),
@@ -7004,10 +7004,10 @@ def check_for_existing_series(
                                             print(f"\t\t\t\t{existing_file_meta}")
 
                                             if (
-                                                dl_meta_set.intersection(
+                                                f.root not in directories_found
+                                                and dl_meta_set.intersection(
                                                     set(existing_file_meta)
                                                 )
-                                                and f.root not in directories_found
                                             ):
                                                 directories_found.append(f.root)
                                                 matched_ids.extend(
@@ -10849,18 +10849,18 @@ def scan_komga_library(library_id, library_name):
         )
         if request.status_code == 202:
             send_message(
-                f"\t\tSuccessfully Initiated Scan for: '{library_name}' Library.",
+                f'\t\tSuccessfully Initiated Scan for: "{library_name}" Library.',
                 discord=False,
             )
         else:
             send_message(
-                f"\t\tFailed to Initiate Scan for: '{library_name}' ({library_id}) Library "
+                f'\t\tFailed to Initiate Scan for: "{library_name}" ({library_id}) Library '
                 f"Status Code: {request.status_code} Response: {request.text}",
                 error=True,
             )
     except Exception as e:
         send_message(
-            f"Failed to Initiate Scan for: '{library_name}' ({library_id}) Komga Library, ERROR: {e}",
+            f'Failed to Initiate Scan for: "{library_name}" ({library_id}) Komga Library, ERROR: {e}',
             error=True,
         )
 
@@ -10932,7 +10932,6 @@ def generate_rename_lists(skipped_release_group_files=[], skipped_publisher_file
     global release_groups, publishers
 
     # A low-compute helper to strip the surrounding brackets without regex
-    @lru_cache(maxsize=2)
     def strip_brackets(s):
         if s and s[0] in "([{":
             s = s[1:]
