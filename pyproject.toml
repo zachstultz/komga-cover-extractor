@@ -1,0 +1,32 @@
+# pyproject.toml — pytest characterization safety-net configuration.
+#
+# This file ONLY configures the new pytest suite under tests/. It deliberately
+# does NOT declare the project's runtime build (the app ships as a single script
+# + requirements.txt + Dockerfile, unchanged). The legacy custom runner
+# `python3 tests.py` and the Docker/CI pipeline are untouched by this file.
+#
+# Dev setup:
+#   uv venv --python 3.13 .venv
+#   uv pip install -r requirements.txt
+#   uv pip install -r requirements-dev.txt   # pytest
+#   .venv/bin/pytest -q
+
+[tool.pytest.ini_options]
+# Only collect the new suite. tests.py (the legacy bespoke runner) lives at repo
+# root and is never auto-collected because testpaths is pinned to tests/.
+testpaths = ["tests"]
+# Make the repo root importable (`import komga_cover_extractor` / `settings`) AND
+# the tests/ dir importable for shared helpers (`from _kce_support import ...`,
+# `from regression_gate import ...`). tests/ is deliberately NOT a package (no
+# __init__.py) so `import tests` still resolves to the legacy tests.py runner.
+pythonpath = [".", "tests"]
+# importlib mode: no __init__.py needed, and test files with duplicate basenames
+# across subdirectories (tests/parsing/, tests/utils/, ...) don't collide.
+addopts = "-ra --tb=short --strict-markers --import-mode=importlib"
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+markers = [
+    "slow: tests that do real image hashing / heavier I/O",
+    "external: tests that exercise Komga/Bookwalker/Discord code paths via mocks",
+]

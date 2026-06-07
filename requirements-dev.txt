@@ -1,0 +1,8 @@
+# Development-only dependencies (NOT needed to run the app or the Docker image).
+# Install with:  uv pip install -r requirements-dev.txt
+#
+# The pytest characterization safety net under tests/ uses only pytest itself
+# plus the runtime deps already in requirements.txt (Pillow, imagehash, xxhash,
+# xmltodict, regex, ...). No extra plugins are required: network is stubbed with
+# the stdlib-friendly monkeypatch fixture, archives are built with stdlib zipfile.
+pytest>=8,<10
