@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 import argparse
 import cProfile
-import hashlib
+import xxhash
 import io
 import os
 import re
 import shutil
 import string
-import struct
 import subprocess
 import sys
 import tempfile
@@ -15,32 +14,30 @@ import threading
 import time
 import traceback
 import urllib.request
-import xml.etree.ElementTree as ET
 import zipfile
-from base64 import b64encode
 from datetime import datetime
-from difflib import SequenceMatcher
+from rapidfuzz.distance import Indel
 from functools import lru_cache
 from posixpath import join
 from urllib.parse import urlparse
 
-import cv2
 import filetype
-import numpy as np
+import imagehash
 import py7zr
 import rarfile
 import regex as re
 import requests
-import scandir
 from bs4 import BeautifulSoup
 from discord_webhook import DiscordEmbed, DiscordWebhook
 from lxml import etree
-from PIL import Image
-from skimage.metrics import structural_similarity as ssim
+from PIL import Image, ImageChops, ImageStat
 from titlecase import titlecase
 from unidecode import unidecode
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
+from requests.auth import HTTPBasicAuth
+from tenacity import retry, retry_if_exception, retry_if_exception_type, stop_after_attempt, wait_fixed
+import xmltodict
 
 # Get all the variables in settings.py
 import settings as settings_file
@@ -134,6 +131,20 @@ blank_white_image_path = (
 blank_black_image_path = (
     os.path.join(ROOT_DIR, "blank_black.png")
     if os.path.isfile(os.path.join(ROOT_DIR, "blank_black.png"))
+    else None
+)
+
+# Precompute the perceptual hashes of the blank reference images once at startup
+# so the blank-image similarity check does not re-hash them on every call.
+# phash returns a 64-bit ImageHash; similarity is derived as 1 - (hamming / 64).
+blank_white_image_hash = (
+    imagehash.phash(Image.open(blank_white_image_path))
+    if blank_white_image_path
+    else None
+)
+blank_black_image_hash = (
+    imagehash.phash(Image.open(blank_black_image_path))
+    if blank_black_image_path
     else None
 )
 
@@ -801,7 +812,7 @@ def get_file_size(file_path):
 def get_all_folders_recursively_in_dir(dir_path):
     results = []
 
-    for root, dirs, files in scandir.walk(dir_path):
+    for root, dirs, files in os.walk(dir_path):
         if root in download_folders + paths:
             continue
 
@@ -815,7 +826,7 @@ def get_all_folders_recursively_in_dir(dir_path):
 # Recursively gets all the files in a directory
 def get_all_files_in_directory(dir_path):
     results = []
-    for root, dirs, files in scandir.walk(dir_path):
+    for root, dirs, files in os.walk(dir_path):
         files = remove_hidden_files(files)
         files = remove_unaccepted_file_types(files, root, file_extensions)
         results.extend(files)
@@ -825,7 +836,7 @@ def get_all_files_in_directory(dir_path):
 # Resursively gets all files in a directory for watchdog
 def get_all_files_recursively_in_dir_watchdog(dir_path):
     results = []
-    for root, dirs, files in scandir.walk(dir_path):
+    for root, dirs, files in os.walk(dir_path):
         files = remove_hidden_files(files)
         for file in files:
             file_path = os.path.join(root, file)
@@ -2447,7 +2458,7 @@ def similar(a, b):
     elif a == b:
         return 1.0
     else:
-        return SequenceMatcher(None, a, b).ratio()
+        return Indel.normalized_similarity(a, b)
 
 
 # Sets the modification date of the passed file path to the passed date.
@@ -2478,7 +2489,7 @@ def is_same_index_number(index_one, index_two, allow_array_match=False):
 def get_file_hash(file, is_internal=False, internal_file_name=None):
     try:
         BUF_SIZE = 65536  # 64KB buffer size (adjust as needed)
-        hash_obj = hashlib.sha256()
+        hash_obj = xxhash.xxh64()
 
         if is_internal:
             with zipfile.ZipFile(file) as zip:
@@ -3341,27 +3352,10 @@ def is_image_black_and_white(image, tolerance=15):
     try:
         # Convert the image to RGB (ensures consistent handling of image modes)
         image_rgb = image.convert("RGB")
-
-        # Extract pixel data
-        pixels = list(image_rgb.getdata())
-
-        # Count pixels that are grayscale and black/white
-        grayscale_count = 0
-
-        for r, g, b in pixels:
-            # Check if the pixel is grayscale within the tolerance
-            if abs(r - g) <= tolerance and abs(g - b) <= tolerance:
-                # Further check if it is black or white
-                if r == 0 or r == 255:
-                    grayscale_count += 1
-                elif 0 < r < 255:
-                    grayscale_count += 1
-
-        # If enough pixels are grayscale or black/white, return True
-        if grayscale_count / len(pixels) > 0.9:
-            return True
-
-        return False  # Otherwise, it's not black and white
+        r, g, b = image_rgb.split()
+        mean_rg = ImageStat.Stat(ImageChops.difference(r, g)).mean[0]
+        mean_gb = ImageStat.Stat(ImageChops.difference(g, b)).mean[0]
+        return mean_rg <= tolerance and mean_gb <= tolerance
     except Exception as e:
         send_message(f"Error checking if image is black and white: {e}", error=True)
         return False
@@ -5031,7 +5025,7 @@ def clean_str(
     s = remove_dual_space(s)
 
     # convert to ascii
-    s = convert_to_ascii(s) if not skip_convert_to_ascii else s
+    s = s.encode("ascii", "ignore").decode() if not skip_convert_to_ascii else s
 
     # Replace underscores with periods
     s = replace_underscores(s) if not skip_underscore and "_" in s else s
@@ -5057,7 +5051,7 @@ def create_folders_for_items_in_download_folder():
             continue
 
         try:
-            for root, dirs, files in scandir.walk(download_folder):
+            for root, dirs, files in os.walk(download_folder):
                 files, dirs = process_files_and_folders(
                     root,
                     files,
@@ -5202,19 +5196,14 @@ def create_folders_for_items_in_download_folder():
 
 
 # convert string to acsii
-@lru_cache(maxsize=3500)
-def convert_to_ascii(s):
-    return "".join(i for i in s if ord(i) < 128)
+
 
 
 # convert array to string separated by whatever is passed in the separator parameter
 def array_to_string(array, separator=", "):
     if isinstance(array, list):
-        return separator.join([str(x) for x in array])
-    elif isinstance(array, (int, float, str)):
-        return separator.join([str(array)])
-    else:
-        return str(array)
+        return separator.join(map(str, array))
+    return str(array)
 
 
 # Converts an array to a string seperated array with subsequent whole numbers abbreviated.
@@ -5685,8 +5674,6 @@ def remove_duplicates(items):
     return list(dict.fromkeys(items))
 
 
-# The signature for the End of Central Directory record.
-EOCD_SIGNATURE = b"\x50\x4b\x05\x06"
 
 
 # Return the zip comment for the passed zip file (cached)
@@ -5694,32 +5681,14 @@ EOCD_SIGNATURE = b"\x50\x4b\x05\x06"
 @lru_cache(maxsize=None)
 def get_zip_comment_cache(zip_file):
     """
-    Quickly reads a ZIP file's comment by reading only the end of the file.
+    Reads a ZIP file's comment using the stdlib zipfile module.
     """
     comment = ""
     try:
-        with open(zip_file, "rb") as f:
-            # Seek to the end of the file to get its size.
-            f.seek(0, os.SEEK_END)
-            file_size = f.tell()
-
-            # Read a buffer large enough for the max comment size + EOCD record.
-            buffer_size = min(file_size, 65535 + 22)
-            f.seek(file_size - buffer_size, os.SEEK_SET)
-            end_data = f.read()
-
-            # Search backwards for the EOCD signature.
-            sig_pos = end_data.rfind(EOCD_SIGNATURE)
-
-            if sig_pos > -1:
-                comment_len_pos = sig_pos + 20
-                comment_len = struct.unpack(
-                    "<H", end_data[comment_len_pos : comment_len_pos + 2]
-                )[0]
-                comment_pos = sig_pos + 22
-
-                if comment_len == len(end_data) - comment_pos:
-                    comment = end_data[comment_pos:].decode("utf-8")
+        with zipfile.ZipFile(zip_file, "r") as z:
+            raw = z.comment
+            if raw:
+                comment = raw.decode("utf-8")
     except Exception as e:
         send_message(
             f"\tFailed to get zip comment for: {zip_file} - Error: {e}", error=True
@@ -5731,32 +5700,14 @@ def get_zip_comment_cache(zip_file):
 # Used on downloaded files. (more likely to change, hence no cache)
 def get_zip_comment(zip_file):
     """
-    Quickly reads a ZIP file's comment by reading only the end of the file.
+    Reads a ZIP file's comment using the stdlib zipfile module.
     """
     comment = ""
     try:
-        with open(zip_file, "rb") as f:
-            # Seek to the end of the file to get its size.
-            f.seek(0, os.SEEK_END)
-            file_size = f.tell()
-
-            # Read a buffer large enough for the max comment size + EOCD record.
-            buffer_size = min(file_size, 65535 + 22)
-            f.seek(file_size - buffer_size, os.SEEK_SET)
-            end_data = f.read()
-
-            # Search backwards for the EOCD signature.
-            sig_pos = end_data.rfind(EOCD_SIGNATURE)
-
-            if sig_pos > -1:
-                comment_len_pos = sig_pos + 20
-                comment_len = struct.unpack(
-                    "<H", end_data[comment_len_pos : comment_len_pos + 2]
-                )[0]
-                comment_pos = sig_pos + 22
-
-                if comment_len == len(end_data) - comment_pos:
-                    comment = end_data[comment_pos:].decode("utf-8")
+        with zipfile.ZipFile(zip_file, "r") as z:
+            raw = z.comment
+            if raw:
+                comment = raw.decode("utf-8")
     except Exception as e:
         send_message(
             f"\tFailed to get zip comment for: {zip_file} - Error: {e}", error=True
@@ -5778,7 +5729,7 @@ def check_for_duplicate_volumes(paths_to_search=[]):
                 continue
 
             print(f"\nSearching {p} for duplicate releases...")
-            for root, dirs, files in scandir.walk(p):
+            for root, dirs, files in os.walk(p):
                 print(f"\t{root}")
                 files, dirs = process_files_and_folders(
                     root,
@@ -6768,7 +6719,7 @@ def check_for_existing_series(
                             os.chdir(path)
                             reorganized = False
 
-                            for root, dirs, files in scandir.walk(path):
+                            for root, dirs, files in os.walk(path):
                                 if (
                                     test_mode
                                     and cached_paths
@@ -7490,7 +7441,7 @@ def rename_dirs_in_download_folder(paths_to_process=download_folders):
                     transferred_dirs.append(create_folder_obj(new_folder_path_two))
             else:
                 # New folder exists, move files to it
-                for root, dirs, files in scandir.walk(root):
+                for root, dirs, files in os.walk(root):
                     folder_accessor_two = create_folder_obj(
                         root,
                         dirs,
@@ -7815,8 +7766,8 @@ def parse_comicinfo_xml(xml_file):
     tags = {}
     if xml_file:
         try:
-            tree = ET.fromstring(xml_file)
-            tags = {child.tag: child.text for child in tree}
+            parsed = xmltodict.parse(xml_file)
+            tags = dict(parsed.get("ComicInfo", {}))
         except Exception as e:
             send_message(
                 f"Attempted to parse comicinfo.xml: {xml_file}\nERROR: {e}",
@@ -7853,7 +7804,7 @@ def rename_files(
             )
             continue
 
-        for root, dirs, files in scandir.walk(path):
+        for root, dirs, files in os.walk(path):
             if test_mode:
                 if root not in download_folders:
                     return
@@ -8528,7 +8479,7 @@ def delete_chapters_from_downloads():
                 continue
 
             os.chdir(path)
-            for root, dirs, files in scandir.walk(path):
+            for root, dirs, files in os.walk(path):
                 files, dirs = process_files_and_folders(
                     root,
                     files,
@@ -8582,7 +8533,7 @@ def delete_chapters_from_downloads():
                                 grouped_notifications, Embed(embed, None)
                             )
                             remove_file(os.path.join(root, file))
-            for root, dirs, files in scandir.walk(path):
+            for root, dirs, files in os.walk(path):
                 files, dirs = process_files_and_folders(
                     root,
                     files,
@@ -8924,7 +8875,7 @@ def extract_covers(paths_to_process=paths):
         os.chdir(path)
 
         # Traverse the directory tree rooted at the path
-        for root, dirs, files in scandir.walk(path):
+        for root, dirs, files in os.walk(path):
             if watchdog_toggle:
                 if not moved_folder_names or (
                     clean_str(
@@ -9531,7 +9482,7 @@ def delete_unacceptable_files():
                 continue
 
             os.chdir(path)
-            for root, dirs, files in scandir.walk(path):
+            for root, dirs, files in os.walk(path):
                 files, dirs = process_files_and_folders(
                     root,
                     files,
@@ -9585,7 +9536,7 @@ def delete_unacceptable_files():
                             )
                             remove_file(file_path)
                             break
-            for root, dirs, files in scandir.walk(path):
+            for root, dirs, files in os.walk(path):
                 files, dirs = process_files_and_folders(
                     root,
                     files,
@@ -9658,37 +9609,50 @@ def get_session_object(url):
 
 # Makes a GET request to the given URL using a reusable session object,
 # and returns a BeautifulSoup object representing the parsed HTML response.
-def scrape_url(url, strainer=None, headers=None, cookies=None, proxy=None):
-    try:
-        session_object = get_session_object(url)
-
-        # Create a dictionary of request parameters with only non-None values
-        request_params = {
-            "url": url,
-            "headers": headers,
-            "cookies": cookies,
-            "proxies": proxy,
-            "timeout": 10,
-        }
-        response = session_object.get(
-            **{k: v for k, v in request_params.items() if v is not None}
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_fixed(sleep_timer_bk),
+    retry=retry_if_exception_type(requests.exceptions.RequestException),
+    retry_error_callback=lambda retry_state: (
+        send_message(
+            f"Error scraping URL: {retry_state.outcome.exception()}", error=True
         )
+        or None
+    ),
+    before_sleep=lambda retry_state: send_message(
+        f"Error scraping URL (retrying attempt "
+        f"{retry_state.attempt_number}): {retry_state.outcome.exception()}",
+        error=True,
+    ),
+)
+def scrape_url(url, strainer=None, headers=None, cookies=None, proxy=None):
+    session_object = get_session_object(url)
 
-        # Raise an exception if the status code indicates rate limiting
-        if response.status_code == 403:
-            raise Exception("Too many requests, we're being rate-limited!")
+    # Create a dictionary of request parameters with only non-None values
+    request_params = {
+        "url": url,
+        "headers": headers,
+        "cookies": cookies,
+        "proxies": proxy,
+        "timeout": 10,
+    }
+    response = session_object.get(
+        **{k: v for k, v in request_params.items() if v is not None}
+    )
 
-        soup = None
-        if strainer:
-            # Use the strainer to parse only specific parts of the HTML document
-            soup = BeautifulSoup(response.content, "lxml", parse_only=strainer)
-        else:
-            soup = BeautifulSoup(response.content, "lxml")
+    # Raise a plain Exception (NOT a RequestException) so tenacity treats
+    # a 403 as a hard-block and re-raises immediately without retrying.
+    if response.status_code == 403:
+        raise Exception("Too many requests, we're being rate-limited!")
 
-        return soup
-    except requests.exceptions.RequestException as e:
-        send_message(f"Error scraping URL: {e}", error=True)
-        return None
+    soup = None
+    if strainer:
+        # Use the strainer to parse only specific parts of the HTML document
+        soup = BeautifulSoup(response.content, "lxml", parse_only=strainer)
+    else:
+        soup = BeautifulSoup(response.content, "lxml")
+
+    return soup
 
 
 # Groups all books with a matching title and book_type.
@@ -10784,7 +10748,7 @@ def cache_existing_library_paths(
         if os.path.exists(path):
             if path not in download_folders:
                 try:
-                    for root, dirs, files in scandir.walk(path):
+                    for root, dirs, files in os.walk(path):
                         if (root != path and root not in cached_paths) and (
                             not root.startswith(".") and not root.startswith("_")
                         ):
@@ -10839,13 +10803,8 @@ def scan_komga_library(library_id, library_name):
     try:
         request = requests.post(
             f"{komga_url}/api/v1/libraries/{library_id}/scan",
-            headers={
-                "Authorization": "Basic %s"
-                % b64encode(
-                    f"{komga_login_email}:{komga_login_password}".encode("utf-8")
-                ).decode("utf-8"),
-                "Accept": "*/*",
-            },
+            auth=HTTPBasicAuth(komga_login_email, komga_login_password),
+            headers={"Accept": "*/*"},
         )
         if request.status_code == 202:
             send_message(
@@ -10868,7 +10827,7 @@ def scan_komga_library(library_id, library_name):
 # Sends a GET library request to Komga for all libraries using
 # {komga_url}/api/v1/libraries
 # Requires komga settings to be set in settings.py
-def get_komga_libraries(first_run=True):
+def get_komga_libraries():
     results = []
 
     if not komga_ip:
@@ -10894,17 +10853,21 @@ def get_komga_libraries(first_run=True):
 
     komga_url = f"{komga_ip}:{komga_port}" if komga_port else komga_ip
 
-    try:
-        request = requests.get(
+    @retry(
+        stop=stop_after_attempt(2),
+        wait=wait_fixed(60),
+        retry=retry_if_exception(lambda e: "104" in str(e)),
+        reraise=True,
+    )
+    def _fetch():
+        return requests.get(
             f"{komga_url}/api/v1/libraries",
-            headers={
-                "Authorization": "Basic %s"
-                % b64encode(
-                    f"{komga_login_email}:{komga_login_password}".encode("utf-8")
-                ).decode("utf-8"),
-                "Accept": "*/*",
-            },
+            auth=HTTPBasicAuth(komga_login_email, komga_login_password),
+            headers={"Accept": "*/*"},
         )
+
+    try:
+        request = _fetch()
         if request.status_code == 200:
             results = request.json()
         else:
@@ -10915,15 +10878,10 @@ def get_komga_libraries(first_run=True):
                 error=True,
             )
     except Exception as e:
-        # if first, and error code 104, then try again after sleeping
-        if first_run and "104" in str(e):
-            time.sleep(60)
-            results = get_komga_libraries(first_run=False)
-        else:
-            send_message(
-                f"Failed to Get Komga Libraries, ERROR: {e}",
-                error=True,
-            )
+        send_message(
+            f"Failed to Get Komga Libraries, ERROR: {e}",
+            error=True,
+        )
     return results
 
 
@@ -11009,7 +10967,7 @@ def generate_rename_lists(skipped_release_group_files=[], skipped_publisher_file
                 continue
         try:
             # Walk the directory tree
-            for root, dirs, files in scandir.walk(path):
+            for root, dirs, files in os.walk(path):
                 if not files:
                     continue
 
@@ -11227,40 +11185,26 @@ class Image_Result:
 
 # Preps the image for comparison
 def preprocess_image(image):
-    # Check if the image is already grayscale
-    if len(image.shape) == 2 or (len(image.shape) == 3 and image.shape[2] == 1):
-        gray_image = image
-    else:
-        # Convert to grayscale if it's a color image
-        gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-
-    # Apply histogram equalization
-    gray_image = cv2.equalizeHist(gray_image)
-
-    # Normalize the image
-    gray_image = gray_image / 255.0
-
-    return gray_image
+    # Compute the perceptual hash (pHash) of a PIL Image.
+    # phash internally converts to grayscale and resizes, so no manual
+    # grayscale/normalization is required. Returns a 64-bit ImageHash.
+    return imagehash.phash(image)
 
 
 # Comapres two images using SSIM
 def compare_images(imageA, imageB, silent=False):
+    # imageA and imageB are imagehash.ImageHash objects (64-bit pHash).
+    # Similarity is derived from the Hamming distance so that the result
+    # stays in the 0..1 range, keeping the existing thresholds meaningful.
     try:
-        if not silent:
-            print(f"\t\t\tBlank Image Size: {imageA.shape}")
-            print(f"\t\t\tInternal Cover Size: {imageB.shape}")
-
-        # Preprocess images
-        grayA = preprocess_image(imageA)
-        grayB = preprocess_image(imageB)
-
-        # Compute SSIM between the two images
-        ssim_score = ssim(grayA, grayB, data_range=1.0)
+        hamming_distance = imageA - imageB
+        similarity_score = 1 - (hamming_distance / 64.0)
 
         if not silent:
-            print(f"\t\t\t\tSSIM: {ssim_score}")
+            print(f"\t\t\t\tHamming Distance: {hamming_distance}")
+            print(f"\t\t\t\tSimilarity: {similarity_score}")
 
-        return ssim_score
+        return similarity_score
     except Exception as e:
         send_message(str(e), error=True)
         return 0
@@ -11270,56 +11214,26 @@ def compare_images(imageA, imageB, silent=False):
 def prep_images_for_similarity(
     blank_image_path, internal_cover_data, both_cover_data=False, silent=False
 ):
-
-    def resize_images(img1, img2, desired_width=400, desired_height=600):
-        img1_resized = cv2.resize(
-            img1, (desired_width, desired_height), interpolation=cv2.INTER_AREA
-        )
-        img2_resized = cv2.resize(
-            img2, (desired_width, desired_height), interpolation=cv2.INTER_AREA
-        )
-        return img1_resized, img2_resized
-
-    def match_image_channels(img1, img2):
-        if len(img1.shape) == 3 and len(img2.shape) == 3:
-            min_channels = min(img1.shape[2], img2.shape[2])
-            img1, img2 = img1[:, :, :min_channels], img2[:, :, :min_channels]
-        elif len(img1.shape) == 3 and len(img2.shape) == 2:
-            img1 = img1[:, :, 0]
-        elif len(img1.shape) == 2 and len(img2.shape) == 3:
-            img2 = img2[:, :, 0]
-        return img1, img2
-
-    # Decode internal cover data
-    internal_cover = cv2.imdecode(
-        np.frombuffer(internal_cover_data, np.uint8), cv2.IMREAD_UNCHANGED
+    # Hash the internal cover (always raw image bytes).
+    internal_cover_hash = preprocess_image(
+        Image.open(io.BytesIO(internal_cover_data))
     )
 
-    # Load blank image either from path or data buffer based on condition
-    blank_image = (
-        cv2.imread(blank_image_path)
-        if not both_cover_data
-        else cv2.imdecode(
-            np.frombuffer(blank_image_path, np.uint8), cv2.IMREAD_UNCHANGED
+    # Determine the hash of the "blank"/reference image.
+    if both_cover_data:
+        # blank_image_path is actually raw image bytes in this mode.
+        blank_image_hash = preprocess_image(
+            Image.open(io.BytesIO(blank_image_path))
         )
-    )
-    internal_cover = np.array(internal_cover)
+    elif blank_image_path == blank_white_image_path and blank_white_image_hash:
+        blank_image_hash = blank_white_image_hash
+    elif blank_image_path == blank_black_image_path and blank_black_image_hash:
+        blank_image_hash = blank_black_image_hash
+    else:
+        blank_image_hash = preprocess_image(Image.open(blank_image_path))
 
-    # Resize both images to 600x400
-    blank_image, internal_cover = resize_images(blank_image, internal_cover)
-
-    # Ensure both images have the same number of color channels
-    blank_image, internal_cover = match_image_channels(blank_image, internal_cover)
-
-    # Ensure both images are in the same format (grayscale or color)
-    if len(blank_image.shape) != len(internal_cover.shape):
-        if len(blank_image.shape) == 3:
-            blank_image = cv2.cvtColor(blank_image, cv2.COLOR_BGR2GRAY)
-        else:
-            internal_cover = cv2.cvtColor(internal_cover, cv2.COLOR_BGR2GRAY)
-
-    # Compare images and return similarity score
-    score = compare_images(blank_image, internal_cover, silent=silent)
+    # Compare hashes and return the similarity score (0..1).
+    score = compare_images(blank_image_hash, internal_cover_hash, silent=silent)
 
     return score
 
@@ -11346,7 +11260,7 @@ def compress(temp_dir, cbz_filename):
     successfull = False
     try:
         with zipfile.ZipFile(cbz_filename, "w") as zip:
-            for root, dirs, files in scandir.walk(temp_dir):
+            for root, dirs, files in os.walk(temp_dir):
                 for file in files:
                     zip.write(
                         os.path.join(root, file),
@@ -11374,7 +11288,7 @@ def convert_to_cbz():
             continue
 
         print(f"\t{folder}")
-        for root, dirs, files in scandir.walk(folder):
+        for root, dirs, files in os.walk(folder):
             files, dirs = process_files_and_folders(
                 root,
                 files,
@@ -11461,7 +11375,7 @@ def convert_to_cbz():
 
                         # Get hashes of all files in archive
                         hashes = []
-                        for root2, dirs2, files2 in scandir.walk(temp_dir):
+                        for root2, dirs2, files2 in os.walk(temp_dir):
                             for file2 in files2:
                                 path = os.path.join(root2, file2)
                                 hashes.append(get_file_hash(path))
@@ -11654,7 +11568,7 @@ def correct_file_extensions():
             continue
 
         print(f"\t{folder}")
-        for root, dirs, files in scandir.walk(folder):
+        for root, dirs, files in os.walk(folder):
             files, dirs = process_files_and_folders(
                 root,
                 files,
@@ -11752,7 +11666,7 @@ def move_series_to_correct_library(paths_to_search=paths_with_types):
                     continue
 
                 print(f"\nSearching {p.path} for incorrectly matching series types...")
-                for root, dirs, files in scandir.walk(p.path):
+                for root, dirs, files in os.walk(p.path):
                     print(f"\t{root}")
 
                     files, dirs = process_files_and_folders(
