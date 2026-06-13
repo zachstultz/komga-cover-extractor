@@ -2019,6 +2019,64 @@ def test_parse_comicinfo_xml():
     assert logged == []
 
 
+# tests that Komga Basic-auth credentials are sent as UTF-8
+def test_komga_basic_auth_is_utf8():
+    import komga_cover_extractor as kce
+    from base64 import b64encode
+
+    # Non-ASCII password: latin-1 (HTTPBasicAuth's default for str) and UTF-8
+    # disagree here, so this distinguishes the two encodings.
+    email, password = "user@example.com", "pässwörd"
+    expected = "Basic " + b64encode(
+        f"{email}:{password}".encode("utf-8")
+    ).decode("utf-8")
+
+    class _Resp:
+        status_code = 202
+        text = ""
+
+    captured = {}
+
+    class _FakeRequests:
+        def post(self, *args, **kwargs):
+            captured["auth"] = kwargs.get("auth")
+            return _Resp()
+
+    saved = {
+        name: getattr(kce, name)
+        for name in (
+            "komga_ip",
+            "komga_port",
+            "komga_login_email",
+            "komga_login_password",
+            "requests",
+            "send_message",
+        )
+    }
+    try:
+        kce.komga_ip = "http://localhost"
+        kce.komga_port = "25600"
+        kce.komga_login_email = email
+        kce.komga_login_password = password
+        kce.requests = _FakeRequests()
+        kce.send_message = lambda *args, **kwargs: None
+        kce.scan_komga_library("lib1", "Manga")
+    finally:
+        for name, value in saved.items():
+            setattr(kce, name, value)
+
+    auth = captured.get("auth")
+    assert auth is not None
+
+    # Apply the auth object the way requests does at send time and check the
+    # header. Under the old str-based HTTPBasicAuth this was latin-1 and differed.
+    class _StubRequest:
+        def __init__(self):
+            self.headers = {}
+
+    assert auth(_StubRequest()).headers["Authorization"] == expected
+
+
 if __name__ == "__main__":
     validate_csv()
     # test_rename_files()
@@ -2062,4 +2120,5 @@ if __name__ == "__main__":
     test_contains_brackets()
     test_is_image_black_and_white()
     test_parse_comicinfo_xml()
+    test_komga_basic_auth_is_utf8()
     print("ALL TESTS PASSED!")

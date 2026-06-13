@@ -10817,7 +10817,14 @@ def scan_komga_library(library_id, library_name):
     try:
         request = requests.post(
             f"{komga_url}/api/v1/libraries/{library_id}/scan",
-            auth=HTTPBasicAuth(komga_login_email, komga_login_password),
+            # Encode to UTF-8 first: Komga (Spring Security) decodes Basic-auth
+            # as UTF-8, but HTTPBasicAuth latin-1-encodes str credentials, which
+            # mangles non-ASCII passwords (or raises above U+00FF). Bytes skip
+            # that re-encoding.
+            auth=HTTPBasicAuth(
+                komga_login_email.encode("utf-8"),
+                komga_login_password.encode("utf-8"),
+            ),
             headers={"Accept": "*/*"},
         )
         if request.status_code == 202:
@@ -10876,7 +10883,12 @@ def get_komga_libraries():
     def _fetch():
         return requests.get(
             f"{komga_url}/api/v1/libraries",
-            auth=HTTPBasicAuth(komga_login_email, komga_login_password),
+            # UTF-8 bytes (see scan_komga_library) so non-ASCII passwords aren't
+            # mangled by HTTPBasicAuth's latin-1 encoding of str credentials.
+            auth=HTTPBasicAuth(
+                komga_login_email.encode("utf-8"),
+                komga_login_password.encode("utf-8"),
+            ),
             headers={"Accept": "*/*"},
         )
 
