@@ -2077,6 +2077,43 @@ def test_komga_basic_auth_is_utf8():
     assert auth(_StubRequest()).headers["Authorization"] == expected
 
 
+# tests compare_to_blank_reference() and the blank-detection path
+def test_compare_to_blank_reference():
+    def solid(color):
+        return Image.new("RGB", (40, 60), color)
+
+    white, black, red = solid((255, 255, 255)), solid((0, 0, 0)), solid((255, 0, 0))
+
+    # Identical -> 1.0, opposite uniform colours -> 0.0.
+    assert compare_to_blank_reference(white, white, silent=True) == 1.0
+    assert compare_to_blank_reference(white, black, silent=True) == 0.0
+
+    # Regression: a solid-colour cover is NOT a blank-white match. A perceptual
+    # hash scored this 1.0 (red and white hash identically); comparing pixels
+    # puts it well below the 0.9 blank threshold so it isn't dropped as blank.
+    red_vs_white = compare_to_blank_reference(white, red, silent=True)
+    assert red_vs_white < blank_cover_required_similarity_score
+    # red(255,0,0) vs white: mean |diff| = (0+255+255)/3 = 170 -> ~0.333
+    assert abs(red_vs_white - (1 - 170 / 255.0)) < 0.02
+
+    # A genuine blank still clears the threshold.
+    assert (
+        compare_to_blank_reference(white, white, silent=True)
+        >= blank_cover_required_similarity_score
+    )
+
+    # The dedup path (both_cover_data=True) still uses a perceptual hash.
+    buf = io.BytesIO()
+    white.save(buf, format="JPEG")
+    white_bytes = buf.getvalue()
+    assert (
+        prep_images_for_similarity(
+            white_bytes, white_bytes, both_cover_data=True, silent=True
+        )
+        == 1.0
+    )
+
+
 if __name__ == "__main__":
     validate_csv()
     # test_rename_files()
@@ -2121,4 +2158,5 @@ if __name__ == "__main__":
     test_is_image_black_and_white()
     test_parse_comicinfo_xml()
     test_komga_basic_auth_is_utf8()
+    test_compare_to_blank_reference()
     print("ALL TESTS PASSED!")

@@ -134,20 +134,6 @@ blank_black_image_path = (
     else None
 )
 
-# Precompute the perceptual hashes of the blank reference images once at startup
-# so the blank-image similarity check does not re-hash them on every call.
-# phash returns a 64-bit ImageHash; similarity is derived as 1 - (hamming / 64).
-blank_white_image_hash = (
-    imagehash.phash(Image.open(blank_white_image_path))
-    if blank_white_image_path
-    else None
-)
-blank_black_image_hash = (
-    imagehash.phash(Image.open(blank_black_image_path))
-    if blank_black_image_path
-    else None
-)
-
 # Cached paths from the users existing library. Read from cached_paths.txt
 cached_paths = []
 
@@ -11236,32 +11222,49 @@ def compare_images(imageA, imageB, silent=False):
         return 0
 
 
-# Compares two images and returns the ssim score of the two images similarity.
+# How close a cover is to a blank reference, as mean pixel difference (0..1).
+# Don't use a perceptual hash here: phash maps every flat image to the same
+# value, so it can't tell a blank page from a solid-colour cover. Comparing
+# pixels keeps colour and detail, so coloured/busy covers score low.
+def compare_to_blank_reference(reference_image, candidate_image, silent=False):
+    try:
+        size = (64, 64)
+        reference = reference_image.convert("RGB").resize(size)
+        candidate = candidate_image.convert("RGB").resize(size)
+
+        # Average the per-channel mean abs difference (0..255) into one score.
+        channel_means = ImageStat.Stat(ImageChops.difference(reference, candidate)).mean
+        mean_diff = sum(channel_means) / len(channel_means)
+        similarity_score = 1 - (mean_diff / 255.0)
+
+        if not silent:
+            print(f"\t\t\t\tMean Pixel Difference: {mean_diff}")
+            print(f"\t\t\t\tSimilarity: {similarity_score}")
+
+        return similarity_score
+    except Exception as e:
+        send_message(str(e), error=True)
+        return 0
+
+
+# Returns a 0..1 similarity score between a candidate cover and a reference.
 def prep_images_for_similarity(
     blank_image_path, internal_cover_data, both_cover_data=False, silent=False
 ):
-    # Hash the internal cover (always raw image bytes).
-    internal_cover_hash = preprocess_image(
-        Image.open(io.BytesIO(internal_cover_data))
-    )
+    internal_cover_image = Image.open(io.BytesIO(internal_cover_data))
 
-    # Determine the hash of the "blank"/reference image.
+    # Two real covers (dedup): blank_image_path is image bytes, and a perceptual
+    # hash is the right call since both are detailed images.
     if both_cover_data:
-        # blank_image_path is actually raw image bytes in this mode.
-        blank_image_hash = preprocess_image(
-            Image.open(io.BytesIO(blank_image_path))
-        )
-    elif blank_image_path == blank_white_image_path and blank_white_image_hash:
-        blank_image_hash = blank_white_image_hash
-    elif blank_image_path == blank_black_image_path and blank_black_image_hash:
-        blank_image_hash = blank_black_image_hash
-    else:
-        blank_image_hash = preprocess_image(Image.open(blank_image_path))
+        internal_cover_hash = preprocess_image(internal_cover_image)
+        blank_image_hash = preprocess_image(Image.open(io.BytesIO(blank_image_path)))
+        return compare_images(blank_image_hash, internal_cover_hash, silent=silent)
 
-    # Compare hashes and return the similarity score (0..1).
-    score = compare_images(blank_image_hash, internal_cover_hash, silent=silent)
-
-    return score
+    # Blank check: blank_image_path is a path to the reference. Compare pixels.
+    reference_image = Image.open(blank_image_path)
+    return compare_to_blank_reference(
+        reference_image, internal_cover_image, silent=silent
+    )
 
 
 # Extracts a supported archive to a temporary directory.
