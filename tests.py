@@ -1968,6 +1968,34 @@ def test_contains_brackets():
     assert contains_brackets("test()[]{} test") == True
 
 
+# tests is_image_black_and_white()
+def test_is_image_black_and_white():
+    def solid(color, size=(20, 20)):
+        return Image.new("RGB", size, color)
+
+    # Solid grayscale tones are black and white.
+    assert is_image_black_and_white(solid((255, 255, 255))) == True
+    assert is_image_black_and_white(solid((0, 0, 0))) == True
+    assert is_image_black_and_white(solid((128, 128, 128))) == True
+
+    # Saturated colours are not.
+    assert is_image_black_and_white(solid((255, 0, 0))) == False
+    assert is_image_black_and_white(solid((0, 0, 255))) == False
+
+    # Tolerance boundary is inclusive at the default of 15.
+    assert is_image_black_and_white(solid((128, 113, 98))) == True  # diffs == 15
+    assert is_image_black_and_white(solid((128, 112, 97))) == False  # diff 16
+
+    # Regression: a mostly-grayscale page with a small but distinctly coloured
+    # area is NOT black and white. The old mean-based check passed this (the
+    # gray majority drowned out the colour); the >90%-grayscale fraction fails
+    # it as it should. 88 gray pixels + 12 coloured (|R-G| = 60) -> 0.88 < 0.90.
+    mixed = Image.new("RGB", (10, 10), (128, 128, 128))
+    for i in range(12):
+        mixed.putpixel((i % 10, i // 10), (180, 120, 120))
+    assert is_image_black_and_white(mixed) == False
+
+
 if __name__ == "__main__":
     validate_csv()
     # test_rename_files()
@@ -2009,4 +2037,5 @@ if __name__ == "__main__":
     test_contains_unicode()
     test_contains_punctuation()
     test_contains_brackets()
+    test_is_image_black_and_white()
     print("ALL TESTS PASSED!")

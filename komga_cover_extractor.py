@@ -3353,9 +3353,21 @@ def is_image_black_and_white(image, tolerance=15):
         # Convert the image to RGB (ensures consistent handling of image modes)
         image_rgb = image.convert("RGB")
         r, g, b = image_rgb.split()
-        mean_rg = ImageStat.Stat(ImageChops.difference(r, g)).mean[0]
-        mean_gb = ImageStat.Stat(ImageChops.difference(g, b)).mean[0]
-        return mean_rg <= tolerance and mean_gb <= tolerance
+
+        # B&W if >90% of pixels are grayscale. A pixel is grayscale when both
+        # |R-G| and |G-B| are within tolerance (== max of the two <= tolerance),
+        # counted via histogram so there's no per-pixel Python loop.
+        # Has to be a fraction, not a mean: averaging would let a grayscale
+        # majority hide a small colour area and misread a colour cover as B&W.
+        diff_rg = ImageChops.difference(r, g)
+        diff_gb = ImageChops.difference(g, b)
+        max_diff = ImageChops.lighter(diff_rg, diff_gb)
+
+        histogram = max_diff.histogram()
+        grayscale_count = sum(histogram[: tolerance + 1])
+        total = sum(histogram)
+
+        return total > 0 and grayscale_count / total > 0.9
     except Exception as e:
         send_message(f"Error checking if image is black and white: {e}", error=True)
         return False
