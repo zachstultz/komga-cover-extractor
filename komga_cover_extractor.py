@@ -7779,7 +7779,9 @@ def parse_comicinfo_xml(xml_file):
     if xml_file:
         try:
             parsed = xmltodict.parse(xml_file)
-            tags = dict(parsed.get("ComicInfo", {}))
+            # `or {}` handles an empty <ComicInfo/>, which xmltodict parses to
+            # {"ComicInfo": None}; dict(None) would raise and log a stray error.
+            tags = dict(parsed.get("ComicInfo") or {})
         except Exception as e:
             send_message(
                 f"Attempted to parse comicinfo.xml: {xml_file}\nERROR: {e}",

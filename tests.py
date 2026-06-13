@@ -1996,6 +1996,29 @@ def test_is_image_black_and_white():
     assert is_image_black_and_white(mixed) == False
 
 
+# tests parse_comicinfo_xml()
+def test_parse_comicinfo_xml():
+    import komga_cover_extractor as kce
+
+    # A populated ComicInfo parses to a dict of its child tags.
+    populated = "<ComicInfo><Series>Naruto</Series><Year>2008</Year></ComicInfo>"
+    assert parse_comicinfo_xml(populated) == {"Series": "Naruto", "Year": "2008"}
+
+    # Regression: an empty/stub <ComicInfo/> must return {} WITHOUT logging an
+    # error. xmltodict parses it to {"ComicInfo": None}, and the old
+    # dict(parsed.get("ComicInfo", {})) did dict(None) -> TypeError -- swallowed,
+    # but it still called send_message (which can hit the Discord webhook).
+    logged = []
+    original_send_message = kce.send_message
+    kce.send_message = lambda *args, **kwargs: logged.append((args, kwargs))
+    try:
+        for xml in ("<ComicInfo/>", "<ComicInfo></ComicInfo>"):
+            assert parse_comicinfo_xml(xml) == {}
+    finally:
+        kce.send_message = original_send_message
+    assert logged == []
+
+
 if __name__ == "__main__":
     validate_csv()
     # test_rename_files()
@@ -2038,4 +2061,5 @@ if __name__ == "__main__":
     test_contains_punctuation()
     test_contains_brackets()
     test_is_image_black_and_white()
+    test_parse_comicinfo_xml()
     print("ALL TESTS PASSED!")
